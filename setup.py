@@ -1,14 +1,14 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="my_model_package",
+    name="shallow_water",
     version="0.1.0",
     author="Your Name",
     author_email="your.email@example.com",
-    description="A package for the S-S model simulation",
+    description="Shallow water model, originally from Sobel and Schneider 2009",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/my_model_package",
+    url="https://github.com/zpcllyj/SobelSchneiderModel",
     packages=find_packages(),
     install_requires=[
         "numpy",
