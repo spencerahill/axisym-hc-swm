@@ -1,7 +1,18 @@
+import pytest
 import os
 import xarray as xr
 import numpy as np
 import subprocess
+
+
+@pytest.fixture
+def baseline_path():
+    return "baseline/output.nc"
+
+
+@pytest.fixture
+def test_path():
+    return "test_output.nc"
 
 
 def run_model(output_path: str, total_integration_days: int = 5):
@@ -32,22 +43,10 @@ def compare_outputs(baseline_path: str, test_path: str) -> bool:
     return True
 
 
-def test_regression():
+def test_regression(baseline_path, test_path):
     """Test the model output against the baseline."""
-    baseline_path = "baseline/output.nc"
-    test_path = "test_output.nc"
-
-    # Run the model to generate test output
     run_model(test_path)
-
-    # Compare the outputs
     assert compare_outputs(
         baseline_path, test_path
     ), "Regression test failed: Outputs differ."
-
-    # Clean up test output
     os.remove(test_path)
-
-
-if __name__ == "__main__":
-    test_regression()
