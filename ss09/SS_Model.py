@@ -15,6 +15,9 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
+# Constants
+SECONDS_PER_DAY = 86400  # Number of seconds in a day
+
 
 @dataclass
 class SWConfig:
@@ -35,9 +38,17 @@ class SWConfig:
     v_d: float = 2.5
     dt: int = 30  # Time step size
     ny: int = 801  # Number of grid points in the y-direction
-    dy: float = 15751e3 * 2 / (801 - 1)  # Grid spacing in the y-direction
-    y: np.ndarray = np.linspace(start=-15751e3, stop=15751e3, num=801)  # Y coordinates
+    domain_size: float = 15751e3 * 2  # Total domain size in the y-direction
+    dy: float = None  # Grid spacing in the y-direction
+    y: np.ndarray = None  # Y coordinates
     asselin_filt_coef: float = 0.04  # Coefficient for the Asselin filter
+    seconds_per_day: int = 86400  # Number of seconds in a day
+
+    def __post_init__(self):
+        self.dy = self.domain_size / (self.ny - 1)
+        self.y = np.linspace(
+            start=-self.domain_size / 2, stop=self.domain_size / 2, num=self.ny
+        )
 
 
 class SWModel:
