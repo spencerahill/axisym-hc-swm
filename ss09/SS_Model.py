@@ -51,381 +51,311 @@ class SWConfig:
     output_path: str
 
 
-def initialize_variables(
-    total_integration_days: int,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Initialize the model variables."""
-    u = np.zeros([total_integration_days, NY])
-    v = np.zeros([total_integration_days, NY])
-    theta = np.zeros([total_integration_days, NY])
-    time = np.zeros(total_integration_days)
-    return u, v, theta, time
+class SWModel:
+    def __init__(self, config: SWConfig):
+        self.config = config
+        self.u, self.v, self.theta, self.time = self.initialize_variables()
+        self.THETA_E = self.calculate_theta_e()
 
+    def initialize_variables(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Initialize the model variables."""
+        u = np.zeros([self.config.total_integration_days, NY])
+        v = np.zeros([self.config.total_integration_days, NY])
+        theta = np.zeros([self.config.total_integration_days, NY])
+        time = np.zeros(self.config.total_integration_days)
+        return u, v, theta, time
 
-def calculate_theta_e() -> np.ndarray:
-    """Calculate the radiative-convective equilibrium (RCE) temperature θₑ."""
-    theta_00 = 330
-    return np.where(
-        np.abs(Y - Y_0) < Y_ONE,
-        theta_00 - DELTA_Y * (np.sin(0.5 * np.pi * (Y - Y_0) / Y_ONE) ** 2),
-        theta_00 - DELTA_Y,
-    )
-
-
-def get_dudt(
-    u: np.ndarray,
-    v: np.ndarray,
-    theta: np.ndarray,
-    THETA_E: np.ndarray,
-    beta: float,
-    gravity: float,
-) -> np.ndarray:
-    """Calculate the time derivative of u."""
-    grad_u = np.gradient(u, DY)
-    grad_v = np.gradient(v, DY)
-    grad_u_advection_positive_v = np.zeros_like(u)
-    grad_u_advection_positive_v[1:] = (u[1:] - u[:-1]) / DY
-    grad_u_advection_negative_v = np.zeros_like(u)
-    grad_u_advection_negative_v[:-1] = (u[1:] - u[:-1]) / DY
-    grad_u_adv = np.where(
-        v > 0, grad_u_advection_positive_v, grad_u_advection_negative_v
-    )
-    s = V_D * np.sign(Y - Y_0) * grad_u
-    f = u * EPSILON_U
-    vt = u * grad_v * np.heaviside(THETA_E - theta, 0.5)
-    dudt = v * (beta * Y - grad_u_adv) - vt - f - s
-    return dudt
-
-
-def get_dvdt(
-    u: np.ndarray,
-    v: np.ndarray,
-    theta: np.ndarray,
-    beta: float,
-    gravity: float,
-    height: float,
-    t_ref: float,
-) -> np.ndarray:
-    """Calculate the time derivative of v."""
-    grad_v = np.gradient(v, DY)
-    grad_T = np.gradient(theta / 1.6, DY)
-    diffusion_v = np.gradient(grad_v, DY) * K_V
-    return (-beta * Y * u - gravity * height * grad_T / t_ref + diffusion_v) / 2
-
-
-def get_dthetadt(
-    u: np.ndarray, v: np.ndarray, theta: np.ndarray, THETA_E: np.ndarray, height: float
-) -> np.ndarray:
-    """Calculate the time derivative of theta."""
-    grad_v = np.gradient(v, DY)
-    return (THETA_E - theta) / TAU - DELTA * DELTA_Z * grad_v / height
-
-
-def run_simulation(
-    config: SWConfig,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Run the S-S model simulation."""
-    u, v, theta, time = initialize_variables(config.total_integration_days)
-    THETA_E = calculate_theta_e()
-
-    u_now, v_now, theta_now = initialize_current_step_variables(THETA_E)
-    u_before, v_before, theta_before = initialize_previous_step_variables(
-        u_now,
-        v_now,
-        theta_now,
-        THETA_E,
-        config.beta,
-        config.gravity,
-        config.height,
-        config.t_ref,
-    )
-
-    total_time_steps = calculate_total_time_steps(config.total_integration_days)
-    timestamp = 0
-    day = 0
-
-    u_temp, v_temp, theta_temp, time_temp = initialize_temp_storage()
-
-    for i in range(total_time_steps):
-        u_after, v_after, theta_after = leapfrog_step(
-            u_before,
-            v_before,
-            theta_before,
-            u_now,
-            v_now,
-            theta_now,
-            THETA_E,
-            config.beta,
-            config.gravity,
-            config.height,
-            config.t_ref,
+    def calculate_theta_e(self) -> np.ndarray:
+        """Calculate the radiative-convective equilibrium (RCE) temperature θₑ."""
+        theta_00 = 330
+        return np.where(
+            np.abs(Y - Y_0) < Y_ONE,
+            theta_00 - DELTA_Y * (np.sin(0.5 * np.pi * (Y - Y_0) / Y_ONE) ** 2),
+            theta_00 - DELTA_Y,
         )
 
-        u_before, v_before, theta_before = apply_asselin_filter(
-            u_before,
-            v_before,
-            theta_before,
-            u_after,
-            v_after,
-            theta_after,
-            u_now,
-            v_now,
-            theta_now,
+    def run_simulation(self):
+        """Run the S-S model simulation."""
+        u_now, v_now, theta_now = self.initialize_current_step_variables()
+        u_before, v_before, theta_before = self.initialize_previous_step_variables(
+            u_now, v_now, theta_now
         )
 
-        u_now, v_now, theta_now = update_current_step(u_after, v_after, theta_after)
+        total_time_steps = self.calculate_total_time_steps()
+        timestamp = 0
+        day = 0
 
-        enforce_boundary_conditions(u_now, v_now)
+        u_temp, v_temp, theta_temp, time_temp = self.initialize_temp_storage()
 
-        timestamp += DT
-
-        j = (i + 1) % int(SECONDS_PER_DAY / DT)
-
-        store_temporary_results(
-            u_temp,
-            v_temp,
-            theta_temp,
-            time_temp,
-            u_now,
-            v_now,
-            theta_now,
-            timestamp,
-            j,
-        )
-
-        if (i + 1) % int(SECONDS_PER_DAY / DT) == 0:
-            store_daily_averages(
-                u, v, theta, time, u_temp, v_temp, theta_temp, time_temp, day
+        for i in range(total_time_steps):
+            u_after, v_after, theta_after = self.leapfrog_step(
+                u_before, v_before, theta_before, u_now, v_now, theta_now
             )
-            reset_temp_storage(u_temp, v_temp, theta_temp, time_temp)
-            day += 1
-            logging.info(f"Day {day} finished.")
 
-        if np.isnan(u_now).any():
-            logging.warning("NaN detected in u_now, breaking the loop.")
-            break
+            u_before, v_before, theta_before = self.apply_asselin_filter(
+                u_before,
+                v_before,
+                theta_before,
+                u_after,
+                v_after,
+                theta_after,
+                u_now,
+                v_now,
+                theta_now,
+            )
 
-    return u, v, theta, time
+            u_now, v_now, theta_now = self.update_current_step(
+                u_after, v_after, theta_after
+            )
 
+            self.enforce_boundary_conditions(u_now, v_now)
 
-def initialize_current_step_variables(
-    THETA_E: np.ndarray,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Initialize variables for the current step."""
-    u_now = np.zeros(NY)
-    v_now = np.zeros(NY)
-    theta_now = THETA_E
-    return u_now, v_now, theta_now
+            timestamp += DT
 
+            j = (i + 1) % int(SECONDS_PER_DAY / DT)
 
-def initialize_previous_step_variables(
-    u_now: np.ndarray,
-    v_now: np.ndarray,
-    theta_now: np.ndarray,
-    THETA_E: np.ndarray,
-    beta: float,
-    gravity: float,
-    height: float,
-    t_ref: float,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Initialize variables for the previous step."""
-    u_before = u_now - DT * get_dudt(u_now, v_now, theta_now, THETA_E, beta, gravity)
-    v_before = v_now - DT * get_dvdt(
-        u_now, v_now, theta_now, beta, gravity, height, t_ref
-    )
-    theta_before = theta_now - DT * get_dthetadt(
-        u_now, v_now, theta_now, THETA_E, height
-    )
-    return u_before, v_before, theta_before
+            self.store_temporary_results(
+                u_temp,
+                v_temp,
+                theta_temp,
+                time_temp,
+                u_now,
+                v_now,
+                theta_now,
+                timestamp,
+                j,
+            )
 
+            if (i + 1) % int(SECONDS_PER_DAY / DT) == 0:
+                self.store_daily_averages(u_temp, v_temp, theta_temp, time_temp, day)
+                self.reset_temp_storage(u_temp, v_temp, theta_temp, time_temp)
+                day += 1
+                logging.info(f"Day {day} finished.")
 
-def calculate_total_time_steps(total_integration_days: int) -> int:
-    """Calculate the total number of time steps."""
-    return int(SECONDS_PER_DAY * total_integration_days / DT)
+            if np.isnan(u_now).any():
+                logging.warning("NaN detected in u_now, breaking the loop.")
+                break
 
+    def initialize_current_step_variables(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Initialize variables for the current step."""
+        u_now = np.zeros(NY)
+        v_now = np.zeros(NY)
+        theta_now = self.THETA_E
+        return u_now, v_now, theta_now
 
-def initialize_temp_storage() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Initialize temporary storage for daily averages."""
-    u_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
-    v_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
-    theta_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
-    time_temp = np.zeros(int(SECONDS_PER_DAY / DT))
-    return u_temp, v_temp, theta_temp, time_temp
+    def initialize_previous_step_variables(
+        self, u_now: np.ndarray, v_now: np.ndarray, theta_now: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Initialize variables for the previous step."""
+        u_before = u_now - DT * self.get_dudt(u_now, v_now, theta_now)
+        v_before = v_now - DT * self.get_dvdt(u_now, v_now, theta_now)
+        theta_before = theta_now - DT * self.get_dthetadt(u_now, v_now, theta_now)
+        return u_before, v_before, theta_before
 
+    def calculate_total_time_steps(self) -> int:
+        """Calculate the total number of time steps."""
+        return int(SECONDS_PER_DAY * self.config.total_integration_days / DT)
 
-def leapfrog_step(
-    u_before: np.ndarray,
-    v_before: np.ndarray,
-    theta_before: np.ndarray,
-    u_now: np.ndarray,
-    v_now: np.ndarray,
-    theta_now: np.ndarray,
-    THETA_E: np.ndarray,
-    beta: float,
-    gravity: float,
-    height: float,
-    t_ref: float,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Perform a leapfrog step."""
-    u_after = u_before + 2 * DT * get_dudt(
-        u_now, v_now, theta_now, THETA_E, beta, gravity
-    )
-    v_after = v_before + 2 * DT * get_dvdt(
-        u_now, v_now, theta_now, beta, gravity, height, t_ref
-    )
-    theta_after = theta_before + 2 * DT * get_dthetadt(
-        u_now, v_now, theta_now, THETA_E, height
-    )
-    return u_after, v_after, theta_after
+    def initialize_temp_storage(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Initialize temporary storage for daily averages."""
+        u_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
+        v_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
+        theta_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
+        time_temp = np.zeros(int(SECONDS_PER_DAY / DT))
+        return u_temp, v_temp, theta_temp, time_temp
 
+    def leapfrog_step(
+        self,
+        u_before: np.ndarray,
+        v_before: np.ndarray,
+        theta_before: np.ndarray,
+        u_now: np.ndarray,
+        v_now: np.ndarray,
+        theta_now: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Perform a leapfrog step."""
+        u_after = u_before + 2 * DT * self.get_dudt(u_now, v_now, theta_now)
+        v_after = v_before + 2 * DT * self.get_dvdt(u_now, v_now, theta_now)
+        theta_after = theta_before + 2 * DT * self.get_dthetadt(u_now, v_now, theta_now)
+        return u_after, v_after, theta_after
 
-def apply_asselin_filter(
-    u_before: np.ndarray,
-    v_before: np.ndarray,
-    theta_before: np.ndarray,
-    u_after: np.ndarray,
-    v_after: np.ndarray,
-    theta_after: np.ndarray,
-    u_now: np.ndarray,
-    v_now: np.ndarray,
-    theta_now: np.ndarray,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Apply the Asselin filter to reduce numerical oscillations."""
-    u_before = u_now + ASSELIN_FILT_COEF * (u_after + u_before - 2 * u_now)
-    v_before = v_now + ASSELIN_FILT_COEF * (v_after + v_before - 2 * v_now)
-    theta_before = theta_now + ASSELIN_FILT_COEF * (
-        theta_after + theta_before - 2 * theta_now
-    )
-    return u_before, v_before, theta_before
+    def apply_asselin_filter(
+        self,
+        u_before: np.ndarray,
+        v_before: np.ndarray,
+        theta_before: np.ndarray,
+        u_after: np.ndarray,
+        v_after: np.ndarray,
+        theta_after: np.ndarray,
+        u_now: np.ndarray,
+        v_now: np.ndarray,
+        theta_now: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Apply the Asselin filter to reduce numerical oscillations."""
+        u_before = u_now + ASSELIN_FILT_COEF * (u_after + u_before - 2 * u_now)
+        v_before = v_now + ASSELIN_FILT_COEF * (v_after + v_before - 2 * v_now)
+        theta_before = theta_now + ASSELIN_FILT_COEF * (
+            theta_after + theta_before - 2 * theta_now
+        )
+        return u_before, v_before, theta_before
 
+    def update_current_step(
+        self, u_after: np.ndarray, v_after: np.ndarray, theta_after: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Update the current step variables."""
+        return u_after, v_after, theta_after
 
-def update_current_step(
-    u_after: np.ndarray, v_after: np.ndarray, theta_after: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Update the current step variables."""
-    return u_after, v_after, theta_after
+    def enforce_boundary_conditions(self, u_now: np.ndarray, v_now: np.ndarray):
+        """Enforce boundary conditions on the current step variables."""
+        u_now[0] = 0
+        u_now[-1] = 0
+        v_now[0] = 0
+        v_now[-1] = 0
 
+    def store_temporary_results(
+        self,
+        u_temp: np.ndarray,
+        v_temp: np.ndarray,
+        theta_temp: np.ndarray,
+        time_temp: np.ndarray,
+        u_now: np.ndarray,
+        v_now: np.ndarray,
+        theta_now: np.ndarray,
+        timestamp: float,
+        j: int,
+    ):
+        """Store temporary results for daily averaging."""
+        u_temp[j - 1] = u_now
+        v_temp[j - 1] = v_now
+        theta_temp[j - 1] = theta_now
+        time_temp[j - 1] = timestamp / 86400
 
-def enforce_boundary_conditions(u_now: np.ndarray, v_now: np.ndarray):
-    """Enforce boundary conditions on the current step variables."""
-    u_now[0] = 0
-    u_now[-1] = 0
-    v_now[0] = 0
-    v_now[-1] = 0
+    def store_daily_averages(
+        self,
+        u_temp: np.ndarray,
+        v_temp: np.ndarray,
+        theta_temp: np.ndarray,
+        time_temp: np.ndarray,
+        day: int,
+    ):
+        """Store daily averages of the simulation results."""
+        self.u[day] = np.mean(u_temp, axis=0)
+        self.v[day] = np.mean(v_temp, axis=0)
+        self.theta[day] = np.mean(theta_temp, axis=0)
+        self.time[day] = np.mean(time_temp, axis=0)
 
+    def reset_temp_storage(
+        self,
+        u_temp: np.ndarray,
+        v_temp: np.ndarray,
+        theta_temp: np.ndarray,
+        time_temp: np.ndarray,
+    ):
+        """Reset temporary storage for the next day's calculations."""
+        u_temp.fill(0)
+        v_temp.fill(0)
+        theta_temp.fill(0)
+        time_temp.fill(0)
 
-def store_temporary_results(
-    u_temp: np.ndarray,
-    v_temp: np.ndarray,
-    theta_temp: np.ndarray,
-    time_temp: np.ndarray,
-    u_now: np.ndarray,
-    v_now: np.ndarray,
-    theta_now: np.ndarray,
-    timestamp: float,
-    j: int,
-):
-    """Store temporary results for daily averaging."""
-    u_temp[j - 1] = u_now
-    v_temp[j - 1] = v_now
-    theta_temp[j - 1] = theta_now
-    time_temp[j - 1] = timestamp / 86400
+    def get_dudt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
+        """Calculate the time derivative of u."""
+        grad_u = np.gradient(u, DY)
+        grad_v = np.gradient(v, DY)
+        grad_u_advection_positive_v = np.zeros_like(u)
+        grad_u_advection_positive_v[1:] = (u[1:] - u[:-1]) / DY
+        grad_u_advection_negative_v = np.zeros_like(u)
+        grad_u_advection_negative_v[:-1] = (u[1:] - u[:-1]) / DY
+        grad_u_adv = np.where(
+            v > 0, grad_u_advection_positive_v, grad_u_advection_negative_v
+        )
+        s = V_D * np.sign(Y - Y_0) * grad_u
+        f = u * EPSILON_U
+        vt = u * grad_v * np.heaviside(self.THETA_E - theta, 0.5)
+        dudt = v * (self.config.beta * Y - grad_u_adv) - vt - f - s
+        return dudt
 
+    def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
+        """Calculate the time derivative of v."""
+        grad_v = np.gradient(v, DY)
+        grad_T = np.gradient(theta / 1.6, DY)
+        diffusion_v = np.gradient(grad_v, DY) * K_V
+        return (
+            -self.config.beta * Y * u
+            - self.config.gravity * self.config.height * grad_T / self.config.t_ref
+            + diffusion_v
+        ) / 2
 
-def store_daily_averages(
-    u: np.ndarray,
-    v: np.ndarray,
-    theta: np.ndarray,
-    time: np.ndarray,
-    u_temp: np.ndarray,
-    v_temp: np.ndarray,
-    theta_temp: np.ndarray,
-    time_temp: np.ndarray,
-    day: int,
-):
-    """Store daily averages of the simulation results."""
-    u[day] = np.mean(u_temp, axis=0)
-    v[day] = np.mean(v_temp, axis=0)
-    theta[day] = np.mean(theta_temp, axis=0)
-    time[day] = np.mean(time_temp, axis=0)
+    def get_dthetadt(
+        self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
+    ) -> np.ndarray:
+        """Calculate the time derivative of theta."""
+        grad_v = np.gradient(v, DY)
+        return (
+            self.THETA_E - theta
+        ) / TAU - DELTA * DELTA_Z * grad_v / self.config.height
 
+    def save_results(self):
+        """Save the simulation results to a NetCDF file."""
+        u_xr = xr.DataArray(
+            data=self.u[self.time != 0],
+            dims=["time", "y"],
+            coords={"time": self.time[self.time != 0], "y": Y},
+            attrs=dict(units="m/s"),
+        )
 
-def reset_temp_storage(
-    u_temp: np.ndarray,
-    v_temp: np.ndarray,
-    theta_temp: np.ndarray,
-    time_temp: np.ndarray,
-):
-    """Reset temporary storage for the next day's calculations."""
-    u_temp.fill(0)
-    v_temp.fill(0)
-    theta_temp.fill(0)
-    time_temp.fill(0)
+        v_xr = xr.DataArray(
+            data=self.v[self.time != 0],
+            dims=["time", "y"],
+            coords={"time": self.time[self.time != 0], "y": Y},
+            attrs=dict(units="m/s"),
+        )
 
+        temp_xr = xr.DataArray(
+            data=self.theta[self.time != 0] / 1.6,
+            dims=["time", "y"],
+            coords={"time": self.time[self.time != 0], "y": Y},
+            attrs=dict(units="K"),
+        )
 
-def save_results(
-    u: np.ndarray,
-    v: np.ndarray,
-    theta: np.ndarray,
-    time: np.ndarray,
-    THETA_E: np.ndarray,
-    output_path: str,
-):
-    """Save the simulation results to a NetCDF file."""
-    u_xr = xr.DataArray(
-        data=u[time != 0],
-        dims=["time", "y"],
-        coords={"time": time[time != 0], "y": Y},
-        attrs=dict(units="m/s"),
-    )
+        t_xr = xr.DataArray(
+            data=self.time[self.time != 0],
+            dims=["time"],
+            coords={"time": self.time[self.time != 0]},
+            attrs=dict(units="days since 0000-01-01 00:00:00.0", calendar="noleap"),
+        )
 
-    v_xr = xr.DataArray(
-        data=v[time != 0],
-        dims=["time", "y"],
-        coords={"time": time[time != 0], "y": Y},
-        attrs=dict(units="m/s"),
-    )
+        thetae_xr = xr.DataArray(
+            data=self.THETA_E,
+            dims=["y"],
+            coords={"y": Y},
+            attrs=dict(units="K"),
+        )
 
-    temp_xr = xr.DataArray(
-        data=theta[time != 0] / 1.6,
-        dims=["time", "y"],
-        coords={"time": time[time != 0], "y": Y},
-        attrs=dict(units="K"),
-    )
+        ds = u_xr.to_dataset(name="u")
+        ds["v"] = v_xr
+        ds["T"] = temp_xr
+        ds["theta_e"] = thetae_xr
+        ds["time"] = t_xr
 
-    t_xr = xr.DataArray(
-        data=time[time != 0],
-        dims=["time"],
-        coords={"time": time[time != 0]},
-        attrs=dict(units="days since 0000-01-01 00:00:00.0", calendar="noleap"),
-    )
+        ds.attrs["DELTA_Z"] = DELTA_Z
+        ds.attrs["DELTA_Y"] = DELTA_Y
+        ds.attrs["BETA"] = self.config.beta
+        ds.attrs["K_V"] = K_V
+        ds.attrs["EPSILON_U"] = EPSILON_U
+        ds.attrs["DELTA"] = DELTA
+        ds.attrs["Y_ONE"] = Y_ONE
+        ds.attrs["Y_0"] = Y_0
+        ds.attrs["V_D"] = V_D
 
-    thetae_xr = xr.DataArray(
-        data=THETA_E,
-        dims=["y"],
-        coords={"y": Y},
-        attrs=dict(units="K"),
-    )
-
-    ds = u_xr.to_dataset(name="u")
-    ds["v"] = v_xr
-    ds["T"] = temp_xr
-    ds["theta_e"] = thetae_xr
-    ds["time"] = t_xr
-
-    ds.attrs["DELTA_Z"] = DELTA_Z
-    ds.attrs["DELTA_Y"] = DELTA_Y
-    ds.attrs["BETA"] = beta
-    ds.attrs["K_V"] = K_V
-    ds.attrs["EPSILON_U"] = EPSILON_U
-    ds.attrs["DELTA"] = DELTA
-    ds.attrs["Y_ONE"] = Y_ONE
-    ds.attrs["Y_0"] = Y_0
-    ds.attrs["V_D"] = V_D
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    ds.to_netcdf(output_path)
-    logging.info(f"Results saved to {output_path}")
+        os.makedirs(os.path.dirname(self.config.output_path), exist_ok=True)
+        ds.to_netcdf(self.config.output_path)
+        logging.info(f"Results saved to {self.config.output_path}")
 
 
 def main():
@@ -438,9 +368,9 @@ def main():
         t_ref=args.t_ref,
         output_path=args.output_path,
     )
-    u, v, theta, time = run_simulation(config)
-    THETA_E = calculate_theta_e()
-    save_results(u, v, theta, time, THETA_E, config.output_path)
+    model = SWModel(config)
+    model.run_simulation()
+    model.save_results()
 
 
 def parse_arguments():
