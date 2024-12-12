@@ -15,16 +15,6 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# Constants
-DT = 30  # satisfies CFL requirement if wind speed is not insanely large
-SECONDS_PER_DAY = 86400  # Number of seconds in a day
-ASSELIN_FILT_COEF = 0.04  # Coefficient for the Asselin filter
-
-# Dimensions
-NY = 801
-DY = 15751e3 * 2 / (NY - 1)
-Y = np.linspace(start=-15751e3, stop=15751e3, num=NY)
-
 
 @dataclass
 class SWConfig:
@@ -43,6 +33,11 @@ class SWConfig:
     y_one: float = 9439e3
     y_0: float = 0
     v_d: float = 2.5
+    dt: int = 30  # Time step size
+    ny: int = 801  # Number of grid points in the y-direction
+    dy: float = 15751e3 * 2 / (801 - 1)  # Grid spacing in the y-direction
+    y: np.ndarray = np.linspace(start=-15751e3, stop=15751e3, num=801)  # Y coordinates
+    asselin_filt_coef: float = 0.04  # Coefficient for the Asselin filter
 
 
 class SWModel:
@@ -53,9 +48,9 @@ class SWModel:
 
     def init_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Initialize the model variables."""
-        u = np.zeros([self.config.total_integration_days, NY])
-        v = np.zeros([self.config.total_integration_days, NY])
-        theta = np.zeros([self.config.total_integration_days, NY])
+        u = np.zeros([self.config.total_integration_days, self.config.ny])
+        v = np.zeros([self.config.total_integration_days, self.config.ny])
+        theta = np.zeros([self.config.total_integration_days, self.config.ny])
         time = np.zeros(self.config.total_integration_days)
         return u, v, theta, time
 
@@ -63,10 +58,15 @@ class SWModel:
         """Calculate the radiative-convective equilibrium (RCE) temperature θₑ."""
         theta_00 = 330
         return np.where(
-            np.abs(Y - self.config.y_0) < self.config.y_one,
+            np.abs(self.config.y - self.config.y_0) < self.config.y_one,
             theta_00
             - self.config.delta_y
-            * (np.sin(0.5 * np.pi * (Y - self.config.y_0) / self.config.y_one) ** 2),
+            * (
+                np.sin(
+                    0.5 * np.pi * (self.config.y - self.config.y_0) / self.config.y_one
+                )
+                ** 2
+            ),
             theta_00 - self.config.delta_y,
         )
 
@@ -104,9 +104,9 @@ class SWModel:
 
             self.enforce_boundary_conditions(u_now, v_now)
 
-            timestamp += DT
+            timestamp += self.config.dt
 
-            j = (i + 1) % int(SECONDS_PER_DAY / DT)
+            j = (i + 1) % int(SECONDS_PER_DAY / self.config.dt)
 
             self.store_temp_results(
                 u_temp,
@@ -120,7 +120,7 @@ class SWModel:
                 j,
             )
 
-            if (i + 1) % int(SECONDS_PER_DAY / DT) == 0:
+            if (i + 1) % int(SECONDS_PER_DAY / self.config.dt) == 0:
                 self.store_daily_avgs(u_temp, v_temp, theta_temp, time_temp, day)
                 self.reset_temp_storage(u_temp, v_temp, theta_temp, time_temp)
                 day += 1
@@ -132,8 +132,8 @@ class SWModel:
 
     def init_current_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the current step."""
-        u_now = np.zeros(NY)
-        v_now = np.zeros(NY)
+        u_now = np.zeros(self.config.ny)
+        v_now = np.zeros(self.config.ny)
         theta_now = self.THETA_E
         return u_now, v_now, theta_now
 
@@ -141,23 +141,27 @@ class SWModel:
         self, u_now: np.ndarray, v_now: np.ndarray, theta_now: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
-        u_prev = u_now - DT * self.get_dudt(u_now, v_now, theta_now)
-        v_prev = v_now - DT * self.get_dvdt(u_now, v_now, theta_now)
-        theta_prev = theta_now - DT * self.get_dthetadt(u_now, v_now, theta_now)
+        u_prev = u_now - self.config.dt * self.get_dudt(u_now, v_now, theta_now)
+        v_prev = v_now - self.config.dt * self.get_dvdt(u_now, v_now, theta_now)
+        theta_prev = theta_now - self.config.dt * self.get_dthetadt(
+            u_now, v_now, theta_now
+        )
         return u_prev, v_prev, theta_prev
 
     def calc_total_time_steps(self) -> int:
         """Calculate the total number of time steps."""
-        return int(SECONDS_PER_DAY * self.config.total_integration_days / DT)
+        return int(
+            SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
+        )
 
     def init_temp_storage(
         self,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Initialize temporary storage for daily averages."""
-        u_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
-        v_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
-        theta_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
-        time_temp = np.zeros(int(SECONDS_PER_DAY / DT))
+        u_temp = np.zeros([int(SECONDS_PER_DAY / self.config.dt), self.config.ny])
+        v_temp = np.zeros([int(SECONDS_PER_DAY / self.config.dt), self.config.ny])
+        theta_temp = np.zeros([int(SECONDS_PER_DAY / self.config.dt), self.config.ny])
+        time_temp = np.zeros(int(SECONDS_PER_DAY / self.config.dt))
         return u_temp, v_temp, theta_temp, time_temp
 
     def leapfrog_step(
@@ -170,9 +174,11 @@ class SWModel:
         theta_now: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Perform a leapfrog step."""
-        u_after = u_prev + 2 * DT * self.get_dudt(u_now, v_now, theta_now)
-        v_after = v_prev + 2 * DT * self.get_dvdt(u_now, v_now, theta_now)
-        theta_after = theta_prev + 2 * DT * self.get_dthetadt(u_now, v_now, theta_now)
+        u_after = u_prev + 2 * self.config.dt * self.get_dudt(u_now, v_now, theta_now)
+        v_after = v_prev + 2 * self.config.dt * self.get_dvdt(u_now, v_now, theta_now)
+        theta_after = theta_prev + 2 * self.config.dt * self.get_dthetadt(
+            u_now, v_now, theta_now
+        )
         return u_after, v_after, theta_after
 
     def apply_asselin_filter(
@@ -188,9 +194,9 @@ class SWModel:
         theta_now: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Apply the Asselin filter to reduce numerical oscillations."""
-        u_prev = u_now + ASSELIN_FILT_COEF * (u_after + u_prev - 2 * u_now)
-        v_prev = v_now + ASSELIN_FILT_COEF * (v_after + v_prev - 2 * v_now)
-        theta_prev = theta_now + ASSELIN_FILT_COEF * (
+        u_prev = u_now + self.config.asselin_filt_coef * (u_after + u_prev - 2 * u_now)
+        v_prev = v_now + self.config.asselin_filt_coef * (v_after + v_prev - 2 * v_now)
+        theta_prev = theta_now + self.config.asselin_filt_coef * (
             theta_after + theta_prev - 2 * theta_now
         )
         return u_prev, v_prev, theta_prev
@@ -255,26 +261,26 @@ class SWModel:
 
     def get_dudt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of u."""
-        grad_u = np.gradient(u, DY)
-        grad_v = np.gradient(v, DY)
+        grad_u = np.gradient(u, self.config.dy)
+        grad_v = np.gradient(v, self.config.dy)
         grad_u_adv_pos_v = np.zeros_like(u)
-        grad_u_adv_pos_v[1:] = (u[1:] - u[:-1]) / DY
+        grad_u_adv_pos_v[1:] = (u[1:] - u[:-1]) / self.config.dy
         grad_u_adv_neg_v = np.zeros_like(u)
-        grad_u_adv_neg_v[:-1] = (u[1:] - u[:-1]) / DY
+        grad_u_adv_neg_v[:-1] = (u[1:] - u[:-1]) / self.config.dy
         grad_u_adv = np.where(v > 0, grad_u_adv_pos_v, grad_u_adv_neg_v)
-        s = self.config.v_d * np.sign(Y - self.config.y_0) * grad_u
+        s = self.config.v_d * np.sign(self.config.y - self.config.y_0) * grad_u
         f = u * self.config.epsilon_u
         vt = u * grad_v * np.heaviside(self.THETA_E - theta, 0.5)
-        dudt = v * (self.config.beta * Y - grad_u_adv) - vt - f - s
+        dudt = v * (self.config.beta * self.config.y - grad_u_adv) - vt - f - s
         return dudt
 
     def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of v."""
-        grad_v = np.gradient(v, DY)
-        grad_T = np.gradient(theta / 1.6, DY)
-        diffusion_v = np.gradient(grad_v, DY) * self.config.k_v
+        grad_v = np.gradient(v, self.config.dy)
+        grad_T = np.gradient(theta / 1.6, self.config.dy)
+        diffusion_v = np.gradient(grad_v, self.config.dy) * self.config.k_v
         return (
-            -self.config.beta * Y * u
+            -self.config.beta * self.config.y * u
             - self.config.gravity * self.config.height * grad_T / self.config.t_ref
             + diffusion_v
         ) / 2
@@ -283,10 +289,10 @@ class SWModel:
         self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
     ) -> np.ndarray:
         """Calculate the time derivative of theta."""
-        grad_v = np.gradient(v, DY)
+        grad_v = np.gradient(v, self.config.dy)
         return (
             (self.THETA_E - theta) / self.config.tau
-            - self.config.delta * DELTA_Z * grad_v / self.config.height
+            - self.config.delta * self.config.delta_z * grad_v / self.config.height
         )
 
     def save_results(self):
@@ -294,21 +300,21 @@ class SWModel:
         u_xr = xr.DataArray(
             data=self.u[self.time != 0],
             dims=["time", "y"],
-            coords={"time": self.time[self.time != 0], "y": Y},
+            coords={"time": self.time[self.time != 0], "y": self.config.y},
             attrs=dict(units="m/s"),
         )
 
         v_xr = xr.DataArray(
             data=self.v[self.time != 0],
             dims=["time", "y"],
-            coords={"time": self.time[self.time != 0], "y": Y},
+            coords={"time": self.time[self.time != 0], "y": self.config.y},
             attrs=dict(units="m/s"),
         )
 
         temp_xr = xr.DataArray(
             data=self.theta[self.time != 0] / 1.6,
             dims=["time", "y"],
-            coords={"time": self.time[self.time != 0], "y": Y},
+            coords={"time": self.time[self.time != 0], "y": self.config.y},
             attrs=dict(units="K"),
         )
 
@@ -322,7 +328,7 @@ class SWModel:
         thetae_xr = xr.DataArray(
             data=self.THETA_E,
             dims=["y"],
-            coords={"y": Y},
+            coords={"y": self.config.y},
             attrs=dict(units="K"),
         )
 
@@ -332,8 +338,8 @@ class SWModel:
         ds["theta_e"] = thetae_xr
         ds["time"] = t_xr
 
-        ds.attrs["DELTA_Z"] = DELTA_Z
-        ds.attrs["DELTA_Y"] = DELTA_Y
+        ds.attrs["DELTA_Z"] = self.config.delta_z
+        ds.attrs["DELTA_Y"] = self.config.delta_y
         ds.attrs["BETA"] = self.config.beta
         ds.attrs["K_V"] = self.config.k_v
         ds.attrs["EPSILON_U"] = self.config.epsilon_u
