@@ -241,7 +241,7 @@ class SWModel:
         u_temp[j - 1] = u_now
         v_temp[j - 1] = v_now
         theta_temp[j - 1] = theta_now
-        time_temp[j - 1] = timestamp / 86400
+        time_temp[j - 1] = timestamp / SECONDS_PER_DAY
 
     def store_daily_avgs(
         self,
