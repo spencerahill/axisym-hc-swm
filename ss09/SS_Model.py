@@ -8,6 +8,7 @@ import logging
 import numpy as np
 import xarray as xr
 from typing import Tuple
+from dataclasses import dataclass
 
 # Configure logging
 logging.basicConfig(
@@ -38,6 +39,16 @@ V_D = 2.5
 NY = 801
 DY = 15751e3 * 2 / (NY - 1)
 Y = np.linspace(start=-15751e3, stop=15751e3, num=NY)
+
+
+@dataclass
+class SWConfig:
+    total_integration_days: int
+    gravity: float
+    height: float
+    beta: float
+    t_ref: float
+    output_path: str
 
 
 def initialize_variables(
@@ -111,22 +122,25 @@ def get_dthetadt(
 
 
 def run_simulation(
-    total_integration_days: int,
-    beta: float,
-    gravity: float,
-    height: float,
-    t_ref: float,
+    config: SWConfig,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Run the S-S model simulation."""
-    u, v, theta, time = initialize_variables(total_integration_days)
+    u, v, theta, time = initialize_variables(config.total_integration_days)
     THETA_E = calculate_theta_e()
 
     u_now, v_now, theta_now = initialize_current_step_variables(THETA_E)
     u_before, v_before, theta_before = initialize_previous_step_variables(
-        u_now, v_now, theta_now, THETA_E, beta, gravity, height, t_ref
+        u_now,
+        v_now,
+        theta_now,
+        THETA_E,
+        config.beta,
+        config.gravity,
+        config.height,
+        config.t_ref,
     )
 
-    total_time_steps = calculate_total_time_steps(total_integration_days)
+    total_time_steps = calculate_total_time_steps(config.total_integration_days)
     timestamp = 0
     day = 0
 
@@ -141,10 +155,10 @@ def run_simulation(
             v_now,
             theta_now,
             THETA_E,
-            beta,
-            gravity,
-            height,
-            t_ref,
+            config.beta,
+            config.gravity,
+            config.height,
+            config.t_ref,
         )
 
         u_before, v_before, theta_before = apply_asselin_filter(
@@ -414,32 +428,22 @@ def save_results(
     logging.info(f"Results saved to {output_path}")
 
 
-def main(
-    total_integration_days: int,
-    gravity: float,
-    height: float,
-    beta: float,
-    t_ref: float,
-    output_path: str,
-):
-    """Main function to run the simulation and save results."""
-    try:
-        u, v, theta, time = run_simulation(
-            total_integration_days, beta, gravity, height, t_ref
-        )
-        THETA_E = calculate_theta_e()
-        save_results(u, v, theta, time, THETA_E, output_path)
-    except Exception as e:
-        logging.error(f"An error occurred during the simulation: {e}")
-        raise
-
-    # Add more detailed logging
-    logging.debug(
-        "Starting simulation with total_integration_days=%d", total_integration_days
+def main():
+    args = parse_arguments()
+    config = SWConfig(
+        total_integration_days=args.total_integration_days,
+        gravity=args.gravity,
+        height=args.height,
+        beta=args.beta,
+        t_ref=args.t_ref,
+        output_path=args.output_path,
     )
+    u, v, theta, time = run_simulation(config)
+    THETA_E = calculate_theta_e()
+    save_results(u, v, theta, time, THETA_E, config.output_path)
 
 
-if __name__ == "__main__":
+def parse_arguments():
     parser = argparse.ArgumentParser(description="Run the S-S model simulation.")
     parser.add_argument(
         "--total_integration_days",
@@ -477,12 +481,8 @@ if __name__ == "__main__":
         default="./model_output/output.nc",
         help="Path to save the output NetCDF file (default: ./model_output/output.nc)",
     )
-    args = parser.parse_args()
-    main(
-        args.total_integration_days,
-        args.gravity,
-        args.height,
-        args.beta,
-        args.t_ref,
-        args.output_path,
-    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()
