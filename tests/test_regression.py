@@ -20,7 +20,7 @@ def run_model(output_path: str, total_integration_days: int = 5):
     subprocess.run(
         [
             "python",
-            "sw_model.py",
+            "ss09/sw_model.py",
             "--total_integration_days",
             str(total_integration_days),
         ],
