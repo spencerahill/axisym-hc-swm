@@ -121,9 +121,9 @@ def run_simulation(
     u, v, theta, time = initialize_variables(total_integration_days)
     THETA_E = calculate_theta_e()
 
-    u_thisstep, v_thisstep, theta_thisstep = initialize_current_step_variables(THETA_E)
+    u_now, v_now, theta_now = initialize_current_step_variables(THETA_E)
     u_before, v_before, theta_before = initialize_previous_step_variables(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E, beta, gravity, height, t_ref
+        u_now, v_now, theta_now, THETA_E, beta, gravity, height, t_ref
     )
 
     total_time_steps = calculate_total_time_steps(total_integration_days)
@@ -137,9 +137,9 @@ def run_simulation(
             u_before,
             v_before,
             theta_before,
-            u_thisstep,
-            v_thisstep,
-            theta_thisstep,
+            u_now,
+            v_now,
+            theta_now,
             THETA_E,
             beta,
             gravity,
@@ -154,16 +154,14 @@ def run_simulation(
             u_after,
             v_after,
             theta_after,
-            u_thisstep,
-            v_thisstep,
-            theta_thisstep,
+            u_now,
+            v_now,
+            theta_now,
         )
 
-        u_thisstep, v_thisstep, theta_thisstep = update_current_step(
-            u_after, v_after, theta_after
-        )
+        u_now, v_now, theta_now = update_current_step(u_after, v_after, theta_after)
 
-        enforce_boundary_conditions(u_thisstep, v_thisstep)
+        enforce_boundary_conditions(u_now, v_now)
 
         timestamp += DT
 
@@ -174,9 +172,9 @@ def run_simulation(
             v_temp,
             theta_temp,
             time_temp,
-            u_thisstep,
-            v_thisstep,
-            theta_thisstep,
+            u_now,
+            v_now,
+            theta_now,
             timestamp,
             j,
         )
@@ -189,8 +187,8 @@ def run_simulation(
             day += 1
             logging.info(f"Day {day} finished.")
 
-        if np.isnan(u_thisstep).any():
-            logging.warning("NaN detected in u_thisstep, breaking the loop.")
+        if np.isnan(u_now).any():
+            logging.warning("NaN detected in u_now, breaking the loop.")
             break
 
     return u, v, theta, time
@@ -200,16 +198,16 @@ def initialize_current_step_variables(
     THETA_E: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Initialize variables for the current step."""
-    u_thisstep = np.zeros(NY)
-    v_thisstep = np.zeros(NY)
-    theta_thisstep = THETA_E
-    return u_thisstep, v_thisstep, theta_thisstep
+    u_now = np.zeros(NY)
+    v_now = np.zeros(NY)
+    theta_now = THETA_E
+    return u_now, v_now, theta_now
 
 
 def initialize_previous_step_variables(
-    u_thisstep: np.ndarray,
-    v_thisstep: np.ndarray,
-    theta_thisstep: np.ndarray,
+    u_now: np.ndarray,
+    v_now: np.ndarray,
+    theta_now: np.ndarray,
     THETA_E: np.ndarray,
     beta: float,
     gravity: float,
@@ -217,14 +215,12 @@ def initialize_previous_step_variables(
     t_ref: float,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Initialize variables for the previous step."""
-    u_before = u_thisstep - DT * get_dudt(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E, beta, gravity
+    u_before = u_now - DT * get_dudt(u_now, v_now, theta_now, THETA_E, beta, gravity)
+    v_before = v_now - DT * get_dvdt(
+        u_now, v_now, theta_now, beta, gravity, height, t_ref
     )
-    v_before = v_thisstep - DT * get_dvdt(
-        u_thisstep, v_thisstep, theta_thisstep, beta, gravity, height, t_ref
-    )
-    theta_before = theta_thisstep - DT * get_dthetadt(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E, height
+    theta_before = theta_now - DT * get_dthetadt(
+        u_now, v_now, theta_now, THETA_E, height
     )
     return u_before, v_before, theta_before
 
@@ -247,9 +243,9 @@ def leapfrog_step(
     u_before: np.ndarray,
     v_before: np.ndarray,
     theta_before: np.ndarray,
-    u_thisstep: np.ndarray,
-    v_thisstep: np.ndarray,
-    theta_thisstep: np.ndarray,
+    u_now: np.ndarray,
+    v_now: np.ndarray,
+    theta_now: np.ndarray,
     THETA_E: np.ndarray,
     beta: float,
     gravity: float,
@@ -258,13 +254,13 @@ def leapfrog_step(
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Perform a leapfrog step."""
     u_after = u_before + 2 * DT * get_dudt(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E, beta, gravity
+        u_now, v_now, theta_now, THETA_E, beta, gravity
     )
     v_after = v_before + 2 * DT * get_dvdt(
-        u_thisstep, v_thisstep, theta_thisstep, beta, gravity, height, t_ref
+        u_now, v_now, theta_now, beta, gravity, height, t_ref
     )
     theta_after = theta_before + 2 * DT * get_dthetadt(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E, height
+        u_now, v_now, theta_now, THETA_E, height
     )
     return u_after, v_after, theta_after
 
@@ -276,16 +272,14 @@ def apply_asselin_filter(
     u_after: np.ndarray,
     v_after: np.ndarray,
     theta_after: np.ndarray,
-    u_thisstep: np.ndarray,
-    v_thisstep: np.ndarray,
-    theta_thisstep: np.ndarray,
+    u_now: np.ndarray,
+    v_now: np.ndarray,
+    theta_now: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Apply the Asselin filter to reduce numerical oscillations."""
-    u_before = u_thisstep + 0.04 * (u_after + u_before - 2 * u_thisstep)
-    v_before = v_thisstep + 0.04 * (v_after + v_before - 2 * v_thisstep)
-    theta_before = theta_thisstep + 0.04 * (
-        theta_after + theta_before - 2 * theta_thisstep
-    )
+    u_before = u_now + 0.04 * (u_after + u_before - 2 * u_now)
+    v_before = v_now + 0.04 * (v_after + v_before - 2 * v_now)
+    theta_before = theta_now + 0.04 * (theta_after + theta_before - 2 * theta_now)
     return u_before, v_before, theta_before
 
 
@@ -296,12 +290,12 @@ def update_current_step(
     return u_after, v_after, theta_after
 
 
-def enforce_boundary_conditions(u_thisstep: np.ndarray, v_thisstep: np.ndarray):
+def enforce_boundary_conditions(u_now: np.ndarray, v_now: np.ndarray):
     """Enforce boundary conditions on the current step variables."""
-    u_thisstep[0] = 0
-    u_thisstep[-1] = 0
-    v_thisstep[0] = 0
-    v_thisstep[-1] = 0
+    u_now[0] = 0
+    u_now[-1] = 0
+    v_now[0] = 0
+    v_now[-1] = 0
 
 
 def store_temporary_results(
@@ -309,16 +303,16 @@ def store_temporary_results(
     v_temp: np.ndarray,
     theta_temp: np.ndarray,
     time_temp: np.ndarray,
-    u_thisstep: np.ndarray,
-    v_thisstep: np.ndarray,
-    theta_thisstep: np.ndarray,
+    u_now: np.ndarray,
+    v_now: np.ndarray,
+    theta_now: np.ndarray,
     timestamp: float,
     j: int,
 ):
     """Store temporary results for daily averaging."""
-    u_temp[j - 1] = u_thisstep
-    v_temp[j - 1] = v_thisstep
-    theta_temp[j - 1] = theta_thisstep
+    u_temp[j - 1] = u_now
+    v_temp[j - 1] = v_now
+    theta_temp[j - 1] = theta_now
     time_temp[j - 1] = timestamp / 86400
 
 
