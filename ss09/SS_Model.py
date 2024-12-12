@@ -20,21 +20,6 @@ DT = 30  # satisfies CFL requirement if wind speed is not insanely large
 SECONDS_PER_DAY = 86400  # Number of seconds in a day
 ASSELIN_FILT_COEF = 0.04  # Coefficient for the Asselin filter
 
-# Model constants (default values)
-DEFAULT_BETA = 2e-11
-K_V = 7786 * 100
-EPSILON_U = 1e-8
-DELTA_Z = 60
-DELTA_Y = 50
-DEFAULT_T_REF = 300.0
-DELTA = 4e3
-DEFAULT_GRAVITY = 9.81
-DEFAULT_HEIGHT = 16e3
-TAU = 37 * 24 * 3600
-Y_ONE = 9439e3
-Y_0 = 0
-V_D = 2.5
-
 # Dimensions
 NY = 801
 DY = 15751e3 * 2 / (NY - 1)
@@ -43,12 +28,21 @@ Y = np.linspace(start=-15751e3, stop=15751e3, num=NY)
 
 @dataclass
 class SWConfig:
-    total_integration_days: int
-    gravity: float
-    height: float
-    beta: float
-    t_ref: float
-    output_path: str
+    total_integration_days: int = 365 * 15
+    gravity: float = 9.81
+    height: float = 16e3
+    beta: float = 2e-11
+    t_ref: float = 300.0
+    output_path: str = "./model_output/output.nc"
+    k_v: float = 7786 * 100
+    epsilon_u: float = 1e-8
+    delta_z: float = 60
+    delta_y: float = 50
+    delta: float = 4e3
+    tau: float = 37 * 24 * 3600
+    y_one: float = 9439e3
+    y_0: float = 0
+    v_d: float = 2.5
 
 
 class SWModel:
@@ -69,9 +63,11 @@ class SWModel:
         """Calculate the radiative-convective equilibrium (RCE) temperature θₑ."""
         theta_00 = 330
         return np.where(
-            np.abs(Y - Y_0) < Y_ONE,
-            theta_00 - DELTA_Y * (np.sin(0.5 * np.pi * (Y - Y_0) / Y_ONE) ** 2),
-            theta_00 - DELTA_Y,
+            np.abs(Y - self.config.y_0) < self.config.y_one,
+            theta_00
+            - self.config.delta_y
+            * (np.sin(0.5 * np.pi * (Y - self.config.y_0) / self.config.y_one) ** 2),
+            theta_00 - self.config.delta_y,
         )
 
     def run_sim(self):
@@ -266,8 +262,8 @@ class SWModel:
         grad_u_adv_neg_v = np.zeros_like(u)
         grad_u_adv_neg_v[:-1] = (u[1:] - u[:-1]) / DY
         grad_u_adv = np.where(v > 0, grad_u_adv_pos_v, grad_u_adv_neg_v)
-        s = V_D * np.sign(Y - Y_0) * grad_u
-        f = u * EPSILON_U
+        s = self.config.v_d * np.sign(Y - self.config.y_0) * grad_u
+        f = u * self.config.epsilon_u
         vt = u * grad_v * np.heaviside(self.THETA_E - theta, 0.5)
         dudt = v * (self.config.beta * Y - grad_u_adv) - vt - f - s
         return dudt
@@ -276,7 +272,7 @@ class SWModel:
         """Calculate the time derivative of v."""
         grad_v = np.gradient(v, DY)
         grad_T = np.gradient(theta / 1.6, DY)
-        diffusion_v = np.gradient(grad_v, DY) * K_V
+        diffusion_v = np.gradient(grad_v, DY) * self.config.k_v
         return (
             -self.config.beta * Y * u
             - self.config.gravity * self.config.height * grad_T / self.config.t_ref
@@ -289,8 +285,9 @@ class SWModel:
         """Calculate the time derivative of theta."""
         grad_v = np.gradient(v, DY)
         return (
-            self.THETA_E - theta
-        ) / TAU - DELTA * DELTA_Z * grad_v / self.config.height
+            (self.THETA_E - theta) / self.config.tau
+            - self.config.delta * DELTA_Z * grad_v / self.config.height
+        )
 
     def save_results(self):
         """Save the simulation results to a NetCDF file."""
@@ -338,12 +335,12 @@ class SWModel:
         ds.attrs["DELTA_Z"] = DELTA_Z
         ds.attrs["DELTA_Y"] = DELTA_Y
         ds.attrs["BETA"] = self.config.beta
-        ds.attrs["K_V"] = K_V
-        ds.attrs["EPSILON_U"] = EPSILON_U
-        ds.attrs["DELTA"] = DELTA
-        ds.attrs["Y_ONE"] = Y_ONE
-        ds.attrs["Y_0"] = Y_0
-        ds.attrs["V_D"] = V_D
+        ds.attrs["K_V"] = self.config.k_v
+        ds.attrs["EPSILON_U"] = self.config.epsilon_u
+        ds.attrs["DELTA"] = self.config.delta
+        ds.attrs["Y_ONE"] = self.config.y_one
+        ds.attrs["Y_0"] = self.config.y_0
+        ds.attrs["V_D"] = self.config.v_d
 
         os.makedirs(os.path.dirname(self.config.output_path), exist_ok=True)
         ds.to_netcdf(self.config.output_path)
@@ -376,25 +373,25 @@ def parse_arguments():
     parser.add_argument(
         "--gravity",
         type=float,
-        default=DEFAULT_GRAVITY,
+        default=9.81,
         help="Gravitational acceleration (default: 9.81 m/s^2)",
     )
     parser.add_argument(
         "--height",
         type=float,
-        default=DEFAULT_HEIGHT,
+        default=16e3,
         help="Height of the model (default: 16000 m)",
     )
     parser.add_argument(
         "--beta",
         type=float,
-        default=DEFAULT_BETA,
+        default=2e-11,
         help="Beta parameter (default: 2e-11)",
     )
     parser.add_argument(
         "--t_ref",
         type=float,
-        default=DEFAULT_T_REF,
+        default=300.0,
         help="Reference temperature (default: 300 K)",
     )
     parser.add_argument(
