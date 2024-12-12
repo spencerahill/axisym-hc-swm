@@ -18,6 +18,7 @@ logging.basicConfig(
 DT = 30  # satisfies CFL requirement if wind speed is not insanely large
 SAVEPATH = "./model_output/"  # save path
 SECONDS_PER_DAY = 86400  # Number of seconds in a day
+ASSELIN_FILT_COEF = 0.04  # Coefficient for the Asselin filter
 
 # Model constants (default values)
 DEFAULT_BETA = 2e-11
@@ -277,9 +278,11 @@ def apply_asselin_filter(
     theta_now: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Apply the Asselin filter to reduce numerical oscillations."""
-    u_before = u_now + 0.04 * (u_after + u_before - 2 * u_now)
-    v_before = v_now + 0.04 * (v_after + v_before - 2 * v_now)
-    theta_before = theta_now + 0.04 * (theta_after + theta_before - 2 * theta_now)
+    u_before = u_now + ASSELIN_FILT_COEF * (u_after + u_before - 2 * u_now)
+    v_before = v_now + ASSELIN_FILT_COEF * (v_after + v_before - 2 * v_now)
+    theta_before = theta_now + ASSELIN_FILT_COEF * (
+        theta_after + theta_before - 2 * theta_now
+    )
     return u_before, v_before, theta_before
 
 
