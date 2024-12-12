@@ -16,7 +16,6 @@ logging.basicConfig(
 
 # Constants
 DT = 30  # satisfies CFL requirement if wind speed is not insanely large
-SAVEPATH = "./model_output/"  # save path
 SECONDS_PER_DAY = 86400  # Number of seconds in a day
 ASSELIN_FILT_COEF = 0.04  # Coefficient for the Asselin filter
 
@@ -356,6 +355,7 @@ def save_results(
     theta: np.ndarray,
     time: np.ndarray,
     THETA_E: np.ndarray,
+    output_path: str,
 ):
     """Save the simulation results to a NetCDF file."""
     u_xr = xr.DataArray(
@@ -409,11 +409,9 @@ def save_results(
     ds.attrs["Y_0"] = Y_0
     ds.attrs["V_D"] = V_D
 
-    if not os.path.isdir(SAVEPATH):
-        os.mkdir(SAVEPATH)
-
-    ds.to_netcdf(SAVEPATH + "output.nc")
-    logging.info(f"Results saved to {SAVEPATH}output.nc")
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    ds.to_netcdf(output_path)
+    logging.info(f"Results saved to {output_path}")
 
 
 def main(
@@ -422,6 +420,7 @@ def main(
     height: float,
     beta: float,
     t_ref: float,
+    output_path: str,
 ):
     """Main function to run the simulation and save results."""
     try:
@@ -429,7 +428,7 @@ def main(
             total_integration_days, beta, gravity, height, t_ref
         )
         THETA_E = calculate_theta_e()
-        save_results(u, v, theta, time, THETA_E)
+        save_results(u, v, theta, time, THETA_E, output_path)
     except Exception as e:
         logging.error(f"An error occurred during the simulation: {e}")
         raise
@@ -472,5 +471,18 @@ if __name__ == "__main__":
         default=DEFAULT_T_REF,
         help="Reference temperature (default: 300 K)",
     )
+    parser.add_argument(
+        "--output_path",
+        type=str,
+        default="./model_output/output.nc",
+        help="Path to save the output NetCDF file (default: ./model_output/output.nc)",
+    )
     args = parser.parse_args()
-    main(args.total_integration_days, args.gravity, args.height, args.beta, args.t_ref)
+    main(
+        args.total_integration_days,
+        args.gravity,
+        args.height,
+        args.beta,
+        args.t_ref,
+        args.output_path,
+    )
