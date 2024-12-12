@@ -349,15 +349,32 @@ class SWModel:
         ds["theta_e"] = thetae_xr
         ds["time"] = t_xr
 
-        ds.attrs["DELTA_Z"] = self.config.delta_z
-        ds.attrs["DELTA_Y"] = self.config.delta_y
-        ds.attrs["BETA"] = self.config.beta
-        ds.attrs["K_V"] = self.config.k_v
-        ds.attrs["EPSILON_U"] = self.config.epsilon_u
-        ds.attrs["DELTA"] = self.config.delta
-        ds.attrs["Y_ONE"] = self.config.y_one
-        ds.attrs["Y_0"] = self.config.y_0
-        ds.attrs["V_D"] = self.config.v_d
+        # Add metadata for all parameters
+        ds.attrs.update(
+            {
+                "total_integration_days": self.config.total_integration_days,
+                "gravity": self.config.gravity,
+                "height": self.config.height,
+                "beta": self.config.beta,
+                "t_ref": self.config.t_ref,
+                "output_path": self.config.output_path,
+                "k_v": self.config.k_v,
+                "epsilon_u": self.config.epsilon_u,
+                "delta_z": self.config.delta_z,
+                "delta_y": self.config.delta_y,
+                "delta": self.config.delta,
+                "tau": self.config.tau,
+                "y_one": self.config.y_one,
+                "y_0": self.config.y_0,
+                "v_d": self.config.v_d,
+                "dt": self.config.dt,
+                "ny": self.config.ny,
+                "domain_size": self.config.domain_size,
+                "dy": self.config.dy,
+                "asselin_filt_coef": self.config.asselin_filt_coef,
+                "seconds_per_day": self.config.seconds_per_day,
+            }
+        )
 
         os.makedirs(os.path.dirname(self.config.output_path), exist_ok=True)
         ds.to_netcdf(self.config.output_path)

@@ -3,16 +3,18 @@ import os
 import xarray as xr
 import numpy as np
 import subprocess
+import tempfile
 
 
 @pytest.fixture
 def baseline_path():
-    return "baseline/output.nc"
+    return "tests/baseline/output.nc"
 
 
 @pytest.fixture
 def test_path():
-    return "test_output.nc"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        yield os.path.join(temp_dir, "test_output.nc")
 
 
 def run_model(output_path: str, total_integration_days: int = 5):
@@ -49,4 +51,3 @@ def test_regression(baseline_path, test_path):
     assert compare_outputs(
         baseline_path, test_path
     ), "Regression test failed: Outputs differ."
-    os.remove(test_path)
