@@ -17,17 +17,18 @@ logging.basicConfig(
 # Constants
 DT = 30  # satisfies CFL requirement if wind speed is not insanely large
 SAVEPATH = "./model_output/"  # save path
+SECONDS_PER_DAY = 86400  # Number of seconds in a day
 
-# Model constants
-BETA = 2e-11
+# Model constants (default values)
+DEFAULT_BETA = 2e-11
 K_V = 7786 * 100
 EPSILON_U = 1e-8
 DELTA_Z = 60
 DELTA_Y = 50
-T_REF = 300.0
+DEFAULT_T_REF = 300.0
 DELTA = 4e3
-GRAVITY = 9.81
-HEIGHT = 16e3
+DEFAULT_GRAVITY = 9.81
+DEFAULT_HEIGHT = 16e3
 TAU = 37 * 24 * 3600
 Y_ONE = 9439e3
 Y_0 = 0
@@ -61,7 +62,12 @@ def calculate_theta_e() -> np.ndarray:
 
 
 def get_dudt(
-    u: np.ndarray, v: np.ndarray, theta: np.ndarray, THETA_E: np.ndarray
+    u: np.ndarray,
+    v: np.ndarray,
+    theta: np.ndarray,
+    THETA_E: np.ndarray,
+    beta: float,
+    gravity: float,
 ) -> np.ndarray:
     """Calculate the time derivative of u."""
     grad_u = np.gradient(u, DY)
@@ -76,28 +82,40 @@ def get_dudt(
     s = V_D * np.sign(Y - Y_0) * grad_u
     f = u * EPSILON_U
     vt = u * grad_v * np.heaviside(THETA_E - theta, 0.5)
-    dudt = v * (BETA * Y - grad_u_adv) - vt - f - s
+    dudt = v * (beta * Y - grad_u_adv) - vt - f - s
     return dudt
 
 
-def get_dvdt(u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
+def get_dvdt(
+    u: np.ndarray,
+    v: np.ndarray,
+    theta: np.ndarray,
+    beta: float,
+    gravity: float,
+    height: float,
+    t_ref: float,
+) -> np.ndarray:
     """Calculate the time derivative of v."""
     grad_v = np.gradient(v, DY)
     grad_T = np.gradient(theta / 1.6, DY)
     diffusion_v = np.gradient(grad_v, DY) * K_V
-    return (-BETA * Y * u - GRAVITY * HEIGHT * grad_T / T_REF + diffusion_v) / 2
+    return (-beta * Y * u - gravity * height * grad_T / t_ref + diffusion_v) / 2
 
 
 def get_dthetadt(
-    u: np.ndarray, v: np.ndarray, theta: np.ndarray, THETA_E: np.ndarray
+    u: np.ndarray, v: np.ndarray, theta: np.ndarray, THETA_E: np.ndarray, height: float
 ) -> np.ndarray:
     """Calculate the time derivative of theta."""
     grad_v = np.gradient(v, DY)
-    return (THETA_E - theta) / TAU - DELTA * DELTA_Z * grad_v / HEIGHT
+    return (THETA_E - theta) / TAU - DELTA * DELTA_Z * grad_v / height
 
 
 def run_simulation(
     total_integration_days: int,
+    beta: float,
+    gravity: float,
+    height: float,
+    t_ref: float,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Run the S-S model simulation."""
     u, v, theta, time = initialize_variables(total_integration_days)
@@ -105,7 +123,7 @@ def run_simulation(
 
     u_thisstep, v_thisstep, theta_thisstep = initialize_current_step_variables(THETA_E)
     u_before, v_before, theta_before = initialize_previous_step_variables(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E
+        u_thisstep, v_thisstep, theta_thisstep, THETA_E, beta, gravity, height, t_ref
     )
 
     total_time_steps = calculate_total_time_steps(total_integration_days)
@@ -123,6 +141,10 @@ def run_simulation(
             v_thisstep,
             theta_thisstep,
             THETA_E,
+            beta,
+            gravity,
+            height,
+            t_ref,
         )
 
         u_before, v_before, theta_before = apply_asselin_filter(
@@ -145,7 +167,7 @@ def run_simulation(
 
         timestamp += DT
 
-        j = (i + 1) % int(86400 / DT)
+        j = (i + 1) % int(SECONDS_PER_DAY / DT)
 
         store_temporary_results(
             u_temp,
@@ -159,7 +181,7 @@ def run_simulation(
             j,
         )
 
-        if (i + 1) % int(86400 / DT) == 0:
+        if (i + 1) % int(SECONDS_PER_DAY / DT) == 0:
             store_daily_averages(
                 u, v, theta, time, u_temp, v_temp, theta_temp, time_temp, day
             )
@@ -189,29 +211,35 @@ def initialize_previous_step_variables(
     v_thisstep: np.ndarray,
     theta_thisstep: np.ndarray,
     THETA_E: np.ndarray,
+    beta: float,
+    gravity: float,
+    height: float,
+    t_ref: float,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Initialize variables for the previous step."""
     u_before = u_thisstep - DT * get_dudt(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E
+        u_thisstep, v_thisstep, theta_thisstep, THETA_E, beta, gravity
     )
-    v_before = v_thisstep - DT * get_dvdt(u_thisstep, v_thisstep, theta_thisstep)
+    v_before = v_thisstep - DT * get_dvdt(
+        u_thisstep, v_thisstep, theta_thisstep, beta, gravity, height, t_ref
+    )
     theta_before = theta_thisstep - DT * get_dthetadt(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E
+        u_thisstep, v_thisstep, theta_thisstep, THETA_E, height
     )
     return u_before, v_before, theta_before
 
 
 def calculate_total_time_steps(total_integration_days: int) -> int:
     """Calculate the total number of time steps."""
-    return int(86400 * total_integration_days / DT)
+    return int(SECONDS_PER_DAY * total_integration_days / DT)
 
 
 def initialize_temp_storage() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Initialize temporary storage for daily averages."""
-    u_temp = np.zeros([int(86400 / DT), NY])
-    v_temp = np.zeros([int(86400 / DT), NY])
-    theta_temp = np.zeros([int(86400 / DT), NY])
-    time_temp = np.zeros(int(86400 / DT))
+    u_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
+    v_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
+    theta_temp = np.zeros([int(SECONDS_PER_DAY / DT), NY])
+    time_temp = np.zeros(int(SECONDS_PER_DAY / DT))
     return u_temp, v_temp, theta_temp, time_temp
 
 
@@ -223,14 +251,20 @@ def leapfrog_step(
     v_thisstep: np.ndarray,
     theta_thisstep: np.ndarray,
     THETA_E: np.ndarray,
+    beta: float,
+    gravity: float,
+    height: float,
+    t_ref: float,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Perform a leapfrog step."""
     u_after = u_before + 2 * DT * get_dudt(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E
+        u_thisstep, v_thisstep, theta_thisstep, THETA_E, beta, gravity
     )
-    v_after = v_before + 2 * DT * get_dvdt(u_thisstep, v_thisstep, theta_thisstep)
+    v_after = v_before + 2 * DT * get_dvdt(
+        u_thisstep, v_thisstep, theta_thisstep, beta, gravity, height, t_ref
+    )
     theta_after = theta_before + 2 * DT * get_dthetadt(
-        u_thisstep, v_thisstep, theta_thisstep, THETA_E
+        u_thisstep, v_thisstep, theta_thisstep, THETA_E, height
     )
     return u_after, v_after, theta_after
 
@@ -370,7 +404,7 @@ def save_results(
 
     ds.attrs["DELTA_Z"] = DELTA_Z
     ds.attrs["DELTA_Y"] = DELTA_Y
-    ds.attrs["BETA"] = BETA
+    ds.attrs["BETA"] = beta
     ds.attrs["K_V"] = K_V
     ds.attrs["EPSILON_U"] = EPSILON_U
     ds.attrs["DELTA"] = DELTA
@@ -385,10 +419,18 @@ def save_results(
     logging.info(f"Results saved to {SAVEPATH}output.nc")
 
 
-def main(total_integration_days: int):
+def main(
+    total_integration_days: int,
+    gravity: float,
+    height: float,
+    beta: float,
+    t_ref: float,
+):
     """Main function to run the simulation and save results."""
     try:
-        u, v, theta, time = run_simulation(total_integration_days)
+        u, v, theta, time = run_simulation(
+            total_integration_days, beta, gravity, height, t_ref
+        )
         THETA_E = calculate_theta_e()
         save_results(u, v, theta, time, THETA_E)
     except Exception as e:
@@ -409,5 +451,29 @@ if __name__ == "__main__":
         default=365 * 15,
         help="Total number of integration days (default: 365*15)",
     )
+    parser.add_argument(
+        "--gravity",
+        type=float,
+        default=DEFAULT_GRAVITY,
+        help="Gravitational acceleration (default: 9.81 m/s^2)",
+    )
+    parser.add_argument(
+        "--height",
+        type=float,
+        default=DEFAULT_HEIGHT,
+        help="Height of the model (default: 16000 m)",
+    )
+    parser.add_argument(
+        "--beta",
+        type=float,
+        default=DEFAULT_BETA,
+        help="Beta parameter (default: 2e-11)",
+    )
+    parser.add_argument(
+        "--t_ref",
+        type=float,
+        default=DEFAULT_T_REF,
+        help="Reference temperature (default: 300 K)",
+    )
     args = parser.parse_args()
-    main(args.total_integration_days)
+    main(args.total_integration_days, args.gravity, args.height, args.beta, args.t_ref)
