@@ -21,7 +21,7 @@ SECONDS_PER_DAY = 86400  # Number of seconds in a day
 
 @dataclass
 class SWConfig:
-    total_integration_days: int = 365 * 15
+    total_integration_days: int = 400
     gravity: float = 9.81
     height: float = 16e3
     beta: float = 2e-11
@@ -32,7 +32,7 @@ class SWConfig:
     delta_z: float = 60
     delta_y: float = 50
     delta: float = 4e3
-    tau: float = 37 * 24 * 3600
+    tau: float = 37.0 * SECONDS_PER_DAY
     y_one: float = 9439e3
     y_0: float = 0
     v_d: float = 2.5
