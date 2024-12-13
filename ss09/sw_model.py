@@ -8,7 +8,7 @@ import logging
 import numpy as np
 import xarray as xr
 from typing import Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Configure logging
 logging.basicConfig(
@@ -21,6 +21,35 @@ SECONDS_PER_DAY = 86400  # Number of seconds in a day
 
 @dataclass
 class SWConfig:
+    """
+    Configuration for the Shallow Water Model.
+
+    Attributes:
+        total_integration_days (int): Total number of days for the simulation to run.
+        gravity (float): Gravitational acceleration in m/s^2.
+        height (float): Tropopause height in meters.
+        beta (float): Meridional gradient of the Coriolis parameter in m^-1 s^-1.
+        t_ref (float): Reference temperature in Kelvin.
+        output_path (str): Path to save the output NetCDF file.
+        k_v (float): Diffusivity on v in m^2/s.
+        epsilon_u (float): Background Rayleigh drag in s^-1.
+        delta_z (float): Vertical potential temperature stratification in Kelvin.
+        delta_y (float): RCE equator-pole temperature gradient in Kelvin.
+        delta (float): Depth of layers in which meridional flow occurs in meters.
+        tau (float): Thermal relaxation time in seconds.
+        y_one (float): Half-width of the domain in meters.
+        y_0 (float): Central latitude of the domain.
+        v_d (float): Parameterized eddy momentum flux coefficient in m/s.
+        dt (int): Time step size in seconds.
+        ny (int): Number of grid points in the y-direction.
+        domain_size (float): Total domain size in the y-direction in meters.
+        dy (float): Grid spacing in the y-direction, calculated in __post_init__.
+        y (np.ndarray): Y coordinates, calculated in __post_init__.
+        asselin_filt_coef (float): Coefficient for the Asselin filter to reduce numerical oscillations.
+        seconds_per_day (int): Number of seconds in a day.
+        theta_00 (float): Background tropospheric-mean potential temperature in Kelvin.
+    """
+
     total_integration_days: int = 400
     gravity: float = 9.81
     height: float = 16e3
@@ -36,14 +65,14 @@ class SWConfig:
     y_one: float = 9439e3
     y_0: float = 0
     v_d: float = 2.5
-    dt: int = 30  # Time step size
-    ny: int = 801  # Number of grid points in the y-direction
-    domain_size: float = 15751e3 * 2  # Total domain size in the y-direction
-    dy: float = None  # Grid spacing in the y-direction
-    y: np.ndarray = None  # Y coordinates
-    asselin_filt_coef: float = 0.04  # Coefficient for the Asselin filter
-    seconds_per_day: int = 86400  # Number of seconds in a day
-    theta_00: float = 330.0  # Reference temperature for theta_e calculation
+    dt: int = 30
+    ny: int = 801
+    domain_size: float = 15751e3 * 2
+    dy: float = field(init=False)
+    y: np.ndarray = field(init=False)
+    asselin_filt_coef: float = 0.04
+    seconds_per_day: int = 86400
+    theta_00: float = 330.0
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)
@@ -300,11 +329,11 @@ class SWModel:
         self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
     ) -> np.ndarray:
         """Calculate the time derivative of theta."""
-        grad_v = np.gradient(v, self.config.dy)
         return (
-            (self.THETA_E - theta) / self.config.tau
-            - self.config.delta * self.config.delta_z * grad_v / self.config.height
-        )
+            self.THETA_E - theta
+        ) / self.config.tau - self.config.delta * self.config.delta_z * np.gradient(
+            v, self.config.dy
+        ) / self.config.height
 
     def save_results(self):
         """Save the simulation results to a NetCDF file."""
