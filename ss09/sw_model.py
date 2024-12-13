@@ -433,8 +433,8 @@ def parse_arguments():
     parser.add_argument(
         "--total_integration_days",
         type=int,
-        default=500,
-        help="Total number of integration days (default: 500)",
+        default=250,
+        help="Total number of integration days (default: 250)",
     )
     parser.add_argument(
         "--gravity",
