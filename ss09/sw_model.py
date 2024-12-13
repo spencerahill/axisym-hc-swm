@@ -50,7 +50,7 @@ class SWConfig:
         theta_00 (float): Background tropospheric-mean potential temperature in Kelvin.
     """
 
-    total_integration_days: int = 400
+    total_integration_days: int = 250
     gravity: float = 9.81
     height: float = 16e3
     beta: float = 2e-11
@@ -65,8 +65,8 @@ class SWConfig:
     y_one: float = 9439e3
     y_0: float = 0
     v_d: float = 2.5
-    dt: int = 30
-    ny: int = 801
+    dt: int = 3600
+    ny: int = 51
     domain_size: float = 15751e3 * 2
     dy: float = field(init=False)
     y: np.ndarray = field(init=False)
