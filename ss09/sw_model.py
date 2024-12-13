@@ -420,6 +420,8 @@ def main():
         beta=args.beta,
         t_ref=args.t_ref,
         output_path=args.output_path,
+        ny=args.ny,
+        dt=args.dt,
     )
     model = SWModel(config)
     model.run_sim()
@@ -431,8 +433,8 @@ def parse_arguments():
     parser.add_argument(
         "--total_integration_days",
         type=int,
-        default=365 * 15,
-        help="Total number of integration days (default: 365*15)",
+        default=500,
+        help="Total number of integration days (default: 500)",
     )
     parser.add_argument(
         "--gravity",
@@ -463,6 +465,18 @@ def parse_arguments():
         type=str,
         default="./model_output/output.nc",
         help="Path to save the output NetCDF file (default: ./model_output/output.nc)",
+    )
+    parser.add_argument(
+        "--ny",
+        type=int,
+        default=801,
+        help="Number of grid points in the y-direction (default: 801)",
+    )
+    parser.add_argument(
+        "--dt",
+        type=int,
+        default=30,
+        help="Time step size in seconds (default: 30)",
     )
     return parser.parse_args()
 
