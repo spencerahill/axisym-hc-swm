@@ -146,7 +146,7 @@ class SWModel:
 
             timestamp += self.config.dt
 
-            j = (i + 1) % int(SECONDS_PER_DAY / self.config.dt)
+            ind_within_day = (i + 1) % int(SECONDS_PER_DAY / self.config.dt)
 
             self.store_temp_results(
                 u_temp,
@@ -157,7 +157,7 @@ class SWModel:
                 v_now,
                 theta_now,
                 timestamp,
-                j,
+                ind_within_day,
             )
 
             if (i + 1) % int(SECONDS_PER_DAY / self.config.dt) == 0:
