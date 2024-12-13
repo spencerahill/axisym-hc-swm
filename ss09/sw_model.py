@@ -43,6 +43,7 @@ class SWConfig:
     y: np.ndarray = None  # Y coordinates
     asselin_filt_coef: float = 0.04  # Coefficient for the Asselin filter
     seconds_per_day: int = 86400  # Number of seconds in a day
+    theta_00: float = 330.0  # Reference temperature for theta_e calculation
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)
@@ -67,10 +68,9 @@ class SWModel:
 
     def calc_theta_e(self) -> np.ndarray:
         """Calculate the radiative-convective equilibrium (RCE) temperature θₑ."""
-        theta_00 = 330
         return np.where(
             np.abs(self.config.y - self.config.y_0) < self.config.y_one,
-            theta_00
+            self.config.theta_00
             - self.config.delta_y
             * (
                 np.sin(
@@ -78,7 +78,7 @@ class SWModel:
                 )
                 ** 2
             ),
-            theta_00 - self.config.delta_y,
+            self.config.theta_00 - self.config.delta_y,
         )
 
     def run_sim(self):
@@ -373,6 +373,7 @@ class SWModel:
                 "dy": self.config.dy,
                 "asselin_filt_coef": self.config.asselin_filt_coef,
                 "seconds_per_day": self.config.seconds_per_day,
+                "theta_00": self.config.theta_00,
             }
         )
 
