@@ -15,6 +15,11 @@ setup(
         "xarray",
         "pytest",
     ],
+    entry_points={
+        "console_scripts": [
+            "run-sw-model=ss09.cli:main",
+        ],
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

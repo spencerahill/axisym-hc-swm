@@ -21,14 +21,18 @@ def run_model(output_path: str, total_integration_days: int = 5):
     """Run the model and save the output to the specified path."""
     subprocess.run(
         [
-            "python",
-            "ss09/sw_model.py",
+            "run-sw-model",
             "--total_integration_days",
             str(total_integration_days),
+            "--ny",
+            "801",
+            "--dt",
+            "30",
+            "--output_path",
+            output_path,
         ],
         check=True,
     )
-    os.rename("./model_output/output.nc", output_path)
 
 
 def compare_outputs(baseline_path: str, test_path: str) -> bool:
