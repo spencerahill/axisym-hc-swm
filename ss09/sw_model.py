@@ -303,16 +303,24 @@ class SWModel:
         """Calculate the time derivative of u."""
         grad_u = np.gradient(u, self.config.dy)
         grad_v = np.gradient(v, self.config.dy)
-        grad_u_adv_pos_v = np.zeros_like(u)
-        grad_u_adv_pos_v[1:] = (u[1:] - u[:-1]) / self.config.dy
-        grad_u_adv_neg_v = np.zeros_like(u)
-        grad_u_adv_neg_v[:-1] = (u[1:] - u[:-1]) / self.config.dy
-        grad_u_adv = np.where(v > 0, grad_u_adv_pos_v, grad_u_adv_neg_v)
+
+        # First-order upwind scheme for advection
+        grad_u_adv = np.zeros_like(u)
+        # For positive velocity (backward difference)
+        mask_pos = v > 0
+        grad_u_adv[1:][mask_pos[1:]] = (
+            u[1:][mask_pos[1:]] - u[:-1][mask_pos[1:]]
+        ) / self.config.dy
+        # For negative velocity (forward difference)
+        mask_neg = v < 0
+        grad_u_adv[:-1][mask_neg[:-1]] = (
+            u[1:][mask_neg[:-1]] - u[:-1][mask_neg[:-1]]
+        ) / self.config.dy
+
         s = self.config.v_d * np.sign(self.config.y - self.config.y_0) * grad_u
         f = u * self.config.epsilon_u
         vt = u * grad_v * np.heaviside(self.THETA_E - theta, 0.5)
-        dudt = v * (self.config.beta * self.config.y - grad_u_adv) - vt - f - s
-        return dudt
+        return v * (self.config.beta * self.config.y - grad_u_adv) - vt - f - s
 
     def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of v."""
@@ -336,79 +344,85 @@ class SWModel:
         ) / self.config.height
 
     def save_results(self):
-        """Save the simulation results to a NetCDF file."""
-        u_xr = xr.DataArray(
-            data=self.u[self.time != 0],
-            dims=["time", "y"],
-            coords={"time": self.time[self.time != 0], "y": self.config.y},
-            attrs=dict(units="m/s"),
-        )
+        """Save the simulation results to a NetCDF file.
 
-        v_xr = xr.DataArray(
-            data=self.v[self.time != 0],
-            dims=["time", "y"],
-            coords={"time": self.time[self.time != 0], "y": self.config.y},
-            attrs=dict(units="m/s"),
-        )
+        Creates a NetCDF dataset with model variables and metadata, ensuring proper
+        units and dimension labeling.
+        """
+        # Filter out zero-time entries
+        mask = self.time != 0
+        time_filtered = self.time[mask]
 
-        temp_xr = xr.DataArray(
-            data=self.theta[self.time != 0] / 1.6,
-            dims=["time", "y"],
-            coords={"time": self.time[self.time != 0], "y": self.config.y},
-            attrs=dict(units="K"),
-        )
+        # Create dictionary of variables with their attributes
+        data_vars = {
+            "u": xr.DataArray(
+                data=self.u[mask],
+                dims=["time", "y"],
+                coords={"time": time_filtered, "y": self.config.y},
+                attrs={"units": "m/s", "long_name": "zonal wind"},
+            ),
+            "v": xr.DataArray(
+                data=self.v[mask],
+                dims=["time", "y"],
+                coords={"time": time_filtered, "y": self.config.y},
+                attrs={"units": "m/s", "long_name": "meridional wind"},
+            ),
+            "T": xr.DataArray(
+                data=self.theta[mask] / 1.6,
+                dims=["time", "y"],
+                coords={"time": time_filtered, "y": self.config.y},
+                attrs={"units": "K", "long_name": "temperature"},
+            ),
+            "theta_e": xr.DataArray(
+                data=self.THETA_E,
+                dims=["y"],
+                coords={"y": self.config.y},
+                attrs={"units": "K", "long_name": "equilibrium potential temperature"},
+            ),
+        }
 
-        t_xr = xr.DataArray(
-            data=self.time[self.time != 0],
+        # Create time coordinate with proper attributes
+        time_coord = xr.DataArray(
+            data=time_filtered,
             dims=["time"],
-            coords={"time": self.time[self.time != 0]},
-            attrs=dict(units="days since 0000-01-01 00:00:00.0", calendar="noleap"),
+            coords={"time": time_filtered},
+            attrs={
+                "units": "days since 0000-01-01 00:00:00.0",
+                "calendar": "noleap",
+                "long_name": "time",
+            },
         )
 
-        thetae_xr = xr.DataArray(
-            data=self.THETA_E,
-            dims=["y"],
-            coords={"y": self.config.y},
-            attrs=dict(units="K"),
+        # Create dataset
+        ds = xr.Dataset(
+            data_vars=data_vars, coords={"time": time_coord, "y": self.config.y}
         )
 
-        ds = u_xr.to_dataset(name="u")
-        ds["v"] = v_xr
-        ds["T"] = temp_xr
-        ds["theta_e"] = thetae_xr
-        ds["time"] = t_xr
-
-        # Add metadata for all parameters
-        ds.attrs.update(
-            {
-                "total_integration_days": self.config.total_integration_days,
-                "gravity": self.config.gravity,
-                "height": self.config.height,
-                "beta": self.config.beta,
-                "t_ref": self.config.t_ref,
-                "output_path": self.config.output_path,
-                "k_v": self.config.k_v,
-                "epsilon_u": self.config.epsilon_u,
-                "delta_z": self.config.delta_z,
-                "delta_y": self.config.delta_y,
-                "delta": self.config.delta,
-                "tau": self.config.tau,
-                "y_one": self.config.y_one,
-                "y_0": self.config.y_0,
-                "v_d": self.config.v_d,
-                "dt": self.config.dt,
-                "ny": self.config.ny,
-                "domain_size": self.config.domain_size,
-                "dy": self.config.dy,
-                "asselin_filt_coef": self.config.asselin_filt_coef,
-                "seconds_per_day": self.config.seconds_per_day,
-                "theta_00": self.config.theta_00,
-            }
+        # Add coordinate attributes
+        ds.y.attrs.update(
+            {"units": "m", "long_name": "meridional distance from equator"}
         )
 
+        # Add global attributes from config
+        global_attrs = {
+            "title": "Shallow Water Model Output",
+            "creation_date": str(np.datetime64("now")),
+            **{
+                key: getattr(self.config, key)
+                for key in self.config.__dataclass_fields__
+            },
+        }
+        ds.attrs.update(global_attrs)
+
+        # Ensure output directory exists
         os.makedirs(os.path.dirname(self.config.output_path), exist_ok=True)
-        ds.to_netcdf(self.config.output_path)
-        logging.info(f"Results saved to {self.config.output_path}")
+
+        try:
+            ds.to_netcdf(self.config.output_path)
+            logging.info(f"Results successfully saved to {self.config.output_path}")
+        except Exception as e:
+            logging.error(f"Failed to save results: {str(e)}")
+            raise
 
 
 def main():
