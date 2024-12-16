@@ -7,8 +7,9 @@ import argparse
 import logging
 import numpy as np
 import xarray as xr
-from typing import Tuple
+from typing import Optional, NamedTuple, Tuple
 from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
 
 # Configure logging
 logging.basicConfig(
@@ -19,36 +20,136 @@ logging.basicConfig(
 SECONDS_PER_DAY = 86400  # Number of seconds in a day
 
 
+class ModelState(NamedTuple):
+    """Container for model state at a single timestep."""
+
+    t: float  # time in seconds
+    u: np.ndarray  # instantaneous zonal wind
+    v: np.ndarray  # instantaneous meridional wind
+    theta: np.ndarray  # instantaneous potential temperature
+    div: Optional[np.ndarray] = None  # meridional divergence if needed
+
+
+class DailyResults:
+    """Handler for daily-averaged model output."""
+
+    def __init__(self, total_days: int, ny: int):
+        self.time = np.zeros(total_days)
+        self.u = np.zeros([total_days, ny])
+        self.v = np.zeros([total_days, ny])
+        self.theta = np.zeros([total_days, ny])
+
+    def store_day(
+        self, day: int, time: float, u: np.ndarray, v: np.ndarray, theta: np.ndarray
+    ):
+        """Store results for one day."""
+        self.time[day] = time
+        self.u[day] = u
+        self.v[day] = v
+        self.theta[day] = theta
+
+    def to_xarray(self, config: "SWConfig") -> xr.Dataset:
+        """Convert results to xarray Dataset with metadata."""
+        mask = self.time != 0
+        time_filtered = self.time[mask]
+
+        # Calculate theta_e for the output
+        state = ModelState(
+            0.0,
+            np.zeros_like(config.y),
+            np.zeros_like(config.y),
+            np.zeros_like(config.y),
+        )
+        theta_e = config.theta_e_profile(state)
+
+        data_vars = {
+            "u": xr.DataArray(
+                data=self.u[mask],
+                dims=["time", "y"],
+                coords={"time": time_filtered, "y": config.y},
+                attrs={"units": "m/s", "long_name": "zonal wind"},
+            ),
+            "v": xr.DataArray(
+                data=self.v[mask],
+                dims=["time", "y"],
+                coords={"time": time_filtered, "y": config.y},
+                attrs={"units": "m/s", "long_name": "meridional wind"},
+            ),
+            "T": xr.DataArray(
+                data=self.theta[mask] / 1.6,
+                dims=["time", "y"],
+                coords={"time": time_filtered, "y": config.y},
+                attrs={"units": "K", "long_name": "temperature"},
+            ),
+            "theta_e": xr.DataArray(
+                data=theta_e,
+                dims=["y"],
+                coords={"y": config.y},
+                attrs={"units": "K", "long_name": "equilibrium potential temperature"},
+            ),
+        }
+
+        time_coord = xr.DataArray(
+            data=time_filtered,
+            dims=["time"],
+            coords={"time": time_filtered},
+            attrs={
+                "units": "days since 0000-01-01 00:00:00.0",
+                "calendar": "noleap",
+                "long_name": "time",
+            },
+        )
+
+        return xr.Dataset(
+            data_vars=data_vars, coords={"time": time_coord, "y": config.y}
+        )
+
+
+class ThetaEProfile(ABC):
+    """Abstract base class for θₑ profiles."""
+
+    def __init__(self, config: "SWConfig"):
+        self.config = config
+
+    @abstractmethod
+    def __call__(self, state: ModelState) -> np.ndarray:
+        """Calculate θₑ for given model state."""
+        pass
+
+
+class SS09Profile(ThetaEProfile):
+    """θₑ profile using (y/y₁)² form from the original paper"""
+
+    def __call__(self, state: ModelState) -> np.ndarray:
+        return np.where(
+            np.abs(self.config.y) < self.config.y_one,
+            self.config.theta_00
+            - self.config.delta_y * (self.config.y / self.config.y_one) ** 2,
+            self.config.theta_00 - self.config.delta_y,
+        )
+
+
+class Sin2Profile(ThetaEProfile):
+    """θₑ profile using sin²(πy/2y₁) form"""
+
+    def __call__(self, state: ModelState) -> np.ndarray:
+        return np.where(
+            np.abs(self.config.y - self.config.y_0) < self.config.y_one,
+            self.config.theta_00
+            - self.config.delta_y
+            * (
+                np.sin(
+                    0.5 * np.pi * (self.config.y - self.config.y_0) / self.config.y_one
+                )
+                ** 2
+            ),
+            self.config.theta_00 - self.config.delta_y,
+        )
+
+
 @dataclass
 class SWConfig:
-    """
-    Configuration for the Shallow Water Model.
-
-    Attributes:
-        total_integration_days (int): Total number of days for the simulation to run.
-        gravity (float): Gravitational acceleration in m/s^2.
-        height (float): Tropopause height in meters.
-        beta (float): Meridional gradient of the Coriolis parameter in m^-1 s^-1.
-        t_ref (float): Reference temperature in Kelvin.
-        output_path (str): Path to save the output NetCDF file.
-        k_v (float): Diffusivity on v in m^2/s.
-        epsilon_u (float): Background Rayleigh drag in s^-1.
-        delta_z (float): Vertical potential temperature stratification in Kelvin.
-        delta_y (float): RCE equator-pole temperature gradient in Kelvin.
-        delta (float): Depth of layers in which meridional flow occurs in meters.
-        tau (float): Thermal relaxation time in seconds.
-        y_one (float): Half-width of the domain in meters.
-        y_0 (float): Central latitude of the domain.
-        v_d (float): Parameterized eddy momentum flux coefficient in m/s.
-        dt (int): Time step size in seconds.
-        ny (int): Number of grid points in the y-direction.
-        domain_size (float): Total domain size in the y-direction in meters.
-        dy (float): Grid spacing in the y-direction, calculated in __post_init__.
-        y (np.ndarray): Y coordinates, calculated in __post_init__.
-        asselin_filt_coef (float): Coefficient for the Asselin filter to reduce numerical oscillations.
-        seconds_per_day (int): Number of seconds in a day.
-        theta_00 (float): Background tropospheric-mean potential temperature in Kelvin.
-    """
+    """Configuration for the Shallow Water Model."""
 
     total_integration_days: int = 250
     gravity: float = 9.81
@@ -71,116 +172,47 @@ class SWConfig:
     dy: float = field(init=False)
     y: np.ndarray = field(init=False)
     asselin_filt_coef: float = 0.04
-    seconds_per_day: int = 86400
     theta_00: float = 330.0
+    theta_e_type: str = "sin2"
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)
-        self.y = np.linspace(
-            start=-self.domain_size / 2, stop=self.domain_size / 2, num=self.ny
-        )
+        self.y = np.linspace(-self.domain_size / 2, self.domain_size / 2, self.ny)
+        self.theta_e_profile = {
+            "SS09": SS09Profile,
+            "sin2": Sin2Profile,
+        }[
+            self.theta_e_type
+        ](self)
 
 
 class SWModel:
     def __init__(self, config: SWConfig):
         self.config = config
-        self.u, self.v, self.theta, self.time = self.init_vars()
-        self.THETA_E = self.calc_theta_e()
+        self.results = DailyResults(config.total_integration_days, config.ny)
+        self.current_time = 0.0
 
-    def init_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Initialize the model variables."""
-        u = np.zeros([self.config.total_integration_days, self.config.ny])
-        v = np.zeros([self.config.total_integration_days, self.config.ny])
-        theta = np.zeros([self.config.total_integration_days, self.config.ny])
-        time = np.zeros(self.config.total_integration_days)
-        return u, v, theta, time
-
-    def calc_theta_e(self) -> np.ndarray:
-        """Calculate the radiative-convective equilibrium (RCE) temperature θₑ."""
-        return np.where(
-            np.abs(self.config.y - self.config.y_0) < self.config.y_one,
-            self.config.theta_00
-            - self.config.delta_y
-            * (
-                np.sin(
-                    0.5 * np.pi * (self.config.y - self.config.y_0) / self.config.y_one
-                )
-                ** 2
-            ),
-            self.config.theta_00 - self.config.delta_y,
-        )
-
-    def run_sim(self):
-        """Run the S-S model simulation."""
-        u_now, v_now, theta_now = self.init_current_step_vars()
-        u_prev, v_prev, theta_prev = self.init_prev_step_vars(u_now, v_now, theta_now)
-
-        total_time_steps = self.calc_total_time_steps()
-        timestamp = 0
-        day = 0
-
-        u_temp, v_temp, theta_temp, time_temp = self.init_temp_storage()
-
-        for i in range(total_time_steps):
-            u_after, v_after, theta_after = self.leapfrog_step(
-                u_prev, v_prev, theta_prev, u_now, v_now, theta_now
-            )
-
-            u_prev, v_prev, theta_prev = self.apply_asselin_filter(
-                u_prev,
-                v_prev,
-                theta_prev,
-                u_after,
-                v_after,
-                theta_after,
-                u_now,
-                v_now,
-                theta_now,
-            )
-
-            u_now, v_now, theta_now = self.update_current_step(
-                u_after, v_after, theta_after
-            )
-
-            self.enforce_boundary_conditions(u_now, v_now)
-
-            timestamp += self.config.dt
-
-            ind_within_day = (i + 1) % int(SECONDS_PER_DAY / self.config.dt)
-
-            self.store_temp_results(
-                u_temp,
-                v_temp,
-                theta_temp,
-                time_temp,
-                u_now,
-                v_now,
-                theta_now,
-                timestamp,
-                ind_within_day,
-            )
-
-            if (i + 1) % int(SECONDS_PER_DAY / self.config.dt) == 0:
-                self.store_daily_avgs(u_temp, v_temp, theta_temp, time_temp, day)
-                self.reset_temp_storage(u_temp, v_temp, theta_temp, time_temp)
-                day += 1
-                logging.info(f"Day {day} finished.")
-
-            if np.isnan(u_now).any():
-                logging.warning("NaN detected in u_now, breaking the loop.")
-                break
+    def get_state(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> ModelState:
+        """Get model state from current instantaneous values."""
+        return ModelState(t=self.current_time, u=u, v=v, theta=theta)
 
     def init_current_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the current step."""
         u_now = np.zeros(self.config.ny)
         v_now = np.zeros(self.config.ny)
-        theta_now = self.THETA_E
+        state = self.get_state(
+            u_now,
+            v_now,
+            self.config.theta_e_profile(ModelState(0, u_now, v_now, u_now)),
+        )
+        theta_now = self.config.theta_e_profile(state)
         return u_now, v_now, theta_now
 
     def init_prev_step_vars(
         self, u_now: np.ndarray, v_now: np.ndarray, theta_now: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
+        state = self.get_state(u_now, v_now, theta_now)
         u_prev = u_now - self.config.dt * self.get_dudt(u_now, v_now, theta_now)
         v_prev = v_now - self.config.dt * self.get_dvdt(u_now, v_now, theta_now)
         theta_prev = theta_now - self.config.dt * self.get_dthetadt(
@@ -188,21 +220,62 @@ class SWModel:
         )
         return u_prev, v_prev, theta_prev
 
-    def calc_total_time_steps(self) -> int:
-        """Calculate the total number of time steps."""
-        return int(
-            SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
-        )
-
     def init_temp_storage(
         self,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Initialize temporary storage for daily averages."""
-        u_temp = np.zeros([int(SECONDS_PER_DAY / self.config.dt), self.config.ny])
-        v_temp = np.zeros([int(SECONDS_PER_DAY / self.config.dt), self.config.ny])
-        theta_temp = np.zeros([int(SECONDS_PER_DAY / self.config.dt), self.config.ny])
-        time_temp = np.zeros(int(SECONDS_PER_DAY / self.config.dt))
+        steps_per_day = int(SECONDS_PER_DAY / self.config.dt)
+        u_temp = np.zeros([steps_per_day, self.config.ny])
+        v_temp = np.zeros([steps_per_day, self.config.ny])
+        theta_temp = np.zeros([steps_per_day, self.config.ny])
+        time_temp = np.zeros(steps_per_day)
         return u_temp, v_temp, theta_temp, time_temp
+
+    def get_dudt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
+        """Calculate the time derivative of u."""
+        state = self.get_state(u, v, theta)
+        grad_u = np.gradient(u, self.config.dy)
+        grad_v = np.gradient(v, self.config.dy)
+
+        # First-order upwind scheme for advection
+        grad_u_adv = np.zeros_like(u)
+        # For positive velocity (backward difference)
+        mask_pos = v > 0
+        grad_u_adv[1:][mask_pos[1:]] = (
+            u[1:][mask_pos[1:]] - u[:-1][mask_pos[1:]]
+        ) / self.config.dy
+        # For negative velocity (forward difference)
+        mask_neg = v < 0
+        grad_u_adv[:-1][mask_neg[:-1]] = (
+            u[1:][mask_neg[:-1]] - u[:-1][mask_neg[:-1]]
+        ) / self.config.dy
+
+        s = self.config.v_d * np.sign(self.config.y - self.config.y_0) * grad_u
+        f = u * self.config.epsilon_u
+        vt = u * grad_v * np.heaviside(self.config.theta_e_profile(state) - theta, 0.5)
+        return v * (self.config.beta * self.config.y - grad_u_adv) - vt - f - s
+
+    def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
+        """Calculate the time derivative of v."""
+        grad_v = np.gradient(v, self.config.dy)
+        grad_T = np.gradient(theta / 1.6, self.config.dy)
+        diffusion_v = np.gradient(grad_v, self.config.dy) * self.config.k_v
+        return (
+            -self.config.beta * self.config.y * u
+            - self.config.gravity * self.config.height * grad_T / self.config.t_ref
+            + diffusion_v
+        ) / 2
+
+    def get_dthetadt(
+        self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
+    ) -> np.ndarray:
+        """Calculate the time derivative of theta."""
+        state = self.get_state(u, v, theta)
+        return (
+            self.config.theta_e_profile(state) - theta
+        ) / self.config.tau - self.config.delta * self.config.delta_z * np.gradient(
+            v, self.config.dy
+        ) / self.config.height
 
     def leapfrog_step(
         self,
@@ -233,7 +306,7 @@ class SWModel:
         v_now: np.ndarray,
         theta_now: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Apply the Asselin filter to reduce numerical oscillations."""
+        """Apply the Asselin filter."""
         u_prev = u_now + self.config.asselin_filt_coef * (u_after + u_prev - 2 * u_now)
         v_prev = v_now + self.config.asselin_filt_coef * (v_after + v_prev - 2 * v_now)
         theta_prev = theta_now + self.config.asselin_filt_coef * (
@@ -241,14 +314,8 @@ class SWModel:
         )
         return u_prev, v_prev, theta_prev
 
-    def update_current_step(
-        self, u_after: np.ndarray, v_after: np.ndarray, theta_after: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Update the current step variables."""
-        return u_after, v_after, theta_after
-
     def enforce_boundary_conditions(self, u_now: np.ndarray, v_now: np.ndarray):
-        """Enforce boundary conditions on the current step variables."""
+        """Enforce boundary conditions."""
         u_now[0] = 0
         u_now[-1] = 0
         v_now[0] = 0
@@ -280,11 +347,14 @@ class SWModel:
         time_temp: np.ndarray,
         day: int,
     ):
-        """Store daily averages of the simulation results."""
-        self.u[day] = np.mean(u_temp, axis=0)
-        self.v[day] = np.mean(v_temp, axis=0)
-        self.theta[day] = np.mean(theta_temp, axis=0)
-        self.time[day] = np.mean(time_temp, axis=0)
+        """Store daily averages."""
+        self.results.store_day(
+            day,
+            np.mean(time_temp),
+            np.mean(u_temp, axis=0),
+            np.mean(v_temp, axis=0),
+            np.mean(theta_temp, axis=0),
+        )
 
     def reset_temp_storage(
         self,
@@ -293,117 +363,81 @@ class SWModel:
         theta_temp: np.ndarray,
         time_temp: np.ndarray,
     ):
-        """Reset temporary storage for the next day's calculations."""
+        """Reset temporary storage arrays."""
         u_temp.fill(0)
         v_temp.fill(0)
         theta_temp.fill(0)
         time_temp.fill(0)
 
-    def get_dudt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
-        """Calculate the time derivative of u."""
-        grad_u = np.gradient(u, self.config.dy)
-        grad_v = np.gradient(v, self.config.dy)
+    def run_sim(self):
+        """Run the S-S model simulation."""
+        u_now, v_now, theta_now = self.init_current_step_vars()
+        u_prev, v_prev, theta_prev = self.init_prev_step_vars(u_now, v_now, theta_now)
 
-        # First-order upwind scheme for advection
-        grad_u_adv = np.zeros_like(u)
-        # For positive velocity (backward difference)
-        mask_pos = v > 0
-        grad_u_adv[1:][mask_pos[1:]] = (
-            u[1:][mask_pos[1:]] - u[:-1][mask_pos[1:]]
-        ) / self.config.dy
-        # For negative velocity (forward difference)
-        mask_neg = v < 0
-        grad_u_adv[:-1][mask_neg[:-1]] = (
-            u[1:][mask_neg[:-1]] - u[:-1][mask_neg[:-1]]
-        ) / self.config.dy
+        total_time_steps = int(
+            SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
+        )
+        day = 0
 
-        s = self.config.v_d * np.sign(self.config.y - self.config.y_0) * grad_u
-        f = u * self.config.epsilon_u
-        vt = u * grad_v * np.heaviside(self.THETA_E - theta, 0.5)
-        return v * (self.config.beta * self.config.y - grad_u_adv) - vt - f - s
+        u_temp, v_temp, theta_temp, time_temp = self.init_temp_storage()
 
-    def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
-        """Calculate the time derivative of v."""
-        grad_v = np.gradient(v, self.config.dy)
-        grad_T = np.gradient(theta / 1.6, self.config.dy)
-        diffusion_v = np.gradient(grad_v, self.config.dy) * self.config.k_v
-        return (
-            -self.config.beta * self.config.y * u
-            - self.config.gravity * self.config.height * grad_T / self.config.t_ref
-            + diffusion_v
-        ) / 2
+        for i in range(total_time_steps):
+            self.current_time = i * self.config.dt
 
-    def get_dthetadt(
-        self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
-    ) -> np.ndarray:
-        """Calculate the time derivative of theta."""
-        return (
-            self.THETA_E - theta
-        ) / self.config.tau - self.config.delta * self.config.delta_z * np.gradient(
-            v, self.config.dy
-        ) / self.config.height
+            u_after, v_after, theta_after = self.leapfrog_step(
+                u_prev, v_prev, theta_prev, u_now, v_now, theta_now
+            )
+
+            u_prev, v_prev, theta_prev = self.apply_asselin_filter(
+                u_prev,
+                v_prev,
+                theta_prev,
+                u_after,
+                v_after,
+                theta_after,
+                u_now,
+                v_now,
+                theta_now,
+            )
+
+            u_now, v_now, theta_now = u_after, v_after, theta_after
+
+            self.enforce_boundary_conditions(u_now, v_now)
+
+            ind_within_day = (i + 1) % int(SECONDS_PER_DAY / self.config.dt)
+
+            self.store_temp_results(
+                u_temp,
+                v_temp,
+                theta_temp,
+                time_temp,
+                u_now,
+                v_now,
+                theta_now,
+                self.current_time,
+                ind_within_day,
+            )
+
+            if (i + 1) % int(SECONDS_PER_DAY / self.config.dt) == 0:
+                self.store_daily_avgs(u_temp, v_temp, theta_temp, time_temp, day)
+                self.reset_temp_storage(u_temp, v_temp, theta_temp, time_temp)
+                day += 1
+                logging.info(f"Day {day} finished.")
+
+            if np.isnan(u_now).any():
+                logging.warning("NaN detected in u_now, breaking the loop.")
+                break
 
     def save_results(self):
-        """Save the simulation results to a NetCDF file.
-
-        Creates a NetCDF dataset with model variables and metadata, ensuring proper
-        units and dimension labeling.
-        """
-        # Filter out zero-time entries
-        mask = self.time != 0
-        time_filtered = self.time[mask]
-
-        # Create dictionary of variables with their attributes
-        data_vars = {
-            "u": xr.DataArray(
-                data=self.u[mask],
-                dims=["time", "y"],
-                coords={"time": time_filtered, "y": self.config.y},
-                attrs={"units": "m/s", "long_name": "zonal wind"},
-            ),
-            "v": xr.DataArray(
-                data=self.v[mask],
-                dims=["time", "y"],
-                coords={"time": time_filtered, "y": self.config.y},
-                attrs={"units": "m/s", "long_name": "meridional wind"},
-            ),
-            "T": xr.DataArray(
-                data=self.theta[mask] / 1.6,
-                dims=["time", "y"],
-                coords={"time": time_filtered, "y": self.config.y},
-                attrs={"units": "K", "long_name": "temperature"},
-            ),
-            "theta_e": xr.DataArray(
-                data=self.THETA_E,
-                dims=["y"],
-                coords={"y": self.config.y},
-                attrs={"units": "K", "long_name": "equilibrium potential temperature"},
-            ),
-        }
-
-        # Create time coordinate with proper attributes
-        time_coord = xr.DataArray(
-            data=time_filtered,
-            dims=["time"],
-            coords={"time": time_filtered},
-            attrs={
-                "units": "days since 0000-01-01 00:00:00.0",
-                "calendar": "noleap",
-                "long_name": "time",
-            },
-        )
-
-        # Create dataset
-        ds = xr.Dataset(
-            data_vars=data_vars, coords={"time": time_coord, "y": self.config.y}
-        )
+        """Save the simulation results to a NetCDF file."""
+        ds = self.results.to_xarray(self.config)
 
         # Add coordinate attributes
         ds.y.attrs.update(
             {"units": "m", "long_name": "meridional distance from equator"}
         )
 
-        # Add global attributes from config
+        # Add global attributes
         global_attrs = {
             "title": "Shallow Water Model Output",
             "creation_date": str(np.datetime64("now")),
@@ -414,9 +448,8 @@ class SWModel:
         }
         ds.attrs.update(global_attrs)
 
-        # Ensure output directory exists
+        # Save to file
         os.makedirs(os.path.dirname(self.config.output_path), exist_ok=True)
-
         try:
             ds.to_netcdf(self.config.output_path)
             logging.info(f"Results successfully saved to {self.config.output_path}")
@@ -436,6 +469,7 @@ def main():
         output_path=args.output_path,
         ny=args.ny,
         dt=args.dt,
+        theta_e_type=args.theta_e_type,
     )
     model = SWModel(config)
     model.run_sim()
@@ -478,7 +512,7 @@ def parse_arguments():
         "--output_path",
         type=str,
         default="./model_output/output.nc",
-        help="Path to save the output NetCDF file (default: ./model_output/output.nc)",
+        help="Path to save the output NetCDF file",
     )
     parser.add_argument(
         "--ny",
@@ -491,6 +525,13 @@ def parse_arguments():
         type=int,
         default=30,
         help="Time step size in seconds (default: 30)",
+    )
+    parser.add_argument(
+        "--theta_e_type",
+        type=str,
+        choices=["SS09", "sin2"],
+        default="sin2",
+        help="Profile to use for theta_e calculation (default: sin2)",
     )
     return parser.parse_args()
 
