@@ -163,7 +163,7 @@ class SWConfig:
     delta: float = 4e3
     tau: float = 37.0 * SECONDS_PER_DAY
     y_one: float = 9439e3
-    y_0: float = 0
+    y_0: float = 0.0
     v_d: float = 2.5
     dt: int = 3600
     ny: int = 51

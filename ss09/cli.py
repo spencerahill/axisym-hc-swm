@@ -59,6 +59,12 @@ def parse_arguments():
         default="sin2",
         help="Profile to use for theta_e calculation (default: sin2)",
     )
+    parser.add_argument(
+        "--y_0",
+        type=float,
+        default=0.0,
+        help="Central latitude for theta_e profile (default: 0.0)",
+    )
     return parser.parse_args()
 
 
@@ -74,6 +80,7 @@ def main():
         ny=args.ny,
         dt=args.dt,
         theta_e_type=args.theta_e_type,
+        y_0=args.y_0,
     )
     model = SWModel(config)
     model.run_sim()
