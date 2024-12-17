@@ -1,5 +1,5 @@
 import argparse
-from .sw_model import SWConfig, SWModel
+from .sw_model import SWConfig, SWModel, ThetaEConfig, SS09Profile, Sin2Profile
 
 
 def parse_arguments():
@@ -79,10 +79,23 @@ def main():
         output_path=args.output_path,
         ny=args.ny,
         dt=args.dt,
-        theta_e_type=args.theta_e_type,
-        y_0=args.y_0,
     )
-    model = SWModel(config)
+    theta_e_config = ThetaEConfig(
+        theta_00=330.0,
+        y_0=args.y_0,
+        y_one=9439e3,
+        delta_y=50,
+        theta_e_type=args.theta_e_type,
+    )
+
+    # Instantiate the appropriate ThetaEProfile
+    theta_e_profile_class = {
+        "SS09": SS09Profile,
+        "sin2": Sin2Profile,
+    }[theta_e_config.theta_e_type]
+    theta_e_profile = theta_e_profile_class(theta_e_config)
+
+    model = SWModel(config, theta_e_profile)
     model.run_sim()
     model.save_results()
 

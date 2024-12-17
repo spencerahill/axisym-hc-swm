@@ -26,7 +26,59 @@ class ModelState(NamedTuple):
     u: np.ndarray  # instantaneous zonal wind
     v: np.ndarray  # instantaneous meridional wind
     theta: np.ndarray  # instantaneous potential temperature
+    y: np.ndarray  # meridional distance from equator
     div: Optional[np.ndarray] = None  # meridional divergence if needed
+
+
+@dataclass
+class ThetaEConfig:
+    """Configuration for the θₑ profile."""
+
+    theta_00: float = 330.0
+    y_0: float = 0.0
+    y_one: float = 9439e3
+    delta_y: float = 50
+    theta_e_type: str = "sin2"
+
+
+class ThetaEProfile(ABC):
+    """Abstract base class for θₑ profiles."""
+
+    def __init__(self, config: ThetaEConfig):
+        self.config = config
+
+    @abstractmethod
+    def __call__(self, state: ModelState) -> np.ndarray:
+        """Calculate θₑ for given model state."""
+        pass
+
+
+class SS09Profile(ThetaEProfile):
+    """θₑ profile using (y/y₁)² form from the original paper"""
+
+    def __call__(self, state: ModelState) -> np.ndarray:
+        return np.where(
+            np.abs(state.y) < self.config.y_one,
+            self.config.theta_00
+            - self.config.delta_y * (state.y / self.config.y_one) ** 2,
+            self.config.theta_00 - self.config.delta_y,
+        )
+
+
+class Sin2Profile(ThetaEProfile):
+    """θₑ profile using sin²(πy/2y₁) form"""
+
+    def __call__(self, state: ModelState) -> np.ndarray:
+        return np.where(
+            np.abs(state.y - self.config.y_0) < self.config.y_one,
+            self.config.theta_00
+            - self.config.delta_y
+            * (
+                np.sin(0.5 * np.pi * (state.y - self.config.y_0) / self.config.y_one)
+                ** 2
+            ),
+            self.config.theta_00 - self.config.delta_y,
+        )
 
 
 class DailyResults:
@@ -47,7 +99,9 @@ class DailyResults:
         self.v[day] = v
         self.theta[day] = theta
 
-    def to_xarray(self, config: "SWConfig") -> xr.Dataset:
+    def to_xarray(
+        self, config: "SWConfig", theta_e_profile: ThetaEProfile
+    ) -> xr.Dataset:
         """Convert results to xarray Dataset with metadata."""
         mask = self.time != 0
         time_filtered = self.time[mask]
@@ -58,8 +112,9 @@ class DailyResults:
             np.zeros_like(config.y),
             np.zeros_like(config.y),
             np.zeros_like(config.y),
+            config.y,
         )
-        theta_e = config.theta_e_profile(state)
+        theta_e = theta_e_profile(state)
 
         data_vars = {
             "u": xr.DataArray(
@@ -104,48 +159,6 @@ class DailyResults:
         )
 
 
-class ThetaEProfile(ABC):
-    """Abstract base class for θₑ profiles."""
-
-    def __init__(self, config: "SWConfig"):
-        self.config = config
-
-    @abstractmethod
-    def __call__(self, state: ModelState) -> np.ndarray:
-        """Calculate θₑ for given model state."""
-        pass
-
-
-class SS09Profile(ThetaEProfile):
-    """θₑ profile using (y/y₁)² form from the original paper"""
-
-    def __call__(self, state: ModelState) -> np.ndarray:
-        return np.where(
-            np.abs(self.config.y) < self.config.y_one,
-            self.config.theta_00
-            - self.config.delta_y * (self.config.y / self.config.y_one) ** 2,
-            self.config.theta_00 - self.config.delta_y,
-        )
-
-
-class Sin2Profile(ThetaEProfile):
-    """θₑ profile using sin²(πy/2y₁) form"""
-
-    def __call__(self, state: ModelState) -> np.ndarray:
-        return np.where(
-            np.abs(self.config.y - self.config.y_0) < self.config.y_one,
-            self.config.theta_00
-            - self.config.delta_y
-            * (
-                np.sin(
-                    0.5 * np.pi * (self.config.y - self.config.y_0) / self.config.y_one
-                )
-                ** 2
-            ),
-            self.config.theta_00 - self.config.delta_y,
-        )
-
-
 @dataclass
 class SWConfig:
     """Configuration for the Shallow Water Model."""
@@ -159,11 +172,8 @@ class SWConfig:
     k_v: float = 7786 * 100
     epsilon_u: float = 1e-8
     delta_z: float = 60
-    delta_y: float = 50
     delta: float = 4e3
     tau: float = 37.0 * SECONDS_PER_DAY
-    y_one: float = 9439e3
-    y_0: float = 0.0
     v_d: float = 2.5
     dt: int = 3600
     ny: int = 51
@@ -171,47 +181,36 @@ class SWConfig:
     dy: float = field(init=False)
     y: np.ndarray = field(init=False)
     asselin_filt_coef: float = 0.04
-    theta_00: float = 330.0
-    theta_e_type: str = "sin2"
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)
         self.y = np.linspace(-self.domain_size / 2, self.domain_size / 2, self.ny)
-        self.theta_e_profile = {
-            "SS09": SS09Profile,
-            "sin2": Sin2Profile,
-        }[
-            self.theta_e_type
-        ](self)
 
 
 class SWModel:
-    def __init__(self, config: SWConfig):
+    def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
         self.config = config
+        self.theta_e_profile = theta_e_profile
         self.results = DailyResults(config.total_integration_days, config.ny)
         self.current_time = 0.0
 
     def get_state(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> ModelState:
         """Get model state from current instantaneous values."""
-        return ModelState(t=self.current_time, u=u, v=v, theta=theta)
+        return ModelState(t=self.current_time, u=u, v=v, theta=theta, y=self.config.y)
 
     def init_current_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the current step."""
         u_now = np.zeros(self.config.ny)
         v_now = np.zeros(self.config.ny)
-        state = self.get_state(
-            u_now,
-            v_now,
-            self.config.theta_e_profile(ModelState(0, u_now, v_now, u_now)),
+        theta_now = self.theta_e_profile(
+            self.get_state(u_now, v_now, np.zeros(self.config.ny))
         )
-        theta_now = self.config.theta_e_profile(state)
         return u_now, v_now, theta_now
 
     def init_prev_step_vars(
         self, u_now: np.ndarray, v_now: np.ndarray, theta_now: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
-        state = self.get_state(u_now, v_now, theta_now)
         u_prev = u_now - self.config.dt * self.get_dudt(u_now, v_now, theta_now)
         v_prev = v_now - self.config.dt * self.get_dvdt(u_now, v_now, theta_now)
         theta_prev = theta_now - self.config.dt * self.get_dthetadt(
@@ -251,7 +250,7 @@ class SWModel:
 
         edd_mom_flux_div = self.config.v_d * np.sign(self.config.y) * grad_u
         rayleigh_drag_u = u * self.config.epsilon_u
-        vt = u * grad_v * np.heaviside(self.config.theta_e_profile(state) - theta, 0.5)
+        vt = u * grad_v * np.heaviside(self.theta_e_profile(state) - theta, 0.5)
         return (
             v * (self.config.beta * self.config.y - grad_u_upwind)
             - vt
@@ -276,7 +275,7 @@ class SWModel:
         """Calculate the time derivative of theta."""
         state = self.get_state(u, v, theta)
         return (
-            self.config.theta_e_profile(state) - theta
+            self.theta_e_profile(state) - theta
         ) / self.config.tau - self.config.delta * self.config.delta_z * np.gradient(
             v, self.config.dy
         ) / self.config.height
@@ -434,7 +433,7 @@ class SWModel:
 
     def save_results(self):
         """Save the simulation results to a NetCDF file."""
-        ds = self.results.to_xarray(self.config)
+        ds = self.results.to_xarray(self.config, self.theta_e_profile)
 
         # Add coordinate attributes
         ds.y.attrs.update(
