@@ -237,22 +237,27 @@ class SWModel:
         grad_v = np.gradient(v, self.config.dy)
 
         # First-order upwind scheme for advection
-        grad_u_adv = np.zeros_like(u)
+        grad_u_upwind = np.zeros_like(u)
         # For positive velocity (backward difference)
         mask_pos = v > 0
-        grad_u_adv[1:][mask_pos[1:]] = (
+        grad_u_upwind[1:][mask_pos[1:]] = (
             u[1:][mask_pos[1:]] - u[:-1][mask_pos[1:]]
         ) / self.config.dy
         # For negative velocity (forward difference)
         mask_neg = v < 0
-        grad_u_adv[:-1][mask_neg[:-1]] = (
+        grad_u_upwind[:-1][mask_neg[:-1]] = (
             u[1:][mask_neg[:-1]] - u[:-1][mask_neg[:-1]]
         ) / self.config.dy
 
-        s = self.config.v_d * np.sign(self.config.y - self.config.y_0) * grad_u
-        f = u * self.config.epsilon_u
+        edd_mom_flux_div = self.config.v_d * np.sign(self.config.y) * grad_u
+        rayleigh_drag_u = u * self.config.epsilon_u
         vt = u * grad_v * np.heaviside(self.config.theta_e_profile(state) - theta, 0.5)
-        return v * (self.config.beta * self.config.y - grad_u_adv) - vt - f - s
+        return (
+            v * (self.config.beta * self.config.y - grad_u_upwind)
+            - vt
+            - rayleigh_drag_u
+            - edd_mom_flux_div
+        )
 
     def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of v."""
