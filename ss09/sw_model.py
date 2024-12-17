@@ -9,6 +9,7 @@ import xarray as xr
 from typing import Optional, NamedTuple, Tuple
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
+from .model_state import ModelState
 
 # Configure logging
 logging.basicConfig(
@@ -17,17 +18,6 @@ logging.basicConfig(
 
 # Constants
 SECONDS_PER_DAY = 86400  # Number of seconds in a day
-
-
-class ModelState(NamedTuple):
-    """Container for model state at a single timestep."""
-
-    t: float  # time in seconds
-    u: np.ndarray  # instantaneous zonal wind
-    v: np.ndarray  # instantaneous meridional wind
-    theta: np.ndarray  # instantaneous potential temperature
-    y: np.ndarray  # meridional distance from equator
-    div: Optional[np.ndarray] = None  # meridional divergence if needed
 
 
 @dataclass
