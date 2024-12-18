@@ -184,7 +184,7 @@ class SWModel:
         ) / self.config.dy
         return grad_u_upwind
 
-    def edd_mom_flux_div(self, grad_u: np.ndarray) -> np.ndarray:
+    def edd_mom_flux_div_u(self, grad_u: np.ndarray) -> np.ndarray:
         """Calculate the eddy momentum flux divergence."""
         return self.config.v_d * np.sign(self.config.y) * grad_u
 
@@ -192,7 +192,7 @@ class SWModel:
         """Calculate the Rayleigh drag for u."""
         return u * self.config.epsilon_u
 
-    def vert_mom_advec(
+    def vert_advec_u(
         self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
     ) -> np.ndarray:
         """Calculate the vertical momentum advection."""
@@ -200,20 +200,27 @@ class SWModel:
         dv_dy = np.gradient(v, self.config.dy)
         return u * dv_dy * np.heaviside(self.theta_e_profile(state) - theta, 0.5)
 
+    def merid_advec_u(self, v: np.ndarray, u: np.ndarray) -> np.ndarray:
+        """Calculate the meridional advection term for u including planetary component."""
+        return v * (self.config.beta * self.config.y - self.du_dy_upwind(u, v))
+
     def get_dudt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of u."""
 
         return (
-            v * (self.config.beta * self.config.y - self.du_dy_upwind(u, v))
-            - self.vert_mom_advec(u, v, theta)
+            self.merid_advec_u(v, u)
+            - self.vert_advec_u(u, v, theta)
             - self.rayleigh_drag_u(u)
-            - self.edd_mom_flux_div(np.gradient(u, self.config.dy))
+            - self.edd_mom_flux_div_u(np.gradient(u, self.config.dy))
         )
+
+    def dv_dy(self, v: np.ndarray) -> np.ndarray:
+        """Calculate the gradient of v with respect to y."""
+        return np.gradient(v, self.config.dy)
 
     def diffusion_v(self, v: np.ndarray) -> np.ndarray:
         """Calculate the diffusion term for v."""
-        dv_dy = np.gradient(v, self.config.dy)
-        return np.gradient(dv_dy, self.config.dy) * self.config.k_v
+        return np.gradient(self.dv_dy(v), self.config.dy) * self.config.k_v
 
     def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of v."""
