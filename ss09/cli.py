@@ -1,6 +1,6 @@
 import argparse
 from .sw_model import SWConfig, SWModel
-from .theta_e import ThetaEConfig, SS09Profile, Sin2Profile
+from .theta_e import ThetaEConfig, SS09Profile, Sin2Profile, SB08Profile
 
 
 def parse_arguments():
@@ -56,7 +56,7 @@ def parse_arguments():
     parser.add_argument(
         "--theta_e_type",
         type=str,
-        choices=["SS09", "sin2"],
+        choices=["SS09", "sin2", "SB08"],
         default="sin2",
         help="Profile to use for theta_e calculation (default: sin2)",
     )
@@ -65,6 +65,24 @@ def parse_arguments():
         type=float,
         default=0.0,
         help="Central latitude for theta_e profile (default: 0.0)",
+    )
+    parser.add_argument(
+        "--delta_y",
+        type=float,
+        default=50.0,
+        help="Delta y for theta_e profile (default: 50.0)",
+    )
+    parser.add_argument(
+        "--theta_00",
+        type=float,
+        default=330.0,
+        help="Peak temperature of the θₑ profile (default: 330.0 K)",
+    )
+    parser.add_argument(
+        "--y_one",
+        type=float,
+        default=9439e3,
+        help="Width parameter for the θₑ profile (default: 9439e3 m)",
     )
     return parser.parse_args()
 
@@ -82,10 +100,10 @@ def main():
         dt=args.dt,
     )
     theta_e_config = ThetaEConfig(
-        theta_00=330.0,
+        theta_00=args.theta_00,
         y_0=args.y_0,
-        y_one=9439e3,
-        delta_y=50,
+        y_one=args.y_one,
+        delta_y=args.delta_y,
         theta_e_type=args.theta_e_type,
     )
 
@@ -93,6 +111,7 @@ def main():
     theta_e_profile_class = {
         "SS09": SS09Profile,
         "sin2": Sin2Profile,
+        "SB08": SB08Profile,
     }[theta_e_config.theta_e_type]
     theta_e_profile = theta_e_profile_class(theta_e_config)
 

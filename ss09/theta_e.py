@@ -53,3 +53,17 @@ class Sin2Profile(ThetaEProfile):
             ),
             self.config.theta_00 - self.config.delta_y,
         )
+
+
+class SB08Profile(ThetaEProfile):
+    """θₑ profile using the formula from Schneider and Bordoni (2008)"""
+
+    def __call__(self, state: ModelState) -> np.ndarray:
+        term1 = np.sin(np.pi * state.y / (2 * self.config.y_one)) ** 2
+        term2 = (
+            2
+            * np.sin(np.pi * self.config.y_0 / (2 * self.config.y_one))
+            * np.sin(np.pi * state.y / (2 * self.config.y_one))
+        )
+
+        return self.config.theta_00 - self.config.delta_y * (term1 + term2)
