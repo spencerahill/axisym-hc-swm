@@ -18,6 +18,7 @@ logging.basicConfig(
 
 # Constants
 SECONDS_PER_DAY = 86400  # Number of seconds in a day
+THETA_TO_TEMP = 1 / 1.6  # Inverse of (p_s/p_t)^(R/c_p)
 
 
 class DailyResults:
@@ -168,13 +169,8 @@ class SWModel:
         time_temp = np.zeros(steps_per_day)
         return u_temp, v_temp, theta_temp, time_temp
 
-    def get_dudt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
-        """Calculate the time derivative of u."""
-        state = self.get_state(u, v, theta)
-        grad_u = np.gradient(u, self.config.dy)
-        grad_v = np.gradient(v, self.config.dy)
-
-        # First-order upwind scheme for advection
+    def du_dy_upwind(self, u: np.ndarray, v: np.ndarray) -> np.ndarray:
+        """Calculate the upwind gradient of u with respect to y based on velocity v."""
         grad_u_upwind = np.zeros_like(u)
         # For positive velocity (backward difference)
         mask_pos = v > 0
@@ -186,26 +182,46 @@ class SWModel:
         grad_u_upwind[:-1][mask_neg[:-1]] = (
             u[1:][mask_neg[:-1]] - u[:-1][mask_neg[:-1]]
         ) / self.config.dy
+        return grad_u_upwind
 
-        edd_mom_flux_div = self.config.v_d * np.sign(self.config.y) * grad_u
-        rayleigh_drag_u = u * self.config.epsilon_u
-        vt = u * grad_v * np.heaviside(self.theta_e_profile(state) - theta, 0.5)
+    def edd_mom_flux_div(self, grad_u: np.ndarray) -> np.ndarray:
+        """Calculate the eddy momentum flux divergence."""
+        return self.config.v_d * np.sign(self.config.y) * grad_u
+
+    def rayleigh_drag_u(self, u: np.ndarray) -> np.ndarray:
+        """Calculate the Rayleigh drag for u."""
+        return u * self.config.epsilon_u
+
+    def vert_mom_advec(
+        self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
+    ) -> np.ndarray:
+        """Calculate the vertical momentum advection."""
+        state = self.get_state(u, v, theta)
+        dv_dy = np.gradient(v, self.config.dy)
+        return u * dv_dy * np.heaviside(self.theta_e_profile(state) - theta, 0.5)
+
+    def get_dudt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
+        """Calculate the time derivative of u."""
+
         return (
-            v * (self.config.beta * self.config.y - grad_u_upwind)
-            - vt
-            - rayleigh_drag_u
-            - edd_mom_flux_div
+            v * (self.config.beta * self.config.y - self.du_dy_upwind(u, v))
+            - self.vert_mom_advec(u, v, theta)
+            - self.rayleigh_drag_u(u)
+            - self.edd_mom_flux_div(np.gradient(u, self.config.dy))
         )
+
+    def diffusion_v(self, v: np.ndarray) -> np.ndarray:
+        """Calculate the diffusion term for v."""
+        dv_dy = np.gradient(v, self.config.dy)
+        return np.gradient(dv_dy, self.config.dy) * self.config.k_v
 
     def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of v."""
-        grad_v = np.gradient(v, self.config.dy)
-        grad_T = np.gradient(theta / 1.6, self.config.dy)
-        diffusion_v = np.gradient(grad_v, self.config.dy) * self.config.k_v
+        dtemp_dy = np.gradient(theta * THETA_TO_TEMP, self.config.dy)
         return (
             -self.config.beta * self.config.y * u
-            - self.config.gravity * self.config.height * grad_T / self.config.t_ref
-            + diffusion_v
+            - self.config.gravity * self.config.height * dtemp_dy / self.config.t_ref
+            + self.diffusion_v(v)
         ) / 2
 
     def get_dthetadt(
