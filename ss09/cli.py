@@ -1,6 +1,7 @@
 import argparse
-from .sw_model import SWConfig, SWModel
 from .theta_e import ThetaEConfig, SS09Profile, Sin2Profile, SB08Profile
+from .sw_config import SWConfig
+from .sw_model import SWModel
 
 
 def parse_arguments():
