@@ -156,12 +156,12 @@ class SWModel:
         """Apply the Asselin filter to a single variable."""
         return now + self.config.asselin_filt_coef * (after + prev - 2 * now)
 
-    def enforce_boundary_conditions(self, u_now: np.ndarray, v_now: np.ndarray):
+    def enforce_boundary_conditions(self):
         """Enforce boundary conditions."""
-        u_now[0] = 0
-        u_now[-1] = 0
-        v_now[0] = 0
-        v_now[-1] = 0
+        self.state.u[0] = 0
+        self.state.u[-1] = 0
+        self.state.v[0] = 0
+        self.state.v[-1] = 0
 
     def store_temp_results(self, timestamp: float, j: int):
         """Store temporary results for daily averaging."""
@@ -211,7 +211,7 @@ class SWModel:
 
             self.state = self.state._replace(u=u_after, v=v_after, theta=theta_after)
 
-            self.enforce_boundary_conditions(self.state.u, self.state.v)
+            self.enforce_boundary_conditions()
 
             ind_within_day = (i + 1) % int(SECONDS_PER_DAY / self.config.dt)
 
@@ -224,7 +224,7 @@ class SWModel:
                 logging.info(f"Day {day} finished.")
 
             if np.isnan(self.state.u).any():
-                logging.warning("NaN detected in u_now, breaking the loop.")
+                logging.warning("NaN detected in u, breaking the loop.")
                 break
 
     def save_results(self):
