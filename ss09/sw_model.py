@@ -141,15 +141,11 @@ class SWModel:
         self.state = self.state._replace(theta=self.theta_e_profile(self.state))
         self.results = DailyResults(config.total_integration_days, config.ny)
 
-    def init_prev_step_vars(
-        self, u_now: np.ndarray, v_now: np.ndarray, theta_now: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def init_prev_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
-        u_prev = u_now - self.config.dt * self.get_dudt()
-        v_prev = v_now - self.config.dt * self.get_dvdt(u_now, v_now, theta_now)
-        theta_prev = theta_now - self.config.dt * self.get_dthetadt(
-            u_now, v_now, theta_now
-        )
+        u_prev = self.state.u - self.config.dt * self.get_dudt()
+        v_prev = self.state.v - self.config.dt * self.get_dvdt()
+        theta_prev = self.state.theta - self.config.dt * self.get_dthetadt()
         return u_prev, v_prev, theta_prev
 
     def init_temp_storage(
@@ -163,52 +159,58 @@ class SWModel:
         time_temp = np.zeros(steps_per_day)
         return u_temp, v_temp, theta_temp, time_temp
 
-    def du_dy_upwind(self, u: np.ndarray, v: np.ndarray) -> np.ndarray:
+    def du_dy_upwind(self) -> np.ndarray:
         """Calculate the upwind gradient of u with respect to y based on velocity v."""
-        grad_u_upwind = np.zeros_like(u)
+        grad_u_upwind = np.zeros_like(self.state.u)
         # For positive velocity (backward difference)
-        mask_pos = v > 0
+        mask_pos = self.state.v > 0
         grad_u_upwind[1:][mask_pos[1:]] = (
-            u[1:][mask_pos[1:]] - u[:-1][mask_pos[1:]]
+            self.state.u[1:][mask_pos[1:]] - self.state.u[:-1][mask_pos[1:]]
         ) / self.config.dy
         # For negative velocity (forward difference)
-        mask_neg = v < 0
+        mask_neg = self.state.v < 0
         grad_u_upwind[:-1][mask_neg[:-1]] = (
-            u[1:][mask_neg[:-1]] - u[:-1][mask_neg[:-1]]
+            self.state.u[1:][mask_neg[:-1]] - self.state.u[:-1][mask_neg[:-1]]
         ) / self.config.dy
         return grad_u_upwind
 
-    def edd_mom_flux_div_u(self, grad_u: np.ndarray) -> np.ndarray:
+    def edd_mom_flux_div_u(self) -> np.ndarray:
         """Calculate the eddy momentum flux divergence."""
-        return self.config.v_d * np.sign(self.config.y) * grad_u
+        return (
+            self.config.v_d
+            * np.sign(self.config.y)
+            * np.gradient(self.state.u, self.config.dy)
+        )
 
-    def rayleigh_drag_u(self, u: np.ndarray) -> np.ndarray:
+    def rayleigh_drag_u(self) -> np.ndarray:
         """Calculate the Rayleigh drag for u."""
-        return u * self.config.epsilon_u
+        return self.state.u * self.config.epsilon_u
 
-    def vert_advec_u(
-        self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
-    ) -> np.ndarray:
+    def vert_advec_u(self) -> np.ndarray:
         """Calculate the vertical momentum advection."""
-        dv_dy = np.gradient(v, self.config.dy)
-        return u * dv_dy * np.heaviside(self.theta_e_profile(self.state) - theta, 0.5)
+        dv_dy = np.gradient(self.state.v, self.config.dy)
+        return (
+            self.state.u
+            * dv_dy
+            * np.heaviside(self.theta_e_profile(self.state) - self.state.theta, 0.5)
+        )
 
     def coriolis_term(self, u_or_v: np.ndarray) -> np.ndarray:
         """Calculate the Coriolis term for the u equation."""
         return self.config.beta * self.config.y * u_or_v
 
-    def merid_advec_u(self, v: np.ndarray, u: np.ndarray) -> np.ndarray:
+    def merid_advec_u(self) -> np.ndarray:
         """Calculate the meridional advection term for u."""
-        return v * self.du_dy_upwind(u, v)
+        return self.state.v * self.du_dy_upwind()
 
     def get_dudt(self) -> np.ndarray:
         """Calculate the time derivative of u."""
         return (
             self.coriolis_term(self.state.v)
-            - self.merid_advec_u(self.state.v, self.state.u)
-            - self.vert_advec_u(self.state.u, self.state.v, self.state.theta)
-            - self.rayleigh_drag_u(self.state.u)
-            - self.edd_mom_flux_div_u(np.gradient(self.state.u, self.config.dy))
+            - self.merid_advec_u()
+            - self.vert_advec_u()
+            - self.rayleigh_drag_u()
+            - self.edd_mom_flux_div_u()
         )
 
     def dv_dy(self, v: np.ndarray) -> np.ndarray:
@@ -228,38 +230,34 @@ class SWModel:
             / self.config.t_ref
         )
 
-    def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
+    def get_dvdt(self) -> np.ndarray:
         """Calculate the time derivative of v."""
         return (
-            -self.coriolis_term(u) - self.dp_dy_term(theta) + self.diffusion_v(v)
+            -self.coriolis_term(self.state.u)
+            - self.dp_dy_term(self.state.theta)
+            + self.diffusion_v(self.state.v)
         ) / 2
 
-    def get_dthetadt(
-        self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
-    ) -> np.ndarray:
-        """Calculate the time derivative of theta."""
+    def newt_cool_term(self) -> np.ndarray:
+        """Newtonian cooling term."""
+        return (self.theta_e_profile(self.state) - self.state.theta) / self.config.tau
 
+    def vert_advec_theta(self) -> np.ndarray:
+        """Calculate the vertical advection term for theta."""
         return (
-            self.theta_e_profile(self.state) - theta
-        ) / self.config.tau - self.config.delta * self.config.delta_z * np.gradient(
-            v, self.config.dy
-        ) / self.config.height
+            -self.config.delta
+            * self.config.delta_z
+            * np.gradient(self.state.v, self.config.dy)
+            / self.config.height
+        )
 
-    def leapfrog_step(
-        self,
-        u_prev: np.ndarray,
-        v_prev: np.ndarray,
-        theta_prev: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Perform a leapfrog step."""
-        u_after = u_prev + 2 * self.config.dt * self.get_dudt()
-        v_after = v_prev + 2 * self.config.dt * self.get_dvdt(
-            self.state.u, self.state.v, self.state.theta
-        )
-        theta_after = theta_prev + 2 * self.config.dt * self.get_dthetadt(
-            self.state.u, self.state.v, self.state.theta
-        )
-        return u_after, v_after, theta_after
+    def get_dthetadt(self) -> np.ndarray:
+        """Calculate the time derivative of theta."""
+        return self.newt_cool_term() + self.vert_advec_theta()
+
+    def leapfrog_single_step(self, prev: np.ndarray, time_deriv_func) -> np.ndarray:
+        """Perform a leapfrog step for a single variable."""
+        return prev + 2 * self.config.dt * time_deriv_func()
 
     def apply_asselin_filter(
         self, prev: np.ndarray, after: np.ndarray, now: np.ndarray
@@ -280,16 +278,13 @@ class SWModel:
         v_temp: np.ndarray,
         theta_temp: np.ndarray,
         time_temp: np.ndarray,
-        u_now: np.ndarray,
-        v_now: np.ndarray,
-        theta_now: np.ndarray,
         timestamp: float,
         j: int,
     ):
         """Store temporary results for daily averaging."""
-        u_temp[j - 1] = u_now
-        v_temp[j - 1] = v_now
-        theta_temp[j - 1] = theta_now
+        u_temp[j - 1] = self.state.u
+        v_temp[j - 1] = self.state.v
+        theta_temp[j - 1] = self.state.theta
         time_temp[j - 1] = timestamp / SECONDS_PER_DAY
 
     def store_daily_avgs(
@@ -324,9 +319,7 @@ class SWModel:
 
     def run_sim(self):
         """Run the S-S model simulation."""
-        u_prev, v_prev, theta_prev = self.init_prev_step_vars(
-            self.state.u, self.state.v, self.state.theta
-        )
+        u_prev, v_prev, theta_prev = self.init_prev_step_vars()
 
         total_time_steps = int(
             SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
@@ -338,9 +331,9 @@ class SWModel:
         for i in range(total_time_steps):
             self.state = self.state._replace(t=i * self.config.dt)
 
-            u_after, v_after, theta_after = self.leapfrog_step(
-                u_prev, v_prev, theta_prev
-            )
+            u_after = self.leapfrog_single_step(u_prev, self.get_dudt)
+            v_after = self.leapfrog_single_step(v_prev, self.get_dvdt)
+            theta_after = self.leapfrog_single_step(theta_prev, self.get_dthetadt)
 
             u_prev = self.apply_asselin_filter(u_prev, u_after, self.state.u)
             v_prev = self.apply_asselin_filter(v_prev, v_after, self.state.v)
@@ -359,9 +352,6 @@ class SWModel:
                 v_temp,
                 theta_temp,
                 time_temp,
-                self.state.u,
-                self.state.v,
-                self.state.theta,
                 self.state.t,
                 ind_within_day,
             )
