@@ -34,6 +34,12 @@ class SWModel:
         )
         self.state = self.state._replace(theta=self.theta_e_profile(self.state))
         self.results = DailyResults(config.total_integration_days, config.ny)
+        self.temp_vars = {
+            "u_temp": None,
+            "v_temp": None,
+            "theta_temp": None,
+            "time_temp": None,
+        }
 
     def init_prev_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
@@ -42,16 +48,13 @@ class SWModel:
         theta_prev = self.state.theta - self.config.dt * self.dtheta_dt()
         return u_prev, v_prev, theta_prev
 
-    def init_temp_storage(
-        self,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def init_temp_storage(self):
         """Initialize temporary storage for daily averages."""
         steps_per_day = int(SECONDS_PER_DAY / self.config.dt)
-        u_temp = np.zeros([steps_per_day, self.config.ny])
-        v_temp = np.zeros([steps_per_day, self.config.ny])
-        theta_temp = np.zeros([steps_per_day, self.config.ny])
-        time_temp = np.zeros(steps_per_day)
-        return u_temp, v_temp, theta_temp, time_temp
+        self.temp_vars["u_temp"] = np.zeros([steps_per_day, self.config.ny])
+        self.temp_vars["v_temp"] = np.zeros([steps_per_day, self.config.ny])
+        self.temp_vars["theta_temp"] = np.zeros([steps_per_day, self.config.ny])
+        self.temp_vars["time_temp"] = np.zeros(steps_per_day)
 
     def du_dy_upwind(self) -> np.ndarray:
         """Calculate the upwind gradient of u with respect to y based on velocity v."""
@@ -160,50 +163,27 @@ class SWModel:
         v_now[0] = 0
         v_now[-1] = 0
 
-    def store_temp_results(
-        self,
-        u_temp: np.ndarray,
-        v_temp: np.ndarray,
-        theta_temp: np.ndarray,
-        time_temp: np.ndarray,
-        timestamp: float,
-        j: int,
-    ):
+    def store_temp_results(self, timestamp: float, j: int):
         """Store temporary results for daily averaging."""
-        u_temp[j - 1] = self.state.u
-        v_temp[j - 1] = self.state.v
-        theta_temp[j - 1] = self.state.theta
-        time_temp[j - 1] = timestamp / SECONDS_PER_DAY
+        self.temp_vars["u_temp"][j - 1] = self.state.u
+        self.temp_vars["v_temp"][j - 1] = self.state.v
+        self.temp_vars["theta_temp"][j - 1] = self.state.theta
+        self.temp_vars["time_temp"][j - 1] = timestamp / SECONDS_PER_DAY
 
-    def store_daily_avgs(
-        self,
-        u_temp: np.ndarray,
-        v_temp: np.ndarray,
-        theta_temp: np.ndarray,
-        time_temp: np.ndarray,
-        day: int,
-    ):
+    def store_daily_avgs(self, day: int):
         """Store daily averages."""
         self.results.store_day(
             day,
-            np.mean(time_temp),
-            np.mean(u_temp, axis=0),
-            np.mean(v_temp, axis=0),
-            np.mean(theta_temp, axis=0),
+            np.mean(self.temp_vars["time_temp"]),
+            np.mean(self.temp_vars["u_temp"], axis=0),
+            np.mean(self.temp_vars["v_temp"], axis=0),
+            np.mean(self.temp_vars["theta_temp"], axis=0),
         )
 
-    def reset_temp_storage(
-        self,
-        u_temp: np.ndarray,
-        v_temp: np.ndarray,
-        theta_temp: np.ndarray,
-        time_temp: np.ndarray,
-    ):
+    def reset_temp_storage(self):
         """Reset temporary storage arrays."""
-        u_temp.fill(0)
-        v_temp.fill(0)
-        theta_temp.fill(0)
-        time_temp.fill(0)
+        for key in self.temp_vars:
+            self.temp_vars[key].fill(0)
 
     def run_sim(self):
         """Run the S-S model simulation."""
@@ -214,7 +194,7 @@ class SWModel:
         )
         day = 0
 
-        u_temp, v_temp, theta_temp, time_temp = self.init_temp_storage()
+        self.init_temp_storage()
 
         for i in range(total_time_steps):
             self.state = self.state._replace(t=i * self.config.dt)
@@ -235,18 +215,11 @@ class SWModel:
 
             ind_within_day = (i + 1) % int(SECONDS_PER_DAY / self.config.dt)
 
-            self.store_temp_results(
-                u_temp,
-                v_temp,
-                theta_temp,
-                time_temp,
-                self.state.t,
-                ind_within_day,
-            )
+            self.store_temp_results(self.state.t, ind_within_day)
 
             if (i + 1) % int(SECONDS_PER_DAY / self.config.dt) == 0:
-                self.store_daily_avgs(u_temp, v_temp, theta_temp, time_temp, day)
-                self.reset_temp_storage(u_temp, v_temp, theta_temp, time_temp)
+                self.store_daily_avgs(day)
+                self.reset_temp_storage()
                 day += 1
                 logging.info(f"Day {day} finished.")
 
