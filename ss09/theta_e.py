@@ -66,4 +66,4 @@ class SB08Profile(ThetaEProfile):
             * np.sin(np.pi * state.y / (2 * self.config.y_one))
         )
 
-        return self.config.theta_00 - self.config.delta_y * (term1 + term2)
+        return self.config.theta_00 - self.config.delta_y * (term1 - term2)
