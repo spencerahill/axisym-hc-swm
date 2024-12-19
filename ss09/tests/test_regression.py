@@ -8,7 +8,7 @@ import tempfile
 
 @pytest.fixture
 def baseline_path():
-    return "tests/baseline/output.nc"
+    return "ss09/tests/baseline/output.nc"
 
 
 @pytest.fixture
