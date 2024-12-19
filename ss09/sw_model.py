@@ -27,6 +27,13 @@ class AuxiliaryVars(NamedTuple):
     theta: np.ndarray
 
 
+class TempVars(NamedTuple):
+    u: np.ndarray
+    v: np.ndarray
+    theta: np.ndarray
+    time: np.ndarray
+
+
 class SWModel:
     def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
         self.config = config
@@ -40,12 +47,12 @@ class SWModel:
         )
         self.state = self.state._replace(theta=self.theta_e_profile(self.state))
         self.results = DailyResults(config.total_integration_days, config.ny)
-        self.temp_vars = {
-            "u_temp": None,
-            "v_temp": None,
-            "theta_temp": None,
-            "time_temp": None,
-        }
+        self.temp_vars = TempVars(
+            u=np.zeros((0, config.ny)),
+            v=np.zeros((0, config.ny)),
+            theta=np.zeros((0, config.ny)),
+            time=np.zeros(0),
+        )
         self.prev_vars = AuxiliaryVars(
             u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
         )
@@ -63,10 +70,12 @@ class SWModel:
     def init_temp_storage(self):
         """Initialize temporary storage for daily averages."""
         steps_per_day = int(SECONDS_PER_DAY / self.config.dt)
-        self.temp_vars["u_temp"] = np.zeros([steps_per_day, self.config.ny])
-        self.temp_vars["v_temp"] = np.zeros([steps_per_day, self.config.ny])
-        self.temp_vars["theta_temp"] = np.zeros([steps_per_day, self.config.ny])
-        self.temp_vars["time_temp"] = np.zeros(steps_per_day)
+        self.temp_vars = TempVars(
+            u=np.zeros([steps_per_day, self.config.ny]),
+            v=np.zeros([steps_per_day, self.config.ny]),
+            theta=np.zeros([steps_per_day, self.config.ny]),
+            time=np.zeros(steps_per_day),
+        )
 
     def du_dy_upwind(self) -> np.ndarray:
         """Calculate the upwind gradient of u with respect to y based on velocity v."""
@@ -158,11 +167,11 @@ class SWModel:
         """Calculate the time derivative of theta."""
         return self.newt_cool_term() + self.vert_advec_theta()
 
-    def leapfrog_single_step(self, prev: np.ndarray, time_deriv_func) -> np.ndarray:
+    def leapfrog_step(self, prev: np.ndarray, time_deriv_func) -> np.ndarray:
         """Perform a leapfrog step for a single variable."""
         return prev + 2 * self.config.dt * time_deriv_func()
 
-    def apply_asselin_filter(
+    def asselin_filt(
         self, prev: np.ndarray, after: np.ndarray, now: np.ndarray
     ) -> np.ndarray:
         """Apply the Asselin filter to a single variable."""
@@ -177,25 +186,33 @@ class SWModel:
 
     def store_temp_results(self, timestamp: float, j: int):
         """Store temporary results for daily averaging."""
-        self.temp_vars["u_temp"][j - 1] = self.state.u
-        self.temp_vars["v_temp"][j - 1] = self.state.v
-        self.temp_vars["theta_temp"][j - 1] = self.state.theta
-        self.temp_vars["time_temp"][j - 1] = timestamp / SECONDS_PER_DAY
+        self.temp_vars.u[j - 1] = self.state.u
+        self.temp_vars.v[j - 1] = self.state.v
+        self.temp_vars.theta[j - 1] = self.state.theta
+        self.temp_vars.time[j - 1] = timestamp / SECONDS_PER_DAY
 
     def store_daily_avgs(self, day: int):
         """Store daily averages."""
         self.results.store_day(
             day,
-            np.mean(self.temp_vars["time_temp"]),
-            np.mean(self.temp_vars["u_temp"], axis=0),
-            np.mean(self.temp_vars["v_temp"], axis=0),
-            np.mean(self.temp_vars["theta_temp"], axis=0),
+            np.mean(self.temp_vars.time),
+            np.mean(self.temp_vars.u, axis=0),
+            np.mean(self.temp_vars.v, axis=0),
+            np.mean(self.temp_vars.theta, axis=0),
         )
 
     def reset_temp_storage(self):
         """Reset temporary storage arrays."""
-        for key in self.temp_vars:
-            self.temp_vars[key].fill(0)
+        self.temp_vars = TempVars(
+            u=np.zeros_like(self.temp_vars.u),
+            v=np.zeros_like(self.temp_vars.v),
+            theta=np.zeros_like(self.temp_vars.theta),
+            time=np.zeros_like(self.temp_vars.time),
+        )
+
+    def calc_ind_within_day(self, current_step: int) -> int:
+        """Calculate the index within the day."""
+        return (current_step + 1) % int(SECONDS_PER_DAY / self.config.dt)
 
     def run_sim(self):
         """Run the S-S model simulation."""
@@ -211,20 +228,16 @@ class SWModel:
         for i in range(total_time_steps):
             self.state = self.state._replace(t=i * self.config.dt)
 
-            self.after_vars = AuxiliaryVars(
-                u=self.leapfrog_single_step(self.prev_vars.u, self.du_dt),
-                v=self.leapfrog_single_step(self.prev_vars.v, self.dv_dt),
-                theta=self.leapfrog_single_step(self.prev_vars.theta, self.dtheta_dt),
+            self.after_vars = self.after_vars._replace(
+                u=self.leapfrog_step(self.prev_vars.u, self.du_dt),
+                v=self.leapfrog_step(self.prev_vars.v, self.dv_dt),
+                theta=self.leapfrog_step(self.prev_vars.theta, self.dtheta_dt),
             )
 
-            self.prev_vars = AuxiliaryVars(
-                u=self.apply_asselin_filter(
-                    self.prev_vars.u, self.after_vars.u, self.state.u
-                ),
-                v=self.apply_asselin_filter(
-                    self.prev_vars.v, self.after_vars.v, self.state.v
-                ),
-                theta=self.apply_asselin_filter(
+            self.prev_vars = self.prev_vars._replace(
+                u=self.asselin_filt(self.prev_vars.u, self.after_vars.u, self.state.u),
+                v=self.asselin_filt(self.prev_vars.v, self.after_vars.v, self.state.v),
+                theta=self.asselin_filt(
                     self.prev_vars.theta, self.after_vars.theta, self.state.theta
                 ),
             )
@@ -235,11 +248,9 @@ class SWModel:
 
             self.enforce_boundary_conditions()
 
-            ind_within_day = (i + 1) % int(SECONDS_PER_DAY / self.config.dt)
-
+            ind_within_day = self.calc_ind_within_day(i)
             self.store_temp_results(self.state.t, ind_within_day)
-
-            if (i + 1) % int(SECONDS_PER_DAY / self.config.dt) == 0:
+            if ind_within_day == 0:
                 self.store_daily_avgs(day)
                 self.reset_temp_storage()
                 day += 1
