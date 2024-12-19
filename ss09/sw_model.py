@@ -145,7 +145,7 @@ class SWModel:
         self, u_now: np.ndarray, v_now: np.ndarray, theta_now: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
-        u_prev = u_now - self.config.dt * self.get_dudt(u_now, v_now, theta_now)
+        u_prev = u_now - self.config.dt * self.get_dudt()
         v_prev = v_now - self.config.dt * self.get_dvdt(u_now, v_now, theta_now)
         theta_prev = theta_now - self.config.dt * self.get_dthetadt(
             u_now, v_now, theta_now
@@ -201,14 +201,14 @@ class SWModel:
         """Calculate the meridional advection term for u."""
         return v * self.du_dy_upwind(u, v)
 
-    def get_dudt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
+    def get_dudt(self) -> np.ndarray:
         """Calculate the time derivative of u."""
         return (
-            self.coriolis_term(v)
-            - self.merid_advec_u(v, u)
-            - self.vert_advec_u(u, v, theta)
-            - self.rayleigh_drag_u(u)
-            - self.edd_mom_flux_div_u(np.gradient(u, self.config.dy))
+            self.coriolis_term(self.state.v)
+            - self.merid_advec_u(self.state.v, self.state.u)
+            - self.vert_advec_u(self.state.u, self.state.v, self.state.theta)
+            - self.rayleigh_drag_u(self.state.u)
+            - self.edd_mom_flux_div_u(np.gradient(self.state.u, self.config.dy))
         )
 
     def dv_dy(self, v: np.ndarray) -> np.ndarray:
@@ -250,15 +250,14 @@ class SWModel:
         u_prev: np.ndarray,
         v_prev: np.ndarray,
         theta_prev: np.ndarray,
-        u_now: np.ndarray,
-        v_now: np.ndarray,
-        theta_now: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Perform a leapfrog step."""
-        u_after = u_prev + 2 * self.config.dt * self.get_dudt(u_now, v_now, theta_now)
-        v_after = v_prev + 2 * self.config.dt * self.get_dvdt(u_now, v_now, theta_now)
+        u_after = u_prev + 2 * self.config.dt * self.get_dudt()
+        v_after = v_prev + 2 * self.config.dt * self.get_dvdt(
+            self.state.u, self.state.v, self.state.theta
+        )
         theta_after = theta_prev + 2 * self.config.dt * self.get_dthetadt(
-            u_now, v_now, theta_now
+            self.state.u, self.state.v, self.state.theta
         )
         return u_after, v_after, theta_after
 
@@ -340,7 +339,7 @@ class SWModel:
             self.state = self.state._replace(t=i * self.config.dt)
 
             u_after, v_after, theta_after = self.leapfrog_step(
-                u_prev, v_prev, theta_prev, self.state.u, self.state.v, self.state.theta
+                u_prev, v_prev, theta_prev
             )
 
             u_prev = self.apply_asselin_filter(u_prev, u_after, self.state.u)
