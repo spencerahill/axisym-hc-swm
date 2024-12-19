@@ -131,21 +131,15 @@ class SWModel:
     def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
         self.config = config
         self.theta_e_profile = theta_e_profile
-        self.results = DailyResults(config.total_integration_days, config.ny)
-        self.current_time = 0.0
-
-    def get_state(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> ModelState:
-        """Get model state from current instantaneous values."""
-        return ModelState(t=self.current_time, u=u, v=v, theta=theta, y=self.config.y)
-
-    def init_current_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Initialize variables for the current step."""
-        u_now = np.zeros(self.config.ny)
-        v_now = np.zeros(self.config.ny)
-        theta_now = self.theta_e_profile(
-            self.get_state(u_now, v_now, np.zeros(self.config.ny))
+        self.state = ModelState(
+            t=0.0,
+            u=np.zeros(config.ny),
+            v=np.zeros(config.ny),
+            theta=np.zeros(config.ny),
+            y=config.y,
         )
-        return u_now, v_now, theta_now
+        self.state = self.state._replace(theta=self.theta_e_profile(self.state))
+        self.results = DailyResults(config.total_integration_days, config.ny)
 
     def init_prev_step_vars(
         self, u_now: np.ndarray, v_now: np.ndarray, theta_now: np.ndarray
@@ -196,19 +190,22 @@ class SWModel:
         self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
     ) -> np.ndarray:
         """Calculate the vertical momentum advection."""
-        state = self.get_state(u, v, theta)
         dv_dy = np.gradient(v, self.config.dy)
-        return u * dv_dy * np.heaviside(self.theta_e_profile(state) - theta, 0.5)
+        return u * dv_dy * np.heaviside(self.theta_e_profile(self.state) - theta, 0.5)
+
+    def coriolis_term(self, u_or_v: np.ndarray) -> np.ndarray:
+        """Calculate the Coriolis term for the u equation."""
+        return self.config.beta * self.config.y * u_or_v
 
     def merid_advec_u(self, v: np.ndarray, u: np.ndarray) -> np.ndarray:
-        """Calculate the meridional advection term for u including planetary component."""
-        return v * (self.config.beta * self.config.y - self.du_dy_upwind(u, v))
+        """Calculate the meridional advection term for u."""
+        return v * self.du_dy_upwind(u, v)
 
     def get_dudt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of u."""
-
         return (
-            self.merid_advec_u(v, u)
+            self.coriolis_term(v)
+            - self.merid_advec_u(v, u)
             - self.vert_advec_u(u, v, theta)
             - self.rayleigh_drag_u(u)
             - self.edd_mom_flux_div_u(np.gradient(u, self.config.dy))
@@ -222,22 +219,28 @@ class SWModel:
         """Calculate the diffusion term for v."""
         return np.gradient(self.dv_dy(v), self.config.dy) * self.config.k_v
 
+    def dp_dy_term(self, theta: np.ndarray) -> np.ndarray:
+        """Calculate the pressure gradient term."""
+        return (
+            self.config.gravity
+            * self.config.height
+            * np.gradient(theta * THETA_TO_TEMP, self.config.dy)
+            / self.config.t_ref
+        )
+
     def get_dvdt(self, u: np.ndarray, v: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of v."""
-        dtemp_dy = np.gradient(theta * THETA_TO_TEMP, self.config.dy)
         return (
-            -self.config.beta * self.config.y * u
-            - self.config.gravity * self.config.height * dtemp_dy / self.config.t_ref
-            + self.diffusion_v(v)
+            -self.coriolis_term(u) - self.dp_dy_term(theta) + self.diffusion_v(v)
         ) / 2
 
     def get_dthetadt(
         self, u: np.ndarray, v: np.ndarray, theta: np.ndarray
     ) -> np.ndarray:
         """Calculate the time derivative of theta."""
-        state = self.get_state(u, v, theta)
+
         return (
-            self.theta_e_profile(state) - theta
+            self.theta_e_profile(self.state) - theta
         ) / self.config.tau - self.config.delta * self.config.delta_z * np.gradient(
             v, self.config.dy
         ) / self.config.height
@@ -260,24 +263,10 @@ class SWModel:
         return u_after, v_after, theta_after
 
     def apply_asselin_filter(
-        self,
-        u_prev: np.ndarray,
-        v_prev: np.ndarray,
-        theta_prev: np.ndarray,
-        u_after: np.ndarray,
-        v_after: np.ndarray,
-        theta_after: np.ndarray,
-        u_now: np.ndarray,
-        v_now: np.ndarray,
-        theta_now: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Apply the Asselin filter."""
-        u_prev = u_now + self.config.asselin_filt_coef * (u_after + u_prev - 2 * u_now)
-        v_prev = v_now + self.config.asselin_filt_coef * (v_after + v_prev - 2 * v_now)
-        theta_prev = theta_now + self.config.asselin_filt_coef * (
-            theta_after + theta_prev - 2 * theta_now
-        )
-        return u_prev, v_prev, theta_prev
+        self, prev: np.ndarray, after: np.ndarray, now: np.ndarray
+    ) -> np.ndarray:
+        """Apply the Asselin filter to a single variable."""
+        return now + self.config.asselin_filt_coef * (after + prev - 2 * now)
 
     def enforce_boundary_conditions(self, u_now: np.ndarray, v_now: np.ndarray):
         """Enforce boundary conditions."""
@@ -336,8 +325,9 @@ class SWModel:
 
     def run_sim(self):
         """Run the S-S model simulation."""
-        u_now, v_now, theta_now = self.init_current_step_vars()
-        u_prev, v_prev, theta_prev = self.init_prev_step_vars(u_now, v_now, theta_now)
+        u_prev, v_prev, theta_prev = self.init_prev_step_vars(
+            self.state.u, self.state.v, self.state.theta
+        )
 
         total_time_steps = int(
             SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
@@ -347,27 +337,21 @@ class SWModel:
         u_temp, v_temp, theta_temp, time_temp = self.init_temp_storage()
 
         for i in range(total_time_steps):
-            self.current_time = i * self.config.dt
+            self.state = self.state._replace(t=i * self.config.dt)
 
             u_after, v_after, theta_after = self.leapfrog_step(
-                u_prev, v_prev, theta_prev, u_now, v_now, theta_now
+                u_prev, v_prev, theta_prev, self.state.u, self.state.v, self.state.theta
             )
 
-            u_prev, v_prev, theta_prev = self.apply_asselin_filter(
-                u_prev,
-                v_prev,
-                theta_prev,
-                u_after,
-                v_after,
-                theta_after,
-                u_now,
-                v_now,
-                theta_now,
+            u_prev = self.apply_asselin_filter(u_prev, u_after, self.state.u)
+            v_prev = self.apply_asselin_filter(v_prev, v_after, self.state.v)
+            theta_prev = self.apply_asselin_filter(
+                theta_prev, theta_after, self.state.theta
             )
 
-            u_now, v_now, theta_now = u_after, v_after, theta_after
+            self.state = self.state._replace(u=u_after, v=v_after, theta=theta_after)
 
-            self.enforce_boundary_conditions(u_now, v_now)
+            self.enforce_boundary_conditions(self.state.u, self.state.v)
 
             ind_within_day = (i + 1) % int(SECONDS_PER_DAY / self.config.dt)
 
@@ -376,10 +360,10 @@ class SWModel:
                 v_temp,
                 theta_temp,
                 time_temp,
-                u_now,
-                v_now,
-                theta_now,
-                self.current_time,
+                self.state.u,
+                self.state.v,
+                self.state.theta,
+                self.state.t,
                 ind_within_day,
             )
 
@@ -389,7 +373,7 @@ class SWModel:
                 day += 1
                 logging.info(f"Day {day} finished.")
 
-            if np.isnan(u_now).any():
+            if np.isnan(self.state.u).any():
                 logging.warning("NaN detected in u_now, breaking the loop.")
                 break
 
