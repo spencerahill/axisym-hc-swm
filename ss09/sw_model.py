@@ -5,7 +5,7 @@ This file shows the python code for S-S model.
 import os
 import logging
 import numpy as np
-from typing import Tuple
+from typing import Tuple, NamedTuple
 from .model_state import ModelState
 from .theta_e import ThetaEProfile
 from .sw_config import SWConfig
@@ -19,6 +19,12 @@ logging.basicConfig(
 # Constants
 SECONDS_PER_DAY = 86400  # Number of seconds in a day
 THETA_TO_TEMP = 1 / 1.6  # Inverse of (p_s/p_t)^(R/c_p)
+
+
+class AuxiliaryVars(NamedTuple):
+    u: np.ndarray
+    v: np.ndarray
+    theta: np.ndarray
 
 
 class SWModel:
@@ -40,6 +46,12 @@ class SWModel:
             "theta_temp": None,
             "time_temp": None,
         }
+        self.prev_vars = AuxiliaryVars(
+            u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
+        )
+        self.after_vars = AuxiliaryVars(
+            u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
+        )
 
     def init_prev_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
@@ -187,7 +199,7 @@ class SWModel:
 
     def run_sim(self):
         """Run the S-S model simulation."""
-        u_prev, v_prev, theta_prev = self.init_prev_step_vars()
+        self.prev_vars = AuxiliaryVars(*self.init_prev_step_vars())
 
         total_time_steps = int(
             SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
@@ -199,17 +211,27 @@ class SWModel:
         for i in range(total_time_steps):
             self.state = self.state._replace(t=i * self.config.dt)
 
-            u_after = self.leapfrog_single_step(u_prev, self.du_dt)
-            v_after = self.leapfrog_single_step(v_prev, self.dv_dt)
-            theta_after = self.leapfrog_single_step(theta_prev, self.dtheta_dt)
-
-            u_prev = self.apply_asselin_filter(u_prev, u_after, self.state.u)
-            v_prev = self.apply_asselin_filter(v_prev, v_after, self.state.v)
-            theta_prev = self.apply_asselin_filter(
-                theta_prev, theta_after, self.state.theta
+            self.after_vars = AuxiliaryVars(
+                u=self.leapfrog_single_step(self.prev_vars.u, self.du_dt),
+                v=self.leapfrog_single_step(self.prev_vars.v, self.dv_dt),
+                theta=self.leapfrog_single_step(self.prev_vars.theta, self.dtheta_dt),
             )
 
-            self.state = self.state._replace(u=u_after, v=v_after, theta=theta_after)
+            self.prev_vars = AuxiliaryVars(
+                u=self.apply_asselin_filter(
+                    self.prev_vars.u, self.after_vars.u, self.state.u
+                ),
+                v=self.apply_asselin_filter(
+                    self.prev_vars.v, self.after_vars.v, self.state.v
+                ),
+                theta=self.apply_asselin_filter(
+                    self.prev_vars.theta, self.after_vars.theta, self.state.theta
+                ),
+            )
+
+            self.state = self.state._replace(
+                u=self.after_vars.u, v=self.after_vars.v, theta=self.after_vars.theta
+            )
 
             self.enforce_boundary_conditions()
 
