@@ -38,9 +38,9 @@ class SWModel:
 
     def init_prev_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
-        u_prev = self.state.u - self.config.dt * self.get_dudt()
-        v_prev = self.state.v - self.config.dt * self.get_dvdt()
-        theta_prev = self.state.theta - self.config.dt * self.get_dthetadt()
+        u_prev = self.state.u - self.config.dt * self.du_dt()
+        v_prev = self.state.v - self.config.dt * self.dv_dt()
+        theta_prev = self.state.theta - self.config.dt * self.dtheta_dt()
         return u_prev, v_prev, theta_prev
 
     def init_temp_storage(
@@ -98,7 +98,7 @@ class SWModel:
         """Calculate the meridional advection term for u."""
         return self.state.v * self.du_dy_upwind()
 
-    def get_dudt(self) -> np.ndarray:
+    def du_dt(self) -> np.ndarray:
         """Calculate the time derivative of u."""
         return (
             self.coriolis_term(self.state.v)
@@ -125,7 +125,7 @@ class SWModel:
             / self.config.t_ref
         )
 
-    def get_dvdt(self) -> np.ndarray:
+    def dv_dt(self) -> np.ndarray:
         """Calculate the time derivative of v."""
         return (
             -self.coriolis_term(self.state.u)
@@ -146,7 +146,7 @@ class SWModel:
             / self.config.height
         )
 
-    def get_dthetadt(self) -> np.ndarray:
+    def dtheta_dt(self) -> np.ndarray:
         """Calculate the time derivative of theta."""
         return self.newt_cool_term() + self.vert_advec_theta()
 
@@ -226,9 +226,9 @@ class SWModel:
         for i in range(total_time_steps):
             self.state = self.state._replace(t=i * self.config.dt)
 
-            u_after = self.leapfrog_single_step(u_prev, self.get_dudt)
-            v_after = self.leapfrog_single_step(v_prev, self.get_dvdt)
-            theta_after = self.leapfrog_single_step(theta_prev, self.get_dthetadt)
+            u_after = self.leapfrog_single_step(u_prev, self.du_dt)
+            v_after = self.leapfrog_single_step(v_prev, self.dv_dt)
+            theta_after = self.leapfrog_single_step(theta_prev, self.dtheta_dt)
 
             u_prev = self.apply_asselin_filter(u_prev, u_after, self.state.u)
             v_prev = self.apply_asselin_filter(v_prev, v_after, self.state.v)
