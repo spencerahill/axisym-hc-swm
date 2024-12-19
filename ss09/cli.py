@@ -139,6 +139,12 @@ def parse_arguments():
         default=0.04,
         help="Asselin filter coefficient (default: 0.04)",
     )
+    parser.add_argument(
+        "--no-vert-advec-u",
+        action="store_false",
+        dest="include_vert_advec_u",
+        help="Disable vertical advection of zonal momentum (default: enabled)",
+    )
     return parser.parse_args()
 
 
@@ -161,6 +167,7 @@ def setup_sw_config(args) -> SWConfig:
         v_d=args.v_d,
         domain_size=args.domain_size,
         asselin_filt_coef=args.asselin_filt_coef,
+        include_vert_advec_u=args.include_vert_advec_u,
     )
 
 

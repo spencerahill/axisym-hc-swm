@@ -32,6 +32,7 @@ def default_args():
         "--v_d": 2.5,
         "--domain_size": 15751e3 * 2,
         "--asselin_filt_coef": 0.04,
+        "--include_vert_advec_u": True,
     }
 
 
@@ -60,11 +61,15 @@ def default_args():
         ("--v_d", 3.0),
         ("--domain_size", 16000e3 * 2),
         ("--asselin_filt_coef", 0.05),
+        ("--no-vert-advec-u", False),
     ],
 )
 def test_cli_arguments(default_args, param, value):
     args = default_args.copy()
-    args[param] = value
+    if param == "--no-vert-advec-u":
+        args["--include_vert_advec_u"] = False
+    else:
+        args[param] = value
 
     # Convert arguments to a list of strings
     cli_args = [str(item) for sublist in args.items() for item in sublist]
@@ -79,5 +84,7 @@ def test_cli_arguments(default_args, param, value):
     # Verify ThetaEConfig if applicable
     if param in ["--theta_00", "--y_0", "--y_one", "--delta_y", "--theta_e_type"]:
         assert getattr(theta_e_config, param.lstrip("--")) == value
+    elif param == "--no-vert-advec-u":
+        assert sw_config.include_vert_advec_u == value
     else:
         assert getattr(sw_config, param.lstrip("--")) == value

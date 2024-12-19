@@ -123,10 +123,13 @@ class SWModel:
 
     def du_dt(self) -> np.ndarray:
         """Calculate the time derivative of u."""
+        vert_advec_u_term = (
+            self.vert_advec_u() if self.config.include_vert_advec_u else 0
+        )
         return (
             self.coriolis_term(self.state.v)
             - self.merid_advec_u()
-            - self.vert_advec_u()
+            - vert_advec_u_term
             - self.rayleigh_drag_u()
             - self.edd_mom_flux_div_u()
         )
@@ -289,7 +292,11 @@ class SWModel:
             "title": "Shallow Water Model Output",
             "creation_date": str(np.datetime64("now")),
             **{
-                key: getattr(self.config, key)
+                key: (
+                    str(getattr(self.config, key))
+                    if isinstance(getattr(self.config, key), bool)
+                    else getattr(self.config, key)
+                )
                 for key in self.config.__dataclass_fields__
             },
         }

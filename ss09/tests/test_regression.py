@@ -17,22 +17,29 @@ def test_path():
         yield os.path.join(temp_dir, "test_output.nc")
 
 
-def run_model(output_path: str, total_integration_days: int = 5):
-    """Run the model and save the output to the specified path."""
-    subprocess.run(
-        [
-            "run-sw-model",
-            "--total_integration_days",
-            str(total_integration_days),
-            "--ny",
-            "801",
-            "--dt",
-            "30",
-            "--output_path",
-            output_path,
-        ],
-        check=True,
-    )
+def run_model(output_path):
+    try:
+        subprocess.run(
+            [
+                "run-sw-model",
+                "--total_integration_days",
+                "5",
+                "--ny",
+                "801",
+                "--dt",
+                "30",
+                "--output_path",
+                output_path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print("Command failed with error:")
+        print(e.stdout)
+        print(e.stderr)
+        raise
 
 
 def compare_outputs(baseline_path: str, test_path: str) -> bool:
@@ -49,6 +56,7 @@ def compare_outputs(baseline_path: str, test_path: str) -> bool:
     return True
 
 
+@pytest.mark.regression
 def test_regression(baseline_path, test_path):
     """Test the model output against the baseline."""
     run_model(test_path)

@@ -85,7 +85,7 @@ def test_sb08_profile_call():
         * np.sin(np.pi * config.y_0 / (2 * config.y_one))
         * np.sin(np.pi * state.y / (2 * config.y_one))
     )
-    expected = config.theta_00 - config.delta_y * (term1 + term2)
+    expected = config.theta_00 - config.delta_y * (term1 - term2)
 
     result = profile(state)
 
