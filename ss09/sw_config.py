@@ -26,6 +26,7 @@ class SWConfig:
     dy: float = field(init=False)
     y: np.ndarray = field(init=False)
     asselin_filt_coef: float = 0.04
+    kappa_theta: float = 0.0
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)

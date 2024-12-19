@@ -163,9 +163,16 @@ class SWModel:
             / self.config.height
         )
 
+    def eddy_heat_flux(self) -> np.ndarray:
+        """Calculate the eddy heat flux divergence."""
+        if self.config.kappa_theta == 0.0:
+            return np.zeros_like(self.state.theta)
+        dtheta_dy = np.gradient(self.state.theta, self.config.dy)
+        return self.config.kappa_theta * np.gradient(dtheta_dy, self.config.dy)
+
     def dtheta_dt(self) -> np.ndarray:
         """Calculate the time derivative of theta."""
-        return self.newt_cool_term() + self.vert_advec_theta()
+        return self.newt_cool_term() + self.vert_advec_theta() + self.eddy_heat_flux()
 
     def leapfrog_step(self, prev: np.ndarray, time_deriv_func) -> np.ndarray:
         """Perform a leapfrog step for a single variable."""

@@ -85,6 +85,12 @@ def parse_arguments():
         default=9439e3,
         help="Width parameter for the θₑ profile (default: 9439e3 m)",
     )
+    parser.add_argument(
+        "--kappa_theta",
+        type=float,
+        default=0.0,
+        help="Diffusivity constant for eddy heat flux (default: 0.0, inactive)",
+    )
     return parser.parse_args()
 
 
@@ -99,6 +105,7 @@ def main():
         output_path=args.output_path,
         ny=args.ny,
         dt=args.dt,
+        kappa_theta=args.kappa_theta,
     )
     theta_e_config = ThetaEConfig(
         theta_00=args.theta_00,
