@@ -3,6 +3,7 @@ import numpy as np
 from ss09.sw_model import SWModel
 from ss09.sw_config import SWConfig
 from ss09.theta_e import ThetaEConfig, SS09Profile, Sin2Profile, SB08Profile
+from ss09.model_state import ModelState
 
 
 @pytest.fixture
@@ -25,6 +26,12 @@ def theta_e_config():
     return ThetaEConfig(theta_00=310.0, y_0=1000e3, y_one=9000e3, delta_y=45)
 
 
+@pytest.fixture
+def model(sw_config, theta_e_config):
+    theta_e_profile = SS09Profile(theta_e_config)
+    return SWModel(sw_config, theta_e_profile)
+
+
 @pytest.mark.parametrize("profile_class", [SS09Profile, Sin2Profile, SB08Profile])
 def test_sw_model_initialization(sw_config, theta_e_config, profile_class):
     theta_e_profile = profile_class(theta_e_config)
@@ -36,3 +43,36 @@ def test_sw_model_initialization(sw_config, theta_e_config, profile_class):
     assert model.state.v.shape == (sw_config.ny,)
     assert model.state.theta.shape == (sw_config.ny,)
     assert model.state.y.shape == (sw_config.ny,)
+
+
+def test_du_dt(model):
+    du_dt_result = model.du_dt()
+    assert du_dt_result.shape == (model.config.ny,)
+    # Add more specific assertions based on expected behavior
+
+
+def test_dv_dt(model):
+    dv_dt_result = model.dv_dt()
+    assert dv_dt_result.shape == (model.config.ny,)
+    # Add more specific assertions based on expected behavior
+
+
+def test_dtheta_dt(model):
+    dtheta_dt_result = model.dtheta_dt()
+    assert dtheta_dt_result.shape == (model.config.ny,)
+    # Add more specific assertions based on expected behavior
+
+
+def test_eddy_heat_flux_inactive(model):
+    eddy_heat_flux_result = model.eddy_heat_flux()
+    assert np.all(eddy_heat_flux_result == 0)
+    assert eddy_heat_flux_result.shape == (model.config.ny,)
+
+
+def test_eddy_heat_flux_active(sw_config, theta_e_config):
+    # Activate eddy heat flux by setting kappa_theta
+    sw_config.kappa_theta = 1.0
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+    eddy_heat_flux_result = model.eddy_heat_flux()
+    assert eddy_heat_flux_result.shape == (model.config.ny,)
+    # Add more specific assertions based on expected behavior
