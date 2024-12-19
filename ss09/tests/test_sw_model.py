@@ -17,7 +17,7 @@ def sw_config():
         output_path="./output.nc",
         ny=51,
         dt=3600,
-        kappa_theta=0.0,
+        coeff_eddy_heat_diff=0.0,
     )
 
 
@@ -71,7 +71,7 @@ def test_eddy_heat_flux_inactive(model):
 
 def test_eddy_heat_flux_active(sw_config, theta_e_config):
     # Activate eddy heat flux by setting kappa_theta
-    sw_config.kappa_theta = 1.0
+    sw_config.coeff_eddy_heat_diff = 1.0
     model = SWModel(sw_config, SS09Profile(theta_e_config))
     eddy_heat_flux_result = model.eddy_heat_flux()
     assert eddy_heat_flux_result.shape == (model.config.ny,)

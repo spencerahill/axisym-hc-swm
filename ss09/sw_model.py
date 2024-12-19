@@ -53,10 +53,10 @@ class SWModel:
             theta=np.zeros((0, config.ny)),
             time=np.zeros(0),
         )
-        self.prev_vars = AuxiliaryVars(
+        self.vars_prev_step = AuxiliaryVars(
             u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
         )
-        self.after_vars = AuxiliaryVars(
+        self.vars_next_step = AuxiliaryVars(
             u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
         )
 
@@ -165,10 +165,10 @@ class SWModel:
 
     def eddy_heat_flux(self) -> np.ndarray:
         """Calculate the eddy heat flux divergence."""
-        if self.config.kappa_theta == 0.0:
+        if self.config.coeff_eddy_heat_diff == 0.0:
             return np.zeros_like(self.state.theta)
         dtheta_dy = np.gradient(self.state.theta, self.config.dy)
-        return self.config.kappa_theta * np.gradient(dtheta_dy, self.config.dy)
+        return self.config.coeff_eddy_heat_diff * np.gradient(dtheta_dy, self.config.dy)
 
     def dtheta_dt(self) -> np.ndarray:
         """Calculate the time derivative of theta."""
@@ -223,7 +223,7 @@ class SWModel:
 
     def run_sim(self):
         """Run the S-S model simulation."""
-        self.prev_vars = AuxiliaryVars(*self.init_prev_step_vars())
+        self.vars_prev_step = AuxiliaryVars(*self.init_prev_step_vars())
 
         total_time_steps = int(
             SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
@@ -235,22 +235,30 @@ class SWModel:
         for i in range(total_time_steps):
             self.state = self.state._replace(t=i * self.config.dt)
 
-            self.after_vars = self.after_vars._replace(
-                u=self.leapfrog_step(self.prev_vars.u, self.du_dt),
-                v=self.leapfrog_step(self.prev_vars.v, self.dv_dt),
-                theta=self.leapfrog_step(self.prev_vars.theta, self.dtheta_dt),
+            self.vars_next_step = self.vars_next_step._replace(
+                u=self.leapfrog_step(self.vars_prev_step.u, self.du_dt),
+                v=self.leapfrog_step(self.vars_prev_step.v, self.dv_dt),
+                theta=self.leapfrog_step(self.vars_prev_step.theta, self.dtheta_dt),
             )
 
-            self.prev_vars = self.prev_vars._replace(
-                u=self.asselin_filt(self.prev_vars.u, self.after_vars.u, self.state.u),
-                v=self.asselin_filt(self.prev_vars.v, self.after_vars.v, self.state.v),
+            self.vars_prev_step = self.vars_prev_step._replace(
+                u=self.asselin_filt(
+                    self.vars_prev_step.u, self.vars_next_step.u, self.state.u
+                ),
+                v=self.asselin_filt(
+                    self.vars_prev_step.v, self.vars_next_step.v, self.state.v
+                ),
                 theta=self.asselin_filt(
-                    self.prev_vars.theta, self.after_vars.theta, self.state.theta
+                    self.vars_prev_step.theta,
+                    self.vars_next_step.theta,
+                    self.state.theta,
                 ),
             )
 
             self.state = self.state._replace(
-                u=self.after_vars.u, v=self.after_vars.v, theta=self.after_vars.theta
+                u=self.vars_next_step.u,
+                v=self.vars_next_step.v,
+                theta=self.vars_next_step.theta,
             )
 
             self.enforce_boundary_conditions()
