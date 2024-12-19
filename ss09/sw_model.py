@@ -5,7 +5,6 @@ This file shows the python code for S-S model.
 import os
 import logging
 import numpy as np
-import xarray as xr
 from typing import Tuple
 from .model_state import ModelState
 from .theta_e import ThetaEProfile
@@ -108,29 +107,23 @@ class SWModel:
             - self.edd_mom_flux_div_u()
         )
 
-    def dv_dy(self, v: np.ndarray) -> np.ndarray:
+    def dv_dy(self) -> np.ndarray:
         """Calculate the gradient of v with respect to y."""
-        return np.gradient(v, self.config.dy)
+        return np.gradient(self.state.v, self.config.dy)
 
-    def diffusion_v(self, v: np.ndarray) -> np.ndarray:
+    def diffusion_v(self) -> np.ndarray:
         """Calculate the diffusion term for v."""
-        return np.gradient(self.dv_dy(v), self.config.dy) * self.config.k_v
+        return np.gradient(self.dv_dy(), self.config.dy) * self.config.k_v
 
-    def dp_dy_term(self, theta: np.ndarray) -> np.ndarray:
+    def dp_dy_term(self) -> np.ndarray:
         """Calculate the pressure gradient term."""
-        return (
-            self.config.gravity
-            * self.config.height
-            * np.gradient(theta * THETA_TO_TEMP, self.config.dy)
-            / self.config.t_ref
-        )
+        dtemp_dy = np.gradient(self.state.theta * THETA_TO_TEMP, self.config.dy)
+        return self.config.gravity * self.config.height * dtemp_dy / self.config.t_ref
 
     def dv_dt(self) -> np.ndarray:
         """Calculate the time derivative of v."""
         return (
-            -self.coriolis_term(self.state.u)
-            - self.dp_dy_term(self.state.theta)
-            + self.diffusion_v(self.state.v)
+            -self.coriolis_term(self.state.u) - self.dp_dy_term() + self.diffusion_v()
         ) / 2
 
     def newt_cool_term(self) -> np.ndarray:

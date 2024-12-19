@@ -1,6 +1,5 @@
 import numpy as np
 import xarray as xr
-from typing import Tuple
 from .model_state import ModelState
 from .theta_e import ThetaEProfile
 from .sw_config import SWConfig
