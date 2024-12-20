@@ -26,7 +26,7 @@ class SWConfig:
     dy: float = field(init=False)
     y: np.ndarray = field(init=False)
     asselin_filt_coef: float = 0.04
-    coeff_eddy_heat_diff: float = 0.0
+    coeff_eddy_heat_diff: float = 0.0  # values <1e4 make little difference
     include_vert_advec_u: bool = True
 
     def __post_init__(self):
