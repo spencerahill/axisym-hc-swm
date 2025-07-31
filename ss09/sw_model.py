@@ -22,12 +22,18 @@ THETA_TO_TEMP = 1 / 1.6  # Inverse of (p_s/p_t)^(R/c_p)
 
 
 class AuxiliaryVars(NamedTuple):
+    """
+    Values of u, v, and theta for the previous or future step.
+    """
     u: np.ndarray
     v: np.ndarray
     theta: np.ndarray
 
 
 class TempVars(NamedTuple):
+    """
+    Temporary storage of model variables for daily averages.
+    """
     u: np.ndarray
     v: np.ndarray
     theta: np.ndarray
@@ -35,6 +41,9 @@ class TempVars(NamedTuple):
 
 
 class SWModel:
+    """
+    The shallow water model on an equatorial beta plane.
+    """
     def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
         self.config = config
         self.theta_e_profile = theta_e_profile
@@ -114,7 +123,7 @@ class SWModel:
         )
 
     def coriolis_term(self, u_or_v: np.ndarray) -> np.ndarray:
-        """Calculate the Coriolis term for the u equation."""
+        """Calculate the Coriolis term for the u or v equation."""
         return self.config.beta * self.config.y * u_or_v
 
     def merid_advec_u(self) -> np.ndarray:
