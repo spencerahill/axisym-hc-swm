@@ -3,8 +3,8 @@ from setuptools import setup, find_packages
 setup(
     name="shallow_water",
     version="0.1.0",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="Spencer A. Hill",
+    author_email="shill1@ccny.cuny.edu",
     description="Shallow water model, originally from Sobel and Schneider 2009",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
