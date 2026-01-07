@@ -73,8 +73,7 @@ class DailyResults:
             if conv_history:  # Only add if we have data
                 data_vars['steady_state_kinetic_energy'] = xr.DataArray(
                     data=conv_history['kinetic_energy'],
-                    dims=['convergence_time'],
-                    coords={'convergence_time': conv_history['convergence_days']},
+                    dims=['time'],
                     attrs={
                         'units': '(m/s)^2',
                         'long_name': 'domain-averaged kinetic energy for steady-state detection'
@@ -82,8 +81,7 @@ class DailyResults:
                 )
                 data_vars['steady_state_temp_variance'] = xr.DataArray(
                     data=conv_history['temp_variance'],
-                    dims=['convergence_time'],
-                    coords={'convergence_time': conv_history['convergence_days']},
+                    dims=['time'],
                     attrs={
                         'units': 'K',
                         'long_name': 'temperature standard deviation for steady-state detection'
@@ -94,8 +92,7 @@ class DailyResults:
                 if 'v_smoothness' in conv_history:
                     data_vars['v_neighbor_correlation'] = xr.DataArray(
                         data=conv_history['v_smoothness'],
-                        dims=['convergence_time'],
-                        coords={'convergence_time': conv_history['convergence_days']},
+                        dims=['time'],
                         attrs={
                             'units': 'dimensionless',
                             'long_name': 'v field neighbor correlation (smoothness indicator)',
@@ -104,8 +101,7 @@ class DailyResults:
                     )
                     data_vars['v_grid_variance'] = xr.DataArray(
                         data=conv_history['v_grid_variance'],
-                        dims=['convergence_time'],
-                        coords={'convergence_time': conv_history['convergence_days']},
+                        dims=['time'],
                         attrs={
                             'units': 'm^-2 s^-2',
                             'long_name': 'v field grid-scale variance',
