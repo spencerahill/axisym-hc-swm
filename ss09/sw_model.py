@@ -10,6 +10,7 @@ from .model_state import ModelState
 from .theta_e import ThetaEProfile
 from .sw_config import SWConfig
 from .daily_results import DailyResults
+from .steady_state import SteadyStateDetector
 
 # Configure logging
 logging.basicConfig(
@@ -67,6 +68,13 @@ class SWModel:
         )
         self.vars_next_step = AuxiliaryVars(
             u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
+        )
+        self.steady_state_detector = SteadyStateDetector(
+            enabled=config.enable_steady_state,
+            window_size=config.steady_state_window_size,
+            threshold=config.steady_state_threshold,
+            check_both_metrics=config.steady_state_check_both,
+            smoothness_threshold=config.smoothness_threshold,
         )
 
     def init_prev_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -279,6 +287,25 @@ class SWModel:
             self.store_temp_results(self.state.t, ind_within_day)
             if ind_within_day == 0:
                 self.store_daily_avgs(day)
+
+                # Record metrics for steady-state detection
+                self.steady_state_detector.record_day(
+                    day,
+                    self.results.u[day],
+                    self.results.v[day],
+                    self.results.theta[day],
+                    self.config.dy
+                )
+
+                # Check convergence and break if reached
+                if self.steady_state_detector.check_convergence(day):
+                    logging.info(
+                        f"Steady state reached at day {day}. "
+                        f"KE converged: {self.steady_state_detector.ke_converged}, "
+                        f"Tvar converged: {self.steady_state_detector.tvar_converged}"
+                    )
+                    break
+
                 self.reset_temp_storage()
                 day += 1
                 logging.info(f"Day {day} finished.")
@@ -289,7 +316,9 @@ class SWModel:
 
     def save_results(self):
         """Save the simulation results to a NetCDF file."""
-        ds = self.results.to_xarray(self.config, self.theta_e_profile)
+        ds = self.results.to_xarray(
+            self.config, self.theta_e_profile, self.steady_state_detector
+        )
 
         # Add coordinate attributes
         ds.y.attrs.update(
@@ -308,6 +337,7 @@ class SWModel:
                 )
                 for key in self.config.__dataclass_fields__
             },
+            **self.steady_state_detector.get_convergence_info(),
         }
         ds.attrs.update(global_attrs)
 

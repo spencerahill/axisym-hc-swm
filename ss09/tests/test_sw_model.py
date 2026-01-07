@@ -76,3 +76,31 @@ def test_eddy_heat_flux_active(sw_config, theta_e_config):
     eddy_heat_flux_result = model.eddy_heat_flux()
     assert eddy_heat_flux_result.shape == (model.config.ny,)
     # Add more specific assertions based on expected behavior
+
+
+def test_steady_state_integration(sw_config, theta_e_config):
+    """Test that steady-state detection integrates with model"""
+    sw_config.total_integration_days = 50
+    sw_config.enable_steady_state = True
+    sw_config.steady_state_window_size = 5
+    sw_config.steady_state_threshold = 0.001
+
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+    assert model.steady_state_detector.enabled
+
+    # Run simulation (may or may not converge, just test it doesn't crash)
+    model.run_sim()
+
+    # Check that results are valid
+    assert model.results.time is not None
+    # If converged, check metadata
+    if model.steady_state_detector.is_converged:
+        assert model.steady_state_detector.convergence_day >= 0
+        assert len(model.steady_state_detector.kinetic_energy_history) > 0
+
+
+def test_steady_state_disabled_by_default(sw_config, theta_e_config):
+    """Test that steady-state detection is disabled by default"""
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+    assert not model.steady_state_detector.enabled
+    assert not model.steady_state_detector.is_converged

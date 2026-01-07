@@ -145,6 +145,40 @@ def parse_arguments():
         dest="include_vert_advec_u",
         help="Disable vertical advection of zonal momentum (default: enabled)",
     )
+    # Steady-state detection arguments
+    parser.add_argument(
+        "--enable-steady-state",
+        action="store_true",
+        dest="enable_steady_state",
+        help="Enable steady-state detection to stop simulation early when convergence criteria are met",
+    )
+    parser.add_argument(
+        "--steady-state-window",
+        type=int,
+        default=10,
+        dest="steady_state_window_size",
+        help="Number of days to use for steady-state convergence check (default: 10)",
+    )
+    parser.add_argument(
+        "--steady-state-threshold",
+        type=float,
+        default=0.001,
+        dest="steady_state_threshold",
+        help="Relative change threshold for convergence, e.g., 0.001 = 0.1%% (default: 0.001)",
+    )
+    parser.add_argument(
+        "--steady-state-either",
+        action="store_false",
+        dest="steady_state_check_both",
+        help="Require only one metric (KE or Tvar) to converge instead of both (default: require both)",
+    )
+    parser.add_argument(
+        "--smoothness-threshold",
+        type=float,
+        default=0.5,
+        dest="smoothness_threshold",
+        help="Neighbor correlation threshold for v field smoothness warning (default: 0.5)",
+    )
     return parser.parse_args()
 
 
@@ -168,6 +202,11 @@ def setup_sw_config(args) -> SWConfig:
         domain_size=args.domain_size,
         asselin_filt_coef=args.asselin_filt_coef,
         include_vert_advec_u=args.include_vert_advec_u,
+        enable_steady_state=args.enable_steady_state,
+        steady_state_window_size=args.steady_state_window_size,
+        steady_state_threshold=args.steady_state_threshold,
+        steady_state_check_both=args.steady_state_check_both,
+        smoothness_threshold=args.smoothness_threshold,
     )
 
 

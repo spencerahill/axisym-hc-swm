@@ -28,7 +28,22 @@ class SWConfig:
     asselin_filt_coef: float = 0.04
     coeff_eddy_heat_diff: float = 0.0  # values <1e4 make little difference
     include_vert_advec_u: bool = True
+    # Steady-state detection parameters
+    enable_steady_state: bool = False
+    steady_state_window_size: int = 10
+    steady_state_threshold: float = 0.001
+    steady_state_check_both: bool = True
+    smoothness_threshold: float = 0.5  # Neighbor correlation threshold for v field smoothness
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)
         self.y = np.linspace(-self.domain_size / 2, self.domain_size / 2, self.ny)
+
+        # Validate steady-state parameters
+        if self.enable_steady_state and self.steady_state_window_size > self.total_integration_days:
+            import warnings
+            warnings.warn(
+                f"Steady-state window size ({self.steady_state_window_size}) exceeds "
+                f"total integration days ({self.total_integration_days}). "
+                f"Convergence detection will not trigger."
+            )

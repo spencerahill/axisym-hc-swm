@@ -1,0 +1,303 @@
+"""
+Steady-state detection for the shallow water model.
+
+This module provides functionality to detect when a simulation has reached
+a quasi-steady state based on convergence of multiple physical metrics.
+
+Convergence Metrics:
+    - Kinetic Energy (KE): domain-averaged u^2 + v^2
+    - Temperature Variance (Tvar): spatial standard deviation of theta
+
+Convergence Criterion:
+    Relative change over a sliding window of N days must fall below a threshold.
+
+    rel_change = (max(window) - min(window)) / mean(window) < threshold
+
+Example:
+    >>> detector = SteadyStateDetector(
+    ...     enabled=True,
+    ...     window_size=10,
+    ...     threshold=0.001  # 0.1% relative change
+    ... )
+    >>> detector.record_day(day=5, u=u_avg, v=v_avg, theta=theta_avg)
+    >>> if detector.check_convergence(day=5):
+    ...     print(f"Converged at day {detector.convergence_day}")
+"""
+
+import numpy as np
+from typing import Optional
+
+
+class SteadyStateDetector:
+    """
+    Detects when the model reaches a steady state based on multiple convergence metrics.
+
+    Monitors:
+    - Kinetic energy: KE = mean(u^2 + v^2)
+    - Temperature variance: Tvar = std(theta)
+
+    Checks convergence using relative change over a sliding window.
+    """
+
+    def __init__(
+        self,
+        enabled: bool = False,
+        window_size: int = 10,
+        threshold: float = 0.001,
+        check_both_metrics: bool = True,
+        smoothness_threshold: float = 0.5
+    ):
+        """
+        Initialize the steady-state detector.
+
+        Args:
+            enabled: Whether steady-state detection is active
+            window_size: Number of days to use for convergence check
+            threshold: Relative change threshold (e.g., 0.001 = 0.1%)
+            check_both_metrics: If True, both KE and Tvar must converge;
+                                if False, either metric converging is sufficient
+            smoothness_threshold: Neighbor correlation threshold for v field smoothness
+        """
+        self.enabled = enabled
+        self.window_size = window_size
+        self.threshold = threshold
+        self.check_both_metrics = check_both_metrics
+        self.smoothness_threshold = smoothness_threshold
+
+        # History storage
+        self.kinetic_energy_history = []
+        self.temp_variance_history = []
+        self.days_recorded = []
+
+        # Smoothness tracking
+        self.v_smoothness_history = []
+        self.v_grid_variance_history = []
+        self.smoothness_warning_issued = False
+
+        # Convergence tracking
+        self.is_converged = False
+        self.convergence_day: Optional[int] = None
+        self.ke_converged = False
+        self.tvar_converged = False
+
+    def compute_kinetic_energy(self, u: np.ndarray, v: np.ndarray) -> float:
+        """
+        Compute domain-averaged kinetic energy: mean(u^2 + v^2).
+
+        Args:
+            u: Zonal wind field
+            v: Meridional wind field
+
+        Returns:
+            Domain-averaged kinetic energy
+        """
+        return np.mean(u**2 + v**2)
+
+    def compute_temp_variance(self, theta: np.ndarray) -> float:
+        """
+        Compute spatial standard deviation of theta.
+
+        Args:
+            theta: Potential temperature field
+
+        Returns:
+            Standard deviation of theta
+        """
+        return np.std(theta)
+
+    def compute_v_smoothness(self, v: np.ndarray, dy: float) -> dict:
+        """
+        Compute v field smoothness metrics to detect grid-scale oscillations.
+
+        Grid-scale oscillations (2Δy computational mode) manifest as:
+        - Negative or low correlation between neighboring points
+        - High variance in d²v/dy²
+
+        Args:
+            v: Meridional wind field
+            dy: Grid spacing in meridional direction
+
+        Returns:
+            Dictionary with:
+                - neighbor_correlation: correlation between v[i] and v[i+1]
+                - grid_variance: variance of d²v/dy²
+                - is_smooth: bool (True if correlation > threshold)
+        """
+        # Neighbor correlation (detects alternating pattern)
+        if len(v) < 2:
+            return {'neighbor_correlation': 1.0, 'grid_variance': 0.0, 'is_smooth': True}
+
+        neighbor_corr = np.corrcoef(v[:-1], v[1:])[0, 1]
+
+        # Grid-scale variance (what k_v damps)
+        if len(v) >= 3:
+            second_diff = np.diff(v, n=2) / (dy**2)
+            grid_var = np.var(second_diff)
+        else:
+            grid_var = 0.0
+
+        is_smooth = neighbor_corr >= self.smoothness_threshold
+
+        return {
+            'neighbor_correlation': neighbor_corr,
+            'grid_variance': grid_var,
+            'is_smooth': is_smooth
+        }
+
+    def _warn_noisy_v_field(self, correlation: float):
+        """Warn user about grid-scale oscillations in v field."""
+        import logging
+        logging.warning(
+            f"Grid-scale oscillations detected in v field. "
+            f"Neighbor correlation = {correlation:.3f} < {self.smoothness_threshold:.2f} threshold. "
+            f"This indicates 2Δy computational mode from leapfrog scheme. "
+            f"Consider increasing k_v for smoother fields."
+        )
+        self.smoothness_warning_issued = True
+
+    def record_day(self, day: int, u: np.ndarray, v: np.ndarray, theta: np.ndarray, dy: float = None):
+        """
+        Record metrics for a given day.
+
+        Args:
+            day: Day number
+            u: Daily-averaged zonal wind
+            v: Daily-averaged meridional wind
+            theta: Daily-averaged potential temperature
+            dy: Grid spacing in meridional direction (optional, for smoothness checks)
+        """
+        if not self.enabled:
+            return
+
+        ke = self.compute_kinetic_energy(u, v)
+        tvar = self.compute_temp_variance(theta)
+
+        self.days_recorded.append(day)
+        self.kinetic_energy_history.append(ke)
+        self.temp_variance_history.append(tvar)
+
+        # Track v field smoothness if dy is provided
+        if dy is not None:
+            smoothness = self.compute_v_smoothness(v, dy)
+            self.v_smoothness_history.append(smoothness['neighbor_correlation'])
+            self.v_grid_variance_history.append(smoothness['grid_variance'])
+
+            # Issue warning if grid-scale oscillations detected
+            if not smoothness['is_smooth'] and not self.smoothness_warning_issued:
+                self._warn_noisy_v_field(smoothness['neighbor_correlation'])
+
+    def check_convergence(self, current_day: int) -> bool:
+        """
+        Check if model has reached steady state.
+
+        Args:
+            current_day: Current simulation day
+
+        Returns:
+            True if converged, False otherwise.
+            Updates self.is_converged, self.convergence_day, etc.
+        """
+        if not self.enabled or len(self.kinetic_energy_history) < self.window_size:
+            return False
+
+        # Already converged
+        if self.is_converged:
+            return True
+
+        # Get last window_size values
+        ke_window = self.kinetic_energy_history[-self.window_size:]
+        tvar_window = self.temp_variance_history[-self.window_size:]
+
+        # Compute relative change
+        ke_rel_change = self._compute_relative_change(ke_window)
+        tvar_rel_change = self._compute_relative_change(tvar_window)
+
+        # Check convergence for each metric
+        self.ke_converged = ke_rel_change < self.threshold
+        self.tvar_converged = tvar_rel_change < self.threshold
+
+        # Determine overall convergence
+        if self.check_both_metrics:
+            converged = self.ke_converged and self.tvar_converged
+        else:
+            converged = self.ke_converged or self.tvar_converged
+
+        if converged and not self.is_converged:
+            self.is_converged = True
+            self.convergence_day = current_day
+            return True
+
+        return False
+
+    def _compute_relative_change(self, values: list) -> float:
+        """
+        Compute relative change over window.
+
+        rel_change = (max - min) / mean
+
+        Args:
+            values: List of metric values over the window
+
+        Returns:
+            Relative change (dimensionless)
+        """
+        values_array = np.array(values)
+        mean_val = np.mean(values_array)
+        range_val = np.max(values_array) - np.min(values_array)
+
+        # If values are perfectly stable (range = 0), relative change is 0
+        if range_val == 0:
+            return 0.0
+        # If mean is zero but values vary, relative change is infinite
+        if mean_val == 0:
+            return np.inf
+        return range_val / np.abs(mean_val)
+
+    def get_history_dict(self) -> dict:
+        """
+        Return convergence history as dict for NetCDF storage.
+
+        Returns:
+            Dictionary with convergence history arrays, or empty dict if disabled/no data
+        """
+        if not self.enabled or len(self.days_recorded) == 0:
+            return {}
+
+        history = {
+            'convergence_days': np.array(self.days_recorded),
+            'kinetic_energy': np.array(self.kinetic_energy_history),
+            'temp_variance': np.array(self.temp_variance_history),
+        }
+
+        # Add smoothness history if available
+        if len(self.v_smoothness_history) > 0:
+            history['v_smoothness'] = np.array(self.v_smoothness_history)
+            history['v_grid_variance'] = np.array(self.v_grid_variance_history)
+
+        return history
+
+    def get_convergence_info(self) -> dict:
+        """
+        Return convergence information for logging/attributes.
+
+        Returns:
+            Dictionary with convergence configuration and results
+        """
+        info = {
+            'steady_state_enabled': int(self.enabled),
+            'steady_state_window_size': self.window_size,
+            'steady_state_threshold': self.threshold,
+            'steady_state_check_both_metrics': int(self.check_both_metrics),
+            'steady_state_converged': int(self.is_converged),
+            'steady_state_convergence_day': self.convergence_day if self.is_converged else -1,
+            'steady_state_ke_converged': int(self.ke_converged),
+            'steady_state_tvar_converged': int(self.tvar_converged),
+        }
+
+        # Add smoothness summary statistics if available
+        if len(self.v_smoothness_history) > 0:
+            info['v_smoothness_mean'] = float(np.mean(self.v_smoothness_history))
+            info['v_smoothness_min'] = float(np.min(self.v_smoothness_history))
+            info['v_smoothness_warnings'] = int(self.smoothness_warning_issued)
+
+        return info

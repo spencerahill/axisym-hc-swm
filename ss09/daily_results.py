@@ -23,7 +23,9 @@ class DailyResults:
         self.v[day] = v
         self.theta[day] = theta
 
-    def to_xarray(self, config: SWConfig, theta_e_profile: ThetaEProfile) -> xr.Dataset:
+    def to_xarray(
+        self, config: SWConfig, theta_e_profile: ThetaEProfile, steady_state_detector=None
+    ) -> xr.Dataset:
         """Convert results to xarray Dataset with metadata."""
         mask = self.time != 0
         time_filtered = self.time[mask]
@@ -64,6 +66,52 @@ class DailyResults:
                 attrs={"units": "K", "long_name": "equilibrium potential temperature"},
             ),
         }
+
+        # Add steady-state convergence history if available
+        if steady_state_detector is not None and steady_state_detector.enabled:
+            conv_history = steady_state_detector.get_history_dict()
+            if conv_history:  # Only add if we have data
+                data_vars['steady_state_kinetic_energy'] = xr.DataArray(
+                    data=conv_history['kinetic_energy'],
+                    dims=['convergence_time'],
+                    coords={'convergence_time': conv_history['convergence_days']},
+                    attrs={
+                        'units': '(m/s)^2',
+                        'long_name': 'domain-averaged kinetic energy for steady-state detection'
+                    }
+                )
+                data_vars['steady_state_temp_variance'] = xr.DataArray(
+                    data=conv_history['temp_variance'],
+                    dims=['convergence_time'],
+                    coords={'convergence_time': conv_history['convergence_days']},
+                    attrs={
+                        'units': 'K',
+                        'long_name': 'temperature standard deviation for steady-state detection'
+                    }
+                )
+
+                # Add v field smoothness history if available
+                if 'v_smoothness' in conv_history:
+                    data_vars['v_neighbor_correlation'] = xr.DataArray(
+                        data=conv_history['v_smoothness'],
+                        dims=['convergence_time'],
+                        coords={'convergence_time': conv_history['convergence_days']},
+                        attrs={
+                            'units': 'dimensionless',
+                            'long_name': 'v field neighbor correlation (smoothness indicator)',
+                            'description': 'Correlation between adjacent grid points. Values > 0.5 indicate smooth field, < 0.5 indicates grid-scale oscillations.'
+                        }
+                    )
+                    data_vars['v_grid_variance'] = xr.DataArray(
+                        data=conv_history['v_grid_variance'],
+                        dims=['convergence_time'],
+                        coords={'convergence_time': conv_history['convergence_days']},
+                        attrs={
+                            'units': 'm^-2 s^-2',
+                            'long_name': 'v field grid-scale variance',
+                            'description': 'Variance of second spatial derivative (d²v/dy²). High values indicate grid-scale noise.'
+                        }
+                    )
 
         time_coord = xr.DataArray(
             data=time_filtered,
