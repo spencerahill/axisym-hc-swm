@@ -104,3 +104,27 @@ def test_steady_state_disabled_by_default(sw_config, theta_e_config):
     model = SWModel(sw_config, SS09Profile(theta_e_config))
     assert not model.steady_state_detector.enabled
     assert not model.steady_state_detector.is_converged
+
+
+def test_merid_advec_u_toggle(sw_config, theta_e_config):
+    """Test that meridional advection of u can be toggled on/off"""
+    # Test with advection enabled (default)
+    sw_config.include_merid_advec_u = True
+    model_with = SWModel(sw_config, SS09Profile(theta_e_config))
+    model_with.state.u[:] = np.linspace(1.0, 10.0, sw_config.ny)
+    model_with.state.v[:] = 2.0
+    du_dt_with = model_with.du_dt()
+
+    # Test with advection disabled
+    sw_config.include_merid_advec_u = False
+    model_without = SWModel(sw_config, SS09Profile(theta_e_config))
+    model_without.state.u[:] = np.linspace(1.0, 10.0, sw_config.ny)
+    model_without.state.v[:] = 2.0
+    du_dt_without = model_without.du_dt()
+
+    # Results should be different
+    assert not np.allclose(du_dt_with, du_dt_without)
+
+    # Verify shape is correct in both cases
+    assert du_dt_with.shape == (sw_config.ny,)
+    assert du_dt_without.shape == (sw_config.ny,)

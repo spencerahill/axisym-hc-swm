@@ -89,6 +89,30 @@ Numerical scheme:
 - Upwind differencing for meridional advection of u
 - Centered differences for spatial derivatives elsewhere
 
+### Nonlinear Advection Terms
+
+Control which nonlinear advection terms are included in the u momentum equation:
+
+```bash
+# Disable meridional advection of u (v*du/dy) for linear dynamics
+run-sw-model --no-merid-advec-u
+
+# Disable vertical advection of u (u*dv/dy)
+run-sw-model --no-vert-advec-u
+
+# Fully linear u equation (no advection terms)
+run-sw-model --no-merid-advec-u --no-vert-advec-u
+```
+
+**Physical interpretation**:
+- **Nonlinear case** (default, both enabled): Full advection, realistic dynamics with nonlinear interactions
+- **Linear case** (advection disabled): Linearized around rest state, enables comparison with analytical solutions and isolates linear wave dynamics
+
+**Common use cases**:
+- Linear vs nonlinear comparison for understanding mechanisms
+- Verifying linear theory predictions
+- Isolating effects of advection on circulation strength
+
 ### Testing Strategy
 
 Tests are organized by functionality:

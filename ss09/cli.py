@@ -145,6 +145,12 @@ def parse_arguments():
         dest="include_vert_advec_u",
         help="Disable vertical advection of zonal momentum (default: enabled)",
     )
+    parser.add_argument(
+        "--no-merid-advec-u",
+        action="store_false",
+        dest="include_merid_advec_u",
+        help="Disable meridional advection of zonal momentum (v*du/dy) (default: enabled)",
+    )
     # Steady-state detection arguments
     parser.add_argument(
         "--enable-steady-state",
@@ -202,6 +208,7 @@ def setup_sw_config(args) -> SWConfig:
         domain_size=args.domain_size,
         asselin_filt_coef=args.asselin_filt_coef,
         include_vert_advec_u=args.include_vert_advec_u,
+        include_merid_advec_u=args.include_merid_advec_u,
         enable_steady_state=args.enable_steady_state,
         steady_state_window_size=args.steady_state_window_size,
         steady_state_threshold=args.steady_state_threshold,

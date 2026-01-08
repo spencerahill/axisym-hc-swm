@@ -28,6 +28,7 @@ class SWConfig:
     asselin_filt_coef: float = 0.04
     coeff_eddy_heat_diff: float = 0.0  # values <1e4 make little difference
     include_vert_advec_u: bool = True
+    include_merid_advec_u: bool = True  # Toggle for v*du/dy meridional advection term
     # Steady-state detection parameters
     enable_steady_state: bool = False
     steady_state_window_size: int = 10

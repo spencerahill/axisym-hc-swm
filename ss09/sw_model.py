@@ -143,9 +143,12 @@ class SWModel:
         vert_advec_u_term = (
             self.vert_advec_u() if self.config.include_vert_advec_u else 0
         )
+        merid_advec_u_term = (
+            self.merid_advec_u() if self.config.include_merid_advec_u else 0
+        )
         return (
             self.coriolis_term(self.state.v)
-            - self.merid_advec_u()
+            - merid_advec_u_term
             - vert_advec_u_term
             - self.rayleigh_drag_u()
             - self.edd_mom_flux_div_u()

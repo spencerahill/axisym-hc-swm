@@ -33,6 +33,7 @@ def default_args():
         "--domain_size": 15751e3 * 2,
         "--asselin_filt_coef": 0.04,
         "--include_vert_advec_u": True,
+        "--include_merid_advec_u": True,
         "--enable_steady_state": False,
         "--steady_state_window_size": 10,
         "--steady_state_threshold": 0.001,
@@ -67,12 +68,15 @@ def default_args():
         ("--domain_size", 16000e3 * 2),
         ("--asselin_filt_coef", 0.05),
         ("--no-vert-advec-u", False),
+        ("--no-merid-advec-u", False),
     ],
 )
 def test_cli_arguments(default_args, param, value):
     args = default_args.copy()
     if param == "--no-vert-advec-u":
         args["--include_vert_advec_u"] = False
+    elif param == "--no-merid-advec-u":
+        args["--include_merid_advec_u"] = False
     else:
         args[param] = value
 
@@ -91,6 +95,8 @@ def test_cli_arguments(default_args, param, value):
         assert getattr(theta_e_config, param.lstrip("--")) == value
     elif param == "--no-vert-advec-u":
         assert sw_config.include_vert_advec_u == value
+    elif param == "--no-merid-advec-u":
+        assert sw_config.include_merid_advec_u == value
     else:
         assert getattr(sw_config, param.lstrip("--")) == value
 
@@ -116,6 +122,7 @@ def test_cli_steady_state_args():
         domain_size=15751e3 * 2,
         asselin_filt_coef=0.04,
         include_vert_advec_u=True,
+        include_merid_advec_u=True,
         enable_steady_state=True,
         steady_state_window_size=15,
         steady_state_threshold=0.0005,
@@ -153,6 +160,7 @@ def test_cli_steady_state_defaults():
         domain_size=15751e3 * 2,
         asselin_filt_coef=0.04,
         include_vert_advec_u=True,
+        include_merid_advec_u=True,
         enable_steady_state=False,
         steady_state_window_size=10,
         steady_state_threshold=0.001,
