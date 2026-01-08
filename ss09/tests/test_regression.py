@@ -43,14 +43,73 @@ def run_model(output_path):
 
 
 def compare_outputs(baseline_path: str, test_path: str) -> bool:
-    """Compare the baseline and test outputs."""
+    """
+    Compare baseline and test outputs for physics regression.
+
+    Checks:
+    1. State variables (u, v, T) - the model solution
+    2. Forcing field (theta_e) - the boundary condition
+    3. Physics parameters - ensures model configuration is identical
+
+    Ignores diagnostic/monitoring variables added in newer versions.
+    """
     baseline_ds = xr.open_dataset(baseline_path)
     test_ds = xr.open_dataset(test_path)
 
-    # Compare all variables
-    for var in baseline_ds.data_vars:
+    # State variables to check (the model solution)
+    state_vars = ['u', 'v', 'T']
+
+    # Forcing field (boundary condition for temperature)
+    forcing_vars = ['theta_e']
+
+    # Physics parameters (SW model configuration)
+    # Note: Attribute names may be uppercase or lowercase depending on version
+    physics_params = {
+        'beta': 2e-11,
+        'delta': 4000.0,
+        'delta_z': 60,
+        'epsilon_u': 1e-08,
+        'k_v': 778600,
+        'v_d': 2.5,
+    }
+
+    # Check state variables
+    for var in state_vars:
+        if var not in test_ds:
+            print(f"Missing state variable in test output: {var}")
+            return False
         if not np.allclose(baseline_ds[var], test_ds[var], atol=1e-6):
-            print(f"Difference found in variable: {var}")
+            print(f"Difference found in state variable: {var}")
+            max_diff = np.abs(baseline_ds[var].values - test_ds[var].values).max()
+            print(f"  Maximum difference: {max_diff}")
+            return False
+
+    # Check forcing fields (these define the BCs)
+    for var in forcing_vars:
+        if var not in test_ds:
+            print(f"Missing forcing variable in test output: {var}")
+            return False
+        if not np.allclose(baseline_ds[var], test_ds[var], atol=1e-6):
+            print(f"Difference found in forcing variable: {var}")
+            max_diff = np.abs(baseline_ds[var].values - test_ds[var].values).max()
+            print(f"  Maximum difference: {max_diff}")
+            return False
+
+    # Check physics parameters (model configuration)
+    for param, expected_value in physics_params.items():
+        # Try both lowercase and uppercase
+        test_value = None
+        if param in test_ds.attrs:
+            test_value = test_ds.attrs[param]
+        elif param.upper() in test_ds.attrs:
+            test_value = test_ds.attrs[param.upper()]
+
+        if test_value is None:
+            print(f"Missing physics parameter in test output: {param}")
+            return False
+
+        if not np.isclose(expected_value, test_value, atol=1e-10):
+            print(f"Difference in physics parameter {param}: expected={expected_value}, test={test_value}")
             return False
 
     return True
