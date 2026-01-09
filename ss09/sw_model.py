@@ -11,6 +11,7 @@ from .theta_e import ThetaEProfile
 from .sw_config import SWConfig
 from .daily_results import DailyResults
 from .steady_state import SteadyStateDetector
+from .hadley_diagnostics import HadleyDiagnostics
 
 # Configure logging
 logging.basicConfig(
@@ -75,6 +76,10 @@ class SWModel:
             threshold=config.steady_state_threshold,
             check_both_metrics=config.steady_state_check_both,
             smoothness_threshold=config.smoothness_threshold,
+        )
+        self.hadley_diagnostics = HadleyDiagnostics(
+            ny=config.ny,
+            total_days=config.total_integration_days
         )
 
     def init_prev_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -300,6 +305,15 @@ class SWModel:
                     self.config.dy
                 )
 
+                # Record Hadley diagnostics
+                self.hadley_diagnostics.record_day(
+                    day,
+                    self.results.u[day],
+                    self.config.y,
+                    self.config.dy,
+                    self.config.beta
+                )
+
                 # Check convergence and break if reached
                 if self.steady_state_detector.check_convergence(day):
                     logging.info(
@@ -320,7 +334,8 @@ class SWModel:
     def save_results(self):
         """Save the simulation results to a NetCDF file."""
         ds = self.results.to_xarray(
-            self.config, self.theta_e_profile, self.steady_state_detector
+            self.config, self.theta_e_profile, self.steady_state_detector,
+            self.hadley_diagnostics
         )
 
         # Add coordinate attributes

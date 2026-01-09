@@ -24,7 +24,8 @@ class DailyResults:
         self.theta[day] = theta
 
     def to_xarray(
-        self, config: SWConfig, theta_e_profile: ThetaEProfile, steady_state_detector=None
+        self, config: SWConfig, theta_e_profile: ThetaEProfile, steady_state_detector=None,
+        hadley_diagnostics=None
     ) -> xr.Dataset:
         """Convert results to xarray Dataset with metadata."""
         mask = self.time != 0
@@ -108,6 +109,61 @@ class DailyResults:
                             'description': 'Variance of second spatial derivative (d²v/dy²). High values indicate grid-scale noise.'
                         }
                     )
+
+        # Add Hadley cell diagnostics if available
+        if hadley_diagnostics is not None:
+            hadley_diags = hadley_diagnostics.get_diagnostics_dict()
+            if hadley_diags:  # Only add if we have data
+                # 2D: Rossby number
+                data_vars['rossby_number'] = xr.DataArray(
+                    data=hadley_diags['rossby_number'],
+                    dims=['time', 'y'],
+                    attrs={
+                        'units': 'dimensionless',
+                        'long_name': 'local Rossby number',
+                        'description': 'Ratio of relative vorticity (du/dy) to planetary vorticity (beta*y). NaN near equator to avoid singularity.'
+                    }
+                )
+
+                # 1D: Northern hemisphere jet
+                data_vars['north_jet_lat'] = xr.DataArray(
+                    data=hadley_diags['north_jet_lat'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm',
+                        'long_name': 'northern hemisphere subtropical jet latitude',
+                        'description': 'Latitude of maximum zonal wind in northern hemisphere (y > 0)'
+                    }
+                )
+                data_vars['north_jet_magnitude'] = xr.DataArray(
+                    data=hadley_diags['north_jet_magnitude'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm/s',
+                        'long_name': 'northern hemisphere subtropical jet magnitude',
+                        'description': 'Maximum zonal wind speed in northern hemisphere'
+                    }
+                )
+
+                # 1D: Southern hemisphere jet
+                data_vars['south_jet_lat'] = xr.DataArray(
+                    data=hadley_diags['south_jet_lat'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm',
+                        'long_name': 'southern hemisphere subtropical jet latitude',
+                        'description': 'Latitude of maximum zonal wind in southern hemisphere (y < 0)'
+                    }
+                )
+                data_vars['south_jet_magnitude'] = xr.DataArray(
+                    data=hadley_diags['south_jet_magnitude'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm/s',
+                        'long_name': 'southern hemisphere subtropical jet magnitude',
+                        'description': 'Maximum zonal wind speed in southern hemisphere'
+                    }
+                )
 
         time_coord = xr.DataArray(
             data=time_filtered,

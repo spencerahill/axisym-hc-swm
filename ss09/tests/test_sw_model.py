@@ -128,3 +128,63 @@ def test_merid_advec_u_toggle(sw_config, theta_e_config):
     # Verify shape is correct in both cases
     assert du_dt_with.shape == (sw_config.ny,)
     assert du_dt_without.shape == (sw_config.ny,)
+
+
+def test_hadley_diagnostics_integration(sw_config, theta_e_config):
+    """Test that Hadley diagnostics are computed and saved correctly"""
+    sw_config.total_integration_days = 10
+
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+
+    # Check diagnostics initialized
+    assert model.hadley_diagnostics is not None
+    assert model.hadley_diagnostics.days_recorded == 0
+
+    # Run short simulation
+    model.run_sim()
+
+    # Check that diagnostics were recorded
+    assert model.hadley_diagnostics.days_recorded > 0
+
+    # Check that diagnostics are included in xarray output
+    ds = model.results.to_xarray(
+        model.config,
+        model.theta_e_profile,
+        model.steady_state_detector,
+        model.hadley_diagnostics,
+    )
+
+    # Verify all expected variables present
+    assert "rossby_number" in ds.data_vars
+    assert "north_jet_lat" in ds.data_vars
+    assert "north_jet_magnitude" in ds.data_vars
+    assert "south_jet_lat" in ds.data_vars
+    assert "south_jet_magnitude" in ds.data_vars
+
+    # Check dimensions
+    assert ds["rossby_number"].dims == ("time", "y")
+    assert ds["north_jet_lat"].dims == ("time",)
+
+    # Check units and metadata
+    assert ds["rossby_number"].attrs["units"] == "dimensionless"
+    assert ds["north_jet_lat"].attrs["units"] == "m"
+    assert ds["north_jet_magnitude"].attrs["units"] == "m/s"
+
+    # Check that values are reasonable (not all NaN)
+    assert not np.all(np.isnan(ds["north_jet_lat"].values))
+    # Rossby number will have some NaN near equator, but not all
+    assert not np.all(np.isnan(ds["rossby_number"].values))
+
+
+def test_hadley_diagnostics_backward_compatibility(sw_config, theta_e_config):
+    """Test that code works without passing hadley_diagnostics"""
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+
+    # Should work without hadley_diagnostics argument (backward compat)
+    ds = model.results.to_xarray(
+        model.config, model.theta_e_profile, model.steady_state_detector
+    )
+
+    # Should not crash, but won't have Hadley diagnostics
+    assert "u" in ds.data_vars
+    assert "v" in ds.data_vars
