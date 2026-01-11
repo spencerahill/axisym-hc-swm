@@ -229,6 +229,87 @@ class SteadyStateDetector:
 
         return False
 
+    def check_seasonal_convergence(
+        self,
+        current_day: int,
+        seasonal_period_days: float,
+        window_size: int = 30,
+        threshold: float = 0.01
+    ) -> bool:
+        """
+        Check if current seasonal cycle matches previous year (year-to-year convergence).
+
+        For seasonally-varying forcing, the model never reaches a single steady state,
+        but the seasonal cycle itself can converge. This method compares metrics at
+        the same phase of consecutive seasonal cycles.
+
+        Args:
+            current_day: Current simulation day
+            seasonal_period_days: Length of one full seasonal cycle (e.g., 360 days)
+            window_size: Number of consecutive days that must match year-to-year
+            threshold: Relative change threshold for year-to-year comparison
+
+        Returns:
+            True if last window_size days match corresponding days from previous year
+        """
+        # Need at least 2 full cycles + window for meaningful comparison
+        min_days_needed = int(2 * seasonal_period_days + window_size)
+        if current_day < min_days_needed:
+            return False
+
+        # Already converged? Stay converged
+        if self.is_converged:
+            return True
+
+        # Need enough data in history
+        if len(self.kinetic_energy_history) < min_days_needed:
+            return False
+
+        # Compare last window_size days to same window from last year
+        converged_days = 0
+        period_int = int(seasonal_period_days)
+
+        for offset in range(window_size):
+            day_now = current_day - offset
+            day_last_year = day_now - period_int
+
+            # Check bounds
+            if day_now < 0 or day_last_year < 0:
+                continue
+            if day_now >= len(self.kinetic_energy_history):
+                continue
+            if day_last_year >= len(self.kinetic_energy_history):
+                continue
+
+            # Get metrics at current position and same position last year
+            ke_now = self.kinetic_energy_history[day_now]
+            ke_last = self.kinetic_energy_history[day_last_year]
+
+            tvar_now = self.temp_variance_history[day_now]
+            tvar_last = self.temp_variance_history[day_last_year]
+
+            # Compute relative changes
+            rel_ke = abs(ke_now - ke_last) / (abs(ke_last) + 1e-10)
+            rel_tvar = abs(tvar_now - tvar_last) / (abs(tvar_last) + 1e-10)
+
+            # Check convergence based on metric requirements
+            if self.check_both_metrics:
+                if rel_ke < threshold and rel_tvar < threshold:
+                    converged_days += 1
+            else:
+                if rel_ke < threshold or rel_tvar < threshold:
+                    converged_days += 1
+
+        # All days in window must match
+        if converged_days == window_size:
+            self.is_converged = True
+            self.convergence_day = current_day
+            self.ke_converged = True  # Mark as converged
+            self.tvar_converged = True
+            return True
+
+        return False
+
     def _compute_relative_change(self, values: list) -> float:
         """
         Compute relative change over window.

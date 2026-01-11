@@ -35,6 +35,10 @@ class SWConfig:
     steady_state_threshold: float = 0.001
     steady_state_check_both: bool = True
     smoothness_threshold: float = 0.5  # Neighbor correlation threshold for v field smoothness
+    # Seasonal convergence parameters (for seasonally-varying forcing)
+    seasonal_convergence_enabled: bool = False  # Disabled by default - user must opt-in
+    seasonal_convergence_window: int = 30  # Days that must match year-to-year
+    seasonal_convergence_threshold: float = 0.01  # 1% year-to-year change threshold
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)

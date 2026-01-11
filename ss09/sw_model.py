@@ -82,6 +82,18 @@ class SWModel:
             total_days=config.total_integration_days
         )
 
+    def has_seasonal_forcing(self) -> bool:
+        """
+        Check if the theta_e profile has seasonal forcing (time-varying y_0).
+
+        Returns:
+            True if seasonal cycle is active (y_0_seasonal_amp > 0), False otherwise
+        """
+        if hasattr(self.theta_e_profile, 'config'):
+            config = self.theta_e_profile.config
+            return getattr(config, 'y_0_seasonal_amp', 0.0) > 0
+        return False
+
     def init_prev_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
         u_prev = self.state.u - self.config.dt * self.du_dt()
@@ -314,14 +326,32 @@ class SWModel:
                     self.config.beta
                 )
 
-                # Check convergence and break if reached
-                if self.steady_state_detector.check_convergence(day):
-                    logging.info(
-                        f"Steady state reached at day {day}. "
-                        f"KE converged: {self.steady_state_detector.ke_converged}, "
-                        f"Tvar converged: {self.steady_state_detector.tvar_converged}"
-                    )
-                    break
+                # Check convergence based on forcing type
+                if self.has_seasonal_forcing() and self.config.seasonal_convergence_enabled:
+                    # Year-to-year comparison for seasonal forcing (only if user enabled it)
+                    seasonal_period = self.theta_e_profile.config.seasonal_period_days
+                    if self.steady_state_detector.check_seasonal_convergence(
+                        day,
+                        seasonal_period,
+                        window_size=self.config.seasonal_convergence_window,
+                        threshold=self.config.seasonal_convergence_threshold
+                    ):
+                        logging.info(
+                            f"Seasonal cycle converged at day {day} "
+                            f"({day/seasonal_period:.1f} years). "
+                            f"Current year matches previous year within threshold."
+                        )
+                        break
+                elif not self.has_seasonal_forcing():
+                    # Traditional steady-state check (only for non-seasonal runs)
+                    if self.steady_state_detector.check_convergence(day):
+                        logging.info(
+                            f"Steady state reached at day {day}. "
+                            f"KE converged: {self.steady_state_detector.ke_converged}, "
+                            f"Tvar converged: {self.steady_state_detector.tvar_converged}"
+                        )
+                        break
+                # If seasonal forcing but convergence disabled: no early stopping, run full integration
 
                 self.reset_temp_storage()
                 day += 1

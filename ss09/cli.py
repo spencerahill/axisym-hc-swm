@@ -85,6 +85,28 @@ def parse_arguments():
         default=9439e3,
         help="Width parameter for the θₑ profile (default: 9439e3 m)",
     )
+    # Seasonal cycle arguments (ITCZ migration)
+    parser.add_argument(
+        "--y0-seasonal-amp",
+        type=float,
+        default=0.0,
+        dest="y_0_seasonal_amp",
+        help="Amplitude of y_0 (ITCZ) migration in m (default: 0, no seasonal cycle)",
+    )
+    parser.add_argument(
+        "--seasonal-period",
+        type=float,
+        default=360.0,
+        dest="seasonal_period_days",
+        help="Seasonal period in days (default: 360)",
+    )
+    parser.add_argument(
+        "--seasonal-phase",
+        type=float,
+        default=0.0,
+        dest="seasonal_phase_days",
+        help="Phase offset in days (default: 0)",
+    )
     parser.add_argument(
         "--coeff_eddy_heat_diff",
         type=float,
@@ -185,6 +207,27 @@ def parse_arguments():
         dest="smoothness_threshold",
         help="Neighbor correlation threshold for v field smoothness warning (default: 0.5)",
     )
+    # Seasonal convergence arguments (for seasonally-varying forcing)
+    parser.add_argument(
+        "--enable-seasonal-convergence",
+        action="store_true",
+        dest="seasonal_convergence_enabled",
+        help="Enable automatic stopping when seasonal cycle converges (default: disabled)",
+    )
+    parser.add_argument(
+        "--seasonal-convergence-window",
+        type=int,
+        default=30,
+        dest="seasonal_convergence_window",
+        help="Number of days that must match previous year for convergence (default: 30)",
+    )
+    parser.add_argument(
+        "--seasonal-convergence-threshold",
+        type=float,
+        default=0.01,
+        dest="seasonal_convergence_threshold",
+        help="Relative change threshold for year-to-year comparison (default: 0.01 = 1%%)",
+    )
     return parser.parse_args()
 
 
@@ -214,6 +257,10 @@ def setup_sw_config(args) -> SWConfig:
         steady_state_threshold=args.steady_state_threshold,
         steady_state_check_both=args.steady_state_check_both,
         smoothness_threshold=args.smoothness_threshold,
+        # Seasonal convergence parameters (use getattr for backward compatibility with tests)
+        seasonal_convergence_enabled=getattr(args, 'seasonal_convergence_enabled', False),
+        seasonal_convergence_window=getattr(args, 'seasonal_convergence_window', 30),
+        seasonal_convergence_threshold=getattr(args, 'seasonal_convergence_threshold', 0.01),
     )
 
 
@@ -224,6 +271,10 @@ def setup_theta_e_config(args) -> ThetaEConfig:
         y_one=args.y_one,
         delta_y=args.delta_y,
         theta_e_type=args.theta_e_type,
+        # Seasonal cycle parameters (use getattr for backward compatibility with tests)
+        y_0_seasonal_amp=getattr(args, 'y_0_seasonal_amp', 0.0),
+        seasonal_period_days=getattr(args, 'seasonal_period_days', 360.0),
+        seasonal_phase_days=getattr(args, 'seasonal_phase_days', 0.0),
     )
 
 

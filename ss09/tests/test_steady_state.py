@@ -299,3 +299,91 @@ class TestSteadyStateDetector:
         assert smoothness['is_smooth']
         assert smoothness['neighbor_correlation'] == 1.0
         assert smoothness['grid_variance'] == 0.0
+
+    # Seasonal convergence tests
+    def test_seasonal_convergence_not_enough_cycles(self):
+        """Test that seasonal convergence requires at least 2 full cycles"""
+        detector = SteadyStateDetector(enabled=True, window_size=10)
+        seasonal_period = 360.0
+        window_size = 30
+
+        # Create synthetic data for < 2 years
+        u = np.ones(10) * 5.0
+        v = np.ones(10) * 3.0
+        theta = np.ones(10) * 300.0
+
+        for day in range(700):  # Less than 2 * 360 + 30
+            detector.record_day(day, u, v, theta)
+
+        # Should not converge (not enough data)
+        assert not detector.check_seasonal_convergence(
+            day, seasonal_period, window_size=window_size, threshold=0.01
+        )
+
+    def test_seasonal_convergence_matching_years(self):
+        """Test that seasonal convergence triggers when Year 2 matches Year 1"""
+        detector = SteadyStateDetector(enabled=True)
+        seasonal_period = 360.0
+        window_size = 30
+
+        u = np.ones(10) * 5.0
+        v = np.ones(10) * 3.0
+
+        # Create repeating seasonal cycle: Year 1 = Year 2
+        for day in range(800):
+            # Theta varies sinusoidally with season
+            phase = 2 * np.pi * day / seasonal_period
+            theta_day = 300.0 + 10.0 * np.sin(phase) * np.ones(10)
+            detector.record_day(day, u, v, theta_day)
+
+        # After 2+ years with matching pattern, should converge
+        assert detector.check_seasonal_convergence(
+            750, seasonal_period, window_size=window_size, threshold=0.01
+        )
+        assert detector.is_converged
+        assert detector.convergence_day == 750
+
+    def test_seasonal_convergence_drifting_cycle(self):
+        """Test that seasonal convergence doesn't trigger when amplitude drifts"""
+        detector = SteadyStateDetector(enabled=True)
+        seasonal_period = 360.0
+        window_size = 30
+
+        # Create drifting seasonal cycle: winds also drift so KE changes too
+        for day in range(800):
+            year_factor = 1.0 + 0.1 * (day / seasonal_period)  # 10% increase per year
+            u = np.ones(10) * 5.0 * year_factor  # Drift in winds
+            v = np.ones(10) * 3.0 * year_factor  # Drift in winds
+            phase = 2 * np.pi * day / seasonal_period
+            theta_day = 300.0 + 10.0 * year_factor * np.sin(phase) * np.ones(10)
+            detector.record_day(day, u, v, theta_day)
+
+        # Should NOT converge (cycle is drifting)
+        assert not detector.check_seasonal_convergence(
+            750, seasonal_period, window_size=window_size, threshold=0.01
+        )
+
+    def test_seasonal_convergence_threshold_sensitivity(self):
+        """Test seasonal convergence sensitivity to threshold parameter"""
+        detector = SteadyStateDetector(enabled=True)
+        seasonal_period = 360.0
+        window_size = 30
+
+        # Create nearly-repeating cycle with small drift (0.5% per year)
+        for day in range(800):
+            year_factor = 1.0 + 0.005 * (day / seasonal_period)
+            u = np.ones(10) * 5.0 * year_factor  # Small drift in winds
+            v = np.ones(10) * 3.0 * year_factor  # Small drift in winds
+            phase = 2 * np.pi * day / seasonal_period
+            theta_day = 300.0 + 10.0 * year_factor * np.sin(phase) * np.ones(10)
+            detector.record_day(day, u, v, theta_day)
+
+        # With strict threshold (0.1%), should NOT converge
+        assert not detector.check_seasonal_convergence(
+            750, seasonal_period, window_size=window_size, threshold=0.001
+        )
+
+        # With relaxed threshold (1%), should converge
+        assert detector.check_seasonal_convergence(
+            750, seasonal_period, window_size=window_size, threshold=0.01
+        )

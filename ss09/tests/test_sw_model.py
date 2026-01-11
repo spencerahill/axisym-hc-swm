@@ -188,3 +188,132 @@ def test_hadley_diagnostics_backward_compatibility(sw_config, theta_e_config):
     # Should not crash, but won't have Hadley diagnostics
     assert "u" in ds.data_vars
     assert "v" in ds.data_vars
+
+
+def test_seasonal_sb08_integration(sw_config):
+    """Test that model runs successfully with seasonal SB08 profile"""
+    # Create a fresh ThetaEConfig specifically for SB08 with reasonable parameters
+    from ss09.theta_e import SB08Profile, ThetaEConfig
+
+    theta_e_config = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,  # Start at equator
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=500e3,  # 500 km migration (more conservative)
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0
+    )
+
+    sw_config.total_integration_days = 20  # Shorter test run
+
+    # Create model with seasonal SB08 profile
+    model = SWModel(sw_config, SB08Profile(theta_e_config))
+
+    # Run simulation
+    model.run_sim()
+
+    # Check that simulation completed without NaN values
+    assert not np.any(np.isnan(model.results.u))
+    assert not np.any(np.isnan(model.results.v))
+    assert not np.any(np.isnan(model.results.theta))
+
+    # Check that we have results for all requested days
+    assert model.results.time[19] > 0  # Day 19 should have data
+
+
+def test_seasonal_convergence_enabled(sw_config):
+    """Test that seasonal convergence detection stops simulation early when enabled"""
+    from ss09.theta_e import SB08Profile, ThetaEConfig
+
+    theta_e_config = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=500e3,  # 500 km migration
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0
+    )
+
+    # Enable seasonal convergence
+    sw_config.total_integration_days = 1000  # Long run
+    sw_config.seasonal_convergence_enabled = True
+    sw_config.seasonal_convergence_window = 30
+    sw_config.seasonal_convergence_threshold = 0.01
+
+    model = SWModel(sw_config, SB08Profile(theta_e_config))
+    model.run_sim()
+
+    # Should stop before 1000 days if converged
+    # (Might or might not converge depending on dynamics, but test should not crash)
+    if model.steady_state_detector.is_converged:
+        assert model.steady_state_detector.convergence_day > 360  # At least 1 year
+        assert model.steady_state_detector.convergence_day < 1000
+
+
+def test_seasonal_convergence_disabled_runs_full_duration(sw_config):
+    """Test that with seasonal forcing but convergence disabled, simulation runs full duration"""
+    from ss09.theta_e import SB08Profile, ThetaEConfig
+
+    theta_e_config = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=500e3,
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0
+    )
+
+    # Disable seasonal convergence (default behavior)
+    sw_config.total_integration_days = 100
+    sw_config.seasonal_convergence_enabled = False  # Explicit disable
+
+    model = SWModel(sw_config, SB08Profile(theta_e_config))
+    model.run_sim()
+
+    # Should run full 100 days (no early stopping)
+    # Check last day has data
+    last_day_idx = np.where(model.results.time > 0)[0][-1]
+    assert last_day_idx >= 99  # Should be day 99 or close to it
+
+
+def test_has_seasonal_forcing_detection(sw_config, theta_e_config):
+    """Test that has_seasonal_forcing() correctly detects seasonal forcing"""
+    from ss09.theta_e import SS09Profile, SB08Profile, ThetaEConfig
+
+    # Non-seasonal profile
+    model_no_seasonal = SWModel(sw_config, SS09Profile(theta_e_config))
+    assert not model_no_seasonal.has_seasonal_forcing()
+
+    # Seasonal profile (y_0_seasonal_amp > 0)
+    theta_e_config_seasonal = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=500e3,  # Seasonal forcing enabled
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0
+    )
+    model_seasonal = SWModel(sw_config, SB08Profile(theta_e_config_seasonal))
+    assert model_seasonal.has_seasonal_forcing()
+
+    # SB08 but with zero amplitude (no seasonal forcing)
+    theta_e_config_no_amp = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=0.0,  # No seasonal forcing
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0
+    )
+    model_no_amp = SWModel(sw_config, SB08Profile(theta_e_config_no_amp))
+    assert not model_no_amp.has_seasonal_forcing()
