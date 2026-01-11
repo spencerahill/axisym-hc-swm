@@ -39,6 +39,9 @@ class SWConfig:
     seasonal_convergence_enabled: bool = False  # Disabled by default - user must opt-in
     seasonal_convergence_window: int = 30  # Days that must match year-to-year
     seasonal_convergence_threshold: float = 0.01  # 1% year-to-year change threshold
+    # Restart/checkpoint parameters
+    save_restart_every: int = 0  # Save restart file every N days (0 = only at end)
+    restart_output_dir: str = "./model_output"  # Directory for restart files
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)

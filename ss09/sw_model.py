@@ -6,12 +6,14 @@ import os
 import logging
 import numpy as np
 from typing import Tuple, NamedTuple
+from dataclasses import asdict
 from .model_state import ModelState
 from .theta_e import ThetaEProfile
 from .sw_config import SWConfig
 from .daily_results import DailyResults
 from .steady_state import SteadyStateDetector
 from .hadley_diagnostics import HadleyDiagnostics
+from .restart_state import RestartState
 
 # Configure logging
 logging.basicConfig(
@@ -268,11 +270,19 @@ class SWModel:
         total_time_steps = int(
             SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
         )
-        day = 0
+
+        # Determine starting day and step (for restart support)
+        if hasattr(self, 'restart_day') and self.restart_day is not None:
+            day = self.restart_day
+            starting_step = int(day * SECONDS_PER_DAY / self.config.dt)
+            logging.info(f"Restarting from day {day}, step {starting_step}")
+        else:
+            day = 0
+            starting_step = 0
 
         self.init_temp_storage()
 
-        for i in range(total_time_steps):
+        for i in range(starting_step, total_time_steps):
             self.state = self.state._replace(t=i * self.config.dt)
 
             self.vars_next_step = self.vars_next_step._replace(
@@ -353,6 +363,10 @@ class SWModel:
                         break
                 # If seasonal forcing but convergence disabled: no early stopping, run full integration
 
+                # Save restart file if periodic checkpointing is enabled
+                if self.config.save_restart_every > 0 and day % self.config.save_restart_every == 0 and day > 0:
+                    self.save_restart_file(day)
+
                 self.reset_temp_storage()
                 day += 1
                 logging.info(f"Day {day} finished.")
@@ -360,6 +374,120 @@ class SWModel:
             if np.isnan(self.state.u).any():
                 logging.warning("NaN detected in u, breaking the loop.")
                 break
+
+        # Always save final restart file (unless save_restart_every is explicitly 0 to disable all restarts)
+        # Note: if save_restart_every == 0, we still save a final restart file for manual continuation
+        if day > 0:  # Only save if we actually ran some days
+            self.save_restart_file(day)
+            logging.info(f"Saved final restart file at day {day}")
+
+    def save_restart_file(self, day: int) -> None:
+        """
+        Save restart state to NetCDF file.
+
+        CRITICAL: Saves INSTANTANEOUS state variables, NOT daily averages.
+        - self.state.u/v/theta: instantaneous values at current timestep (n)
+        - self.vars_prev_step.u/v/theta: instantaneous filtered values at previous timestep (n-1)
+
+        These are the live state variables used by the leapfrog integrator,
+        completely independent from the daily averages stored in self.results.
+
+        Args:
+            day: Current day number for filename
+
+        Filename: restart_day{day:04d}.nc (e.g., restart_day0100.nc)
+        """
+        # Create restart directory if it doesn't exist
+        os.makedirs(self.config.restart_output_dir, exist_ok=True)
+
+        # Build RestartState with all necessary information
+        restart_state = RestartState(
+            current_time=self.state.t,
+            current_step=int(self.state.t / self.config.dt),
+            current_day=day,
+            # INSTANTANEOUS current state (n) - NOT daily averaged
+            u=self.state.u.copy(),
+            v=self.state.v.copy(),
+            theta=self.state.theta.copy(),
+            # INSTANTANEOUS previous filtered state (n-1) - NOT daily averaged
+            u_prev=self.vars_prev_step.u.copy(),
+            v_prev=self.vars_prev_step.v.copy(),
+            theta_prev=self.vars_prev_step.theta.copy(),
+            y=self.state.y.copy(),
+            # Steady-state detector state
+            steady_state_enabled=self.config.enable_steady_state,
+            kinetic_energy_history=self.steady_state_detector.kinetic_energy_history.copy(),
+            temp_variance_history=self.steady_state_detector.temp_variance_history.copy(),
+            v_smoothness_history=self.steady_state_detector.v_smoothness_history.copy(),
+            v_grid_variance_history=self.steady_state_detector.v_grid_variance_history.copy(),
+            is_converged=self.steady_state_detector.is_converged,
+            convergence_day=self.steady_state_detector.convergence_day,
+            ke_converged=self.steady_state_detector.ke_converged,
+            tvar_converged=self.steady_state_detector.tvar_converged,
+            smoothness_warning_issued=self.steady_state_detector.smoothness_warning_issued,
+            config_snapshot=asdict(self.config),
+            theta_e_config_snapshot=asdict(self.theta_e_profile.config),
+        )
+
+        # Generate filepath and save
+        filepath = os.path.join(
+            self.config.restart_output_dir, f"restart_day{day:04d}.nc"
+        )
+        restart_state.to_netcdf(filepath)
+
+    def load_from_restart(self, restart_file: str) -> int:
+        """
+        Load state from restart file and restore model.
+
+        Args:
+            restart_file: Path to restart NetCDF file
+
+        Returns:
+            starting_day: The day number to resume from
+        """
+        # Load restart state
+        restart_state = RestartState.from_netcdf(restart_file)
+
+        # Validate compatibility with current configuration
+        restart_state.validate_compatibility(self.config, self.theta_e_profile.config)
+
+        # Restore current state
+        self.state = self.state._replace(
+            t=restart_state.current_time,
+            u=restart_state.u,
+            v=restart_state.v,
+            theta=restart_state.theta,
+        )
+
+        # Restore previous step
+        self.vars_prev_step = self.vars_prev_step._replace(
+            u=restart_state.u_prev, v=restart_state.v_prev, theta=restart_state.theta_prev
+        )
+
+        # Restore steady-state detector state if enabled
+        if self.config.enable_steady_state and restart_state.steady_state_enabled:
+            self.steady_state_detector.kinetic_energy_history = (
+                restart_state.kinetic_energy_history
+            )
+            self.steady_state_detector.temp_variance_history = (
+                restart_state.temp_variance_history
+            )
+            self.steady_state_detector.v_smoothness_history = (
+                restart_state.v_smoothness_history
+            )
+            self.steady_state_detector.v_grid_variance_history = (
+                restart_state.v_grid_variance_history
+            )
+            self.steady_state_detector.is_converged = restart_state.is_converged
+            self.steady_state_detector.convergence_day = restart_state.convergence_day
+            self.steady_state_detector.ke_converged = restart_state.ke_converged
+            self.steady_state_detector.tvar_converged = restart_state.tvar_converged
+            self.steady_state_detector.smoothness_warning_issued = (
+                restart_state.smoothness_warning_issued
+            )
+
+        logging.info(f"Loaded restart state from day {restart_state.current_day}")
+        return restart_state.current_day
 
     def save_results(self):
         """Save the simulation results to a NetCDF file."""

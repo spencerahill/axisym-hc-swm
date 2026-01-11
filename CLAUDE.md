@@ -22,6 +22,44 @@ run-sw-model
 run-sw-model --total_integration_days 250 --ny 51 --dt 3600 --theta_e_type sin2 --output_path ./model_output/output.nc
 ```
 
+### Restart/Checkpoint Functionality
+
+The model supports saving and loading simulation state for extending runs or recovery from interruptions.
+
+**Saving restart files:**
+```bash
+# Save restart file only at end of simulation
+run-sw-model --total_integration_days 100
+
+# Save periodic restart files every 20 days (plus final file)
+run-sw-model --total_integration_days 100 --save-restart-every 20
+
+# Specify restart file directory
+run-sw-model --total_integration_days 100 --save-restart-every 20 --restart-output-dir ./checkpoints
+```
+
+**Restart files** are named `restart_day{NNNN}.nc` (e.g., `restart_day0050.nc`) and contain:
+- Instantaneous state variables (u, v, theta) at timesteps n and n-1 (NOT daily averages)
+- Steady-state detector history (if enabled)
+- All configuration parameters for validation
+
+**Continuing from a restart:**
+```bash
+# Continue from day 50 to day 100
+run-sw-model --restart-from ./model_output/restart_day0050.nc --total_integration_days 100
+
+# Continue with different output path
+run-sw-model --restart-from ./model_output/restart_day0050.nc \
+             --total_integration_days 150 \
+             --output_path ./extended_run.nc
+```
+
+**Important notes:**
+- Restart files contain instantaneous snapshots at day boundaries, not daily-averaged output
+- Configuration parameters (ny, dt, domain_size, etc.) must match between restart file and new run
+- Steady-state detector history is preserved across restarts for continuous convergence monitoring
+- Output files contain only the days simulated in that run (filtered automatically)
+
 ### Testing
 ```bash
 # Run all tests

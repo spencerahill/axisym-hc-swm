@@ -228,6 +228,28 @@ def parse_arguments():
         dest="seasonal_convergence_threshold",
         help="Relative change threshold for year-to-year comparison (default: 0.01 = 1%%)",
     )
+    # Restart/checkpoint arguments
+    parser.add_argument(
+        "--restart-from",
+        type=str,
+        default=None,
+        dest="restart_file",
+        help="Path to restart file to continue from (default: None, fresh start)",
+    )
+    parser.add_argument(
+        "--save-restart-every",
+        type=int,
+        default=0,
+        dest="save_restart_every",
+        help="Save restart file every N days (default: 0, only save at end)",
+    )
+    parser.add_argument(
+        "--restart-output-dir",
+        type=str,
+        default="./model_output",
+        dest="restart_output_dir",
+        help="Directory for restart files (default: ./model_output)",
+    )
     return parser.parse_args()
 
 
@@ -261,6 +283,9 @@ def setup_sw_config(args) -> SWConfig:
         seasonal_convergence_enabled=getattr(args, 'seasonal_convergence_enabled', False),
         seasonal_convergence_window=getattr(args, 'seasonal_convergence_window', 30),
         seasonal_convergence_threshold=getattr(args, 'seasonal_convergence_threshold', 0.01),
+        # Restart/checkpoint parameters
+        save_restart_every=getattr(args, 'save_restart_every', 0),
+        restart_output_dir=getattr(args, 'restart_output_dir', './model_output'),
     )
 
 
@@ -279,6 +304,8 @@ def setup_theta_e_config(args) -> ThetaEConfig:
 
 
 def main():
+    import os
+
     args = parse_arguments()
     config = setup_sw_config(args)
     theta_e_config = setup_theta_e_config(args)
@@ -292,6 +319,13 @@ def main():
     theta_e_profile = theta_e_profile_class(theta_e_config)
 
     model = SWModel(config, theta_e_profile)
+
+    # Load from restart if specified
+    if args.restart_file:
+        if not os.path.exists(args.restart_file):
+            raise FileNotFoundError(f"Restart file not found: {args.restart_file}")
+        model.restart_day = model.load_from_restart(args.restart_file)
+
     model.run_sim()
     model.save_results()
 
