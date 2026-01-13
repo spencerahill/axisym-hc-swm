@@ -6,6 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Python implementation of the Sobel-Schneider single-layer shallow water model for simulating Hadley circulation with parameterized eddy momentum forcing, based on Sobel and Schneider (2009, 2013). The model integrates momentum and thermodynamic equations on an equatorial beta plane using a leapfrog time-stepping scheme with Asselin filtering.
 
+## Git Workflow
+
+**IMPORTANT**: Always create a git commit after every substantive change to the codebase. This ensures:
+- Changes are tracked incrementally with clear history
+- Easy rollback if needed
+- Better collaboration and code review
+
+When committing:
+1. Review `git status` and `git diff` to understand what changed
+2. Check recent commit messages (`git log --oneline`) for style consistency
+3. Write descriptive commit messages focusing on the "why" not just the "what"
+4. Include the Co-Authored-By tag: `Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>`
+
 ## Commands
 
 ### Installation
