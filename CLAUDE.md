@@ -307,6 +307,50 @@ run-sw-model --enable-steady-state --smoothness-threshold 0.7
 
 **Physical Interpretation**: Grid-scale oscillations typically occur when friction (especially `k_v`) is too weak to damp the 2Δy computational mode inherent to leapfrog schemes. Increasing `k_v` suppresses these oscillations. See the `analyze_v_smoothness.py` script for detailed smoothness analysis.
 
+## Hadley Cell Diagnostics
+
+The model computes diagnostic quantities for tracking Hadley cell dynamics:
+
+### Local Rossby Number
+
+The local Rossby number Ro = (du/dy)/(β*y) measures the ratio of relative vorticity to planetary vorticity. Values O(1) indicate nonlinear dynamics where eddy interactions become important.
+
+- Computed daily for all meridional grid points
+- Set to NaN near equator (|y| < dy) to avoid singularity
+- Saved as 2D field (time, y) in NetCDF output
+
+### Subtropical Jet Detection
+
+Jet positions (`north_jet_lat`, `south_jet_lat`) and magnitudes are tracked using **local cubic spline interpolation** for sub-grid accuracy:
+
+**Algorithm**:
+1. Find grid-point maximum in hemisphere
+2. Extract local neighborhood (max ± 1-2 grid points)
+3. Construct cubic spline of u(y) over local region only
+4. Compute du/dy analytically from spline derivative
+5. Find zero of du/dy in local interval (where wind is maximum)
+6. Fall back to grid-point maximum if at boundary or interpolation fails
+
+**Efficiency**: Only interpolates locally (3-4 points) around grid maximum, not entire hemisphere
+
+**Accuracy**: Sub-grid precision, typically < 10% of grid spacing (~60 km for default 51-point grid)
+
+**Jet Metrics**:
+- **Latitude**: Refined position where du/dy = 0 in local neighborhood (high accuracy)
+- **Magnitude**: Grid-point maximum value (no interpolation, preserves model "truth")
+
+**Robustness**:
+- Handles boundary maxima (no interpolation if max at hemisphere edge)
+- Handles near-boundary maxima (adjusts neighborhood to stay in bounds)
+- Graceful fallback to grid-point position if spline construction fails
+- Uses natural boundary conditions on local spline to minimize oscillations
+
+**Use Cases**:
+- Track seasonal migration of subtropical jets
+- Measure jet strength evolution during spinup
+- Validate against reanalysis jet climatologies
+- Study relationship between jet position and Rossby number
+
 ## Important Implementation Notes
 
 - The factor of 2 in `dv_dt()` at line 163 is intentional per the physics formulation

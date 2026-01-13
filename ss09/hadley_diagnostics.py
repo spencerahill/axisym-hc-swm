@@ -77,6 +77,10 @@ class HadleyDiagnostics:
         """
         Find subtropical jet position and magnitude in specified hemisphere.
 
+        Uses cubic spline interpolation locally around grid-point maximum to
+        achieve sub-grid accuracy by finding where du/dy = 0. Only interpolates
+        in the neighborhood of the grid maximum (max point ± 1 neighbor).
+
         Args:
             u: Zonal wind field (ny,)
             y: Meridional coordinate (ny,) in meters from equator
@@ -84,10 +88,13 @@ class HadleyDiagnostics:
 
         Returns:
             (jet_latitude, jet_magnitude) in meters and m/s
+            - latitude: Interpolated position where du/dy = 0 (sub-grid accuracy)
+            - magnitude: Grid-point maximum value (no interpolation)
 
         Raises:
             ValueError: If hemisphere is not 'north' or 'south'
         """
+        # Validate hemisphere and extract data
         if hemisphere == "north":
             mask = y > 0
         elif hemisphere == "south":
@@ -97,19 +104,79 @@ class HadleyDiagnostics:
                 f"hemisphere must be 'north' or 'south', got {hemisphere}"
             )
 
-        # Extract hemisphere data
         u_hem = u[mask]
         y_hem = y[mask]
 
         if len(u_hem) == 0:
             return np.nan, np.nan
 
-        # Find maximum
+        # Find grid-point maximum
         max_idx = np.argmax(u_hem)
-        jet_lat = y_hem[max_idx]
-        jet_mag = u_hem[max_idx]
+        grid_jet_lat = y_hem[max_idx]
+        jet_mag = u_hem[max_idx]  # Always use grid-point magnitude
 
-        return jet_lat, jet_mag
+        # Check if max is at boundary (can't interpolate)
+        if max_idx == 0 or max_idx == len(u_hem) - 1:
+            return grid_jet_lat, jet_mag
+
+        # Extract local neighborhood: max_idx and its neighbors
+        # Need at least 3 points for cubic spline (use 4 if available)
+        if max_idx == 1:
+            # Near left boundary: use indices [0, 1, 2, 3]
+            idx_start = 0
+            idx_end = min(4, len(u_hem))
+        elif max_idx == len(u_hem) - 2:
+            # Near right boundary: use last 4 points
+            idx_start = max(0, len(u_hem) - 4)
+            idx_end = len(u_hem)
+        else:
+            # Interior: use [max_idx-1, max_idx, max_idx+1, max_idx+2]
+            idx_start = max_idx - 1
+            idx_end = min(max_idx + 3, len(u_hem))
+
+        y_local = y_hem[idx_start:idx_end]
+        u_local = u_hem[idx_start:idx_end]
+
+        # Need at least 3 points for interpolation
+        if len(y_local) < 3:
+            return grid_jet_lat, jet_mag
+
+        # Build cubic spline over local neighborhood
+        from scipy.interpolate import CubicSpline
+        from scipy.optimize import brentq
+
+        try:
+            spline = CubicSpline(y_local, u_local, bc_type='natural')
+            spline_deriv = spline.derivative(nu=1)
+        except Exception:
+            # Spline construction failed
+            return grid_jet_lat, jet_mag
+
+        # Find zero of du/dy in the local interval
+        # Search between first and last point of local neighborhood
+        y_left = y_local[0]
+        y_right = y_local[-1]
+
+        try:
+            # Check if there's a sign change in the derivative
+            dudy_left = spline_deriv(y_left)
+            dudy_right = spline_deriv(y_right)
+
+            if dudy_left * dudy_right < 0:
+                # Sign change exists - find exact zero
+                refined_jet_lat = brentq(spline_deriv, y_left, y_right)
+            else:
+                # No sign change - evaluate at multiple points to find minimum |du/dy|
+                y_eval = np.linspace(y_left, y_right, 20)
+                dudy_eval = np.abs(spline_deriv(y_eval))
+                min_deriv_idx = np.argmin(dudy_eval)
+                refined_jet_lat = y_eval[min_deriv_idx]
+
+        except Exception:
+            # Root finding or evaluation failed
+            refined_jet_lat = grid_jet_lat
+
+        return refined_jet_lat, jet_mag
 
     def record_day(
         self, day: int, u: np.ndarray, y: np.ndarray, dy: float, beta: float

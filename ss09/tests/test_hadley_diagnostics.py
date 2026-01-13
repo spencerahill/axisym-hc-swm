@@ -82,7 +82,7 @@ class TestHadleyDiagnostics:
         lat, mag = diag.find_jet_position(u, y, "north")
 
         # Should find the jet near the prescribed location
-        assert np.abs(lat - jet_lat) < 2 * dy  # Within 2 grid points
+        assert np.abs(lat - jet_lat) < 0.1 * dy  # Within 10% of grid spacing (~63 km)
         assert np.abs(mag - jet_mag) < 0.1  # Close to peak magnitude
 
     def test_find_jet_southern_hemisphere(self, basic_grid):
@@ -98,7 +98,7 @@ class TestHadleyDiagnostics:
         lat, mag = diag.find_jet_position(u, y, "south")
 
         # Should find the jet near the prescribed location
-        assert np.abs(lat - jet_lat) < 2 * dy
+        assert np.abs(lat - jet_lat) < 0.1 * dy  # Within 10% of grid spacing
         assert np.abs(mag - jet_mag) < 0.5  # Relaxed tolerance for grid discretization
 
     def test_find_jet_asymmetric_profile(self, basic_grid):
@@ -220,3 +220,67 @@ class TestHadleyDiagnostics:
 
         with pytest.raises(ValueError, match="hemisphere must be"):
             diag.find_jet_position(u, y, "west")
+
+    def test_find_jet_with_interpolation_accuracy(self, basic_grid):
+        """Test that interpolation achieves sub-grid accuracy"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create Gaussian jet at off-grid location
+        true_jet_lat = 5137e3  # Not on grid
+        true_jet_mag = 25.0
+        u = true_jet_mag * np.exp(-((y - true_jet_lat) / 2000e3) ** 2)
+
+        lat, mag = diag.find_jet_position(u, y, "north")
+
+        # Should find jet within 10% of grid spacing
+        assert np.abs(lat - true_jet_lat) < 0.1 * dy
+        # Magnitude should match grid-point max
+        assert np.abs(mag - true_jet_mag) < 0.5
+
+    def test_find_jet_boundary_maximum(self, basic_grid):
+        """Test fallback when maximum is at hemisphere boundary"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create monotonically increasing wind in northern hemisphere
+        u = np.where(y > 0, y / 1e6, 0)  # Linear increase
+
+        lat, mag = diag.find_jet_position(u, y, "north")
+
+        # Should return northernmost point (boundary) - no interpolation
+        assert lat == y[y > 0][-1]
+        assert not np.isnan(lat)
+
+    def test_find_jet_near_boundary(self):
+        """Test local interpolation when max is near hemisphere boundary"""
+        # Grid where northern hemisphere starts at index 25
+        y = np.linspace(-15751e3, 15751e3, 51)
+        diag = HadleyDiagnostics(ny=51, total_days=10)
+
+        # Create jet very close to equator (y=0+)
+        u = 20.0 * np.exp(-(y - 500e3) ** 2 / (1000e3) ** 2)
+
+        lat, mag = diag.find_jet_position(u, y, "north")
+
+        # Should still find jet near 500 km (even though close to boundary)
+        assert np.abs(lat - 500e3) < 200e3  # Within reasonable range
+        assert not np.isnan(lat)
+
+    def test_find_jet_local_interpolation_improves_accuracy(self, basic_grid):
+        """Test that local interpolation refines grid-point maximum"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create smooth Gaussian jet offset from grid points
+        true_jet_lat = 6253e3  # Deliberately between grid points
+        u = 20.0 * np.exp(-((y - true_jet_lat) / 2000e3) ** 2)
+
+        lat, mag = diag.find_jet_position(u, y, "north")
+
+        # Interpolated position should be closer to true position than nearest grid point
+        grid_points = y[y > 0]
+        nearest_grid_dist = np.min(np.abs(grid_points - true_jet_lat))
+        interp_dist = np.abs(lat - true_jet_lat)
+
+        assert interp_dist < nearest_grid_dist  # Interpolation improves accuracy
