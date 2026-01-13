@@ -514,6 +514,15 @@ class SWModel:
                 for key in self.config.__dataclass_fields__
             },
             **self.steady_state_detector.get_convergence_info(),
+            # Add theta_e configuration for reproducibility
+            **{
+                f"theta_e_{key}": (
+                    str(getattr(self.theta_e_profile.config, key))
+                    if isinstance(getattr(self.theta_e_profile.config, key), bool)
+                    else getattr(self.theta_e_profile.config, key)
+                )
+                for key in self.theta_e_profile.config.__dataclass_fields__
+            },
         }
         ds.attrs.update(global_attrs)
 
