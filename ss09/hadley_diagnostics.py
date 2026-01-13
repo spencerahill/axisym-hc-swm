@@ -36,6 +36,7 @@ class HadleyDiagnostics:
         self.south_jet_magnitude = np.full(total_days, np.nan)
 
         self.days_recorded = 0
+        self.start_day = None  # Track first recorded day for restart support
 
     def compute_rossby_number(
         self, u: np.ndarray, y: np.ndarray, dy: float, beta: float
@@ -191,6 +192,10 @@ class HadleyDiagnostics:
             dy: Grid spacing in meters
             beta: Beta parameter in m^-1 s^-1
         """
+        # Track start day for restart support
+        if self.start_day is None:
+            self.start_day = day
+
         # Compute Rossby number
         self.rossby_number[day] = self.compute_rossby_number(u, y, dy, beta)
 
@@ -215,8 +220,9 @@ class HadleyDiagnostics:
         if self.days_recorded == 0:
             return {}
 
-        # Filter to only recorded days
-        mask = slice(0, self.days_recorded)
+        # Filter to only recorded days (handles restart case where start_day > 0)
+        start = self.start_day if self.start_day is not None else 0
+        mask = slice(start, self.days_recorded)
 
         return {
             "rossby_number": self.rossby_number[mask],

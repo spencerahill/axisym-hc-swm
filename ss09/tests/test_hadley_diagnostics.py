@@ -284,3 +284,25 @@ class TestHadleyDiagnostics:
         interp_dist = np.abs(lat - true_jet_lat)
 
         assert interp_dist < nearest_grid_dist  # Interpolation improves accuracy
+
+    def test_get_diagnostics_dict_restart_scenario(self, basic_grid):
+        """Test that diagnostics dict has correct size when starting from non-zero day (restart)."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=100)
+
+        # Simulate restart: record days 50-59 only (like restarting from day 50)
+        for day in range(50, 60):
+            u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+            diag.record_day(day, u, y, dy, beta)
+
+        diag_dict = diag.get_diagnostics_dict()
+
+        # Should have exactly 10 days, not 60 (days 50-59 inclusive)
+        assert diag_dict["rossby_number"].shape == (10, ny)
+        assert diag_dict["north_jet_lat"].shape == (10,)
+        assert diag_dict["south_jet_lat"].shape == (10,)
+        assert diag_dict["north_jet_magnitude"].shape == (10,)
+        assert diag_dict["south_jet_magnitude"].shape == (10,)
+
+        # None should be NaN (all days were recorded)
+        assert not np.any(np.isnan(diag_dict["north_jet_lat"]))
