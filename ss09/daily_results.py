@@ -114,9 +114,10 @@ class DailyResults:
         if hadley_diagnostics is not None:
             hadley_diags = hadley_diagnostics.get_diagnostics_dict()
             if hadley_diags:  # Only add if we have data
-                # 2D: Rossby number (filter by mask)
+                # Note: hadley_diags are already filtered to recorded days, don't apply mask
+                # 2D: Rossby number
                 data_vars['rossby_number'] = xr.DataArray(
-                    data=hadley_diags['rossby_number'][mask],
+                    data=hadley_diags['rossby_number'],
                     dims=['time', 'y'],
                     attrs={
                         'units': 'dimensionless',
@@ -125,9 +126,9 @@ class DailyResults:
                     }
                 )
 
-                # 1D: Northern hemisphere jet (filter by mask)
+                # 1D: Northern hemisphere jet
                 data_vars['north_jet_lat'] = xr.DataArray(
-                    data=hadley_diags['north_jet_lat'][mask],
+                    data=hadley_diags['north_jet_lat'],
                     dims=['time'],
                     attrs={
                         'units': 'm',
@@ -136,7 +137,7 @@ class DailyResults:
                     }
                 )
                 data_vars['north_jet_magnitude'] = xr.DataArray(
-                    data=hadley_diags['north_jet_magnitude'][mask],
+                    data=hadley_diags['north_jet_magnitude'],
                     dims=['time'],
                     attrs={
                         'units': 'm/s',
@@ -145,9 +146,9 @@ class DailyResults:
                     }
                 )
 
-                # 1D: Southern hemisphere jet (filter by mask)
+                # 1D: Southern hemisphere jet
                 data_vars['south_jet_lat'] = xr.DataArray(
-                    data=hadley_diags['south_jet_lat'][mask],
+                    data=hadley_diags['south_jet_lat'],
                     dims=['time'],
                     attrs={
                         'units': 'm',
@@ -156,7 +157,7 @@ class DailyResults:
                     }
                 )
                 data_vars['south_jet_magnitude'] = xr.DataArray(
-                    data=hadley_diags['south_jet_magnitude'][mask],
+                    data=hadley_diags['south_jet_magnitude'],
                     dims=['time'],
                     attrs={
                         'units': 'm/s',
