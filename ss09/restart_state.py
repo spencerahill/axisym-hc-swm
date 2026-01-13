@@ -138,8 +138,13 @@ class RestartState:
             else:
                 ds.attrs[f"theta_e_{key}"] = str(value)
 
-        # Write to file
-        ds.to_netcdf(filepath)
+        # Write to file with explicit encoding to prevent time interpretation
+        encoding = {
+            "current_time": {"dtype": "float64", "_FillValue": None},
+            "current_step": {"dtype": "int32", "_FillValue": None},
+            "current_day": {"dtype": "int32", "_FillValue": None},
+        }
+        ds.to_netcdf(filepath, encoding=encoding)
         logging.info(f"Wrote restart file: {filepath}")
 
     @classmethod
@@ -153,7 +158,8 @@ class RestartState:
         Returns:
             RestartState object with all fields populated
         """
-        ds = xr.open_dataset(filepath)
+        # Disable automatic time decoding to prevent timedelta64 interpretation
+        ds = xr.open_dataset(filepath, decode_times=False)
 
         # Extract scalar time metadata
         current_time = float(ds["current_time"].values)

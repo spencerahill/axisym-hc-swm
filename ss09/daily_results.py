@@ -166,13 +166,13 @@ class DailyResults:
                     }
                 )
 
+        # Time coordinate without CF conventions - stored as plain numeric values (days)
         time_coord = xr.DataArray(
             data=time_filtered,
             dims=["time"],
             coords={"time": time_filtered},
             attrs={
-                "units": "days since 0000-01-01 00:00:00.0",
-                "calendar": "noleap",
+                "units": "days",  # Descriptive only - not CF convention
                 "long_name": "time",
             },
         )

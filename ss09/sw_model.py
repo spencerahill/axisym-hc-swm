@@ -526,10 +526,11 @@ class SWModel:
         }
         ds.attrs.update(global_attrs)
 
-        # Save to file
+        # Save to file with explicit encoding to prevent time interpretation
+        encoding = {"time": {"dtype": "float64", "_FillValue": None}}
         os.makedirs(os.path.dirname(self.config.output_path), exist_ok=True)
         try:
-            ds.to_netcdf(self.config.output_path)
+            ds.to_netcdf(self.config.output_path, encoding=encoding)
             logging.info(f"Results successfully saved to {self.config.output_path}")
         except Exception as e:
             logging.error(f"Failed to save results: {str(e)}")
