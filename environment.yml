@@ -1,0 +1,15 @@
+name: claude-swm
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.10
+  - numpy
+  - scipy
+  - xarray
+  - netcdf4
+  - h5netcdf
+  - pytest
+  - pip
+  - pip:
+    - -e .

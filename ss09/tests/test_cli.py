@@ -39,6 +39,7 @@ def default_args():
         "--steady_state_threshold": 0.001,
         "--steady_state_check_both": True,
         "--smoothness_threshold": 0.5,
+        "--restart_output_dir": "./model_output",
     }
 
 
@@ -87,8 +88,8 @@ def test_cli_arguments(default_args, param, value):
     parsed_args = argparse.Namespace(**{k.lstrip("--"): v for k, v in args.items()})
 
     # Setup configurations
-    sw_config = setup_sw_config(parsed_args)
     theta_e_config = setup_theta_e_config(parsed_args)
+    sw_config = setup_sw_config(parsed_args, theta_e_config)
 
     # Verify ThetaEConfig if applicable
     if param in ["--theta_00", "--y_0", "--y_one", "--delta_y", "--theta_e_type"]:
@@ -112,6 +113,11 @@ def test_cli_steady_state_args():
         output_path="./model_output/output.nc",
         ny=51,
         dt=3600,
+        theta_e_type="sin2",
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
         coeff_eddy_heat_diff=0.0,
         k_v=778600,
         epsilon_u=1e-8,
@@ -128,9 +134,11 @@ def test_cli_steady_state_args():
         steady_state_threshold=0.0005,
         steady_state_check_both=False,
         smoothness_threshold=0.7,
+        restart_output_dir="./model_output",
     )
 
-    sw_config = setup_sw_config(args)
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
 
     assert sw_config.enable_steady_state is True
     assert sw_config.steady_state_window_size == 15
@@ -150,6 +158,11 @@ def test_cli_steady_state_defaults():
         output_path="./model_output/output.nc",
         ny=51,
         dt=3600,
+        theta_e_type="sin2",
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
         coeff_eddy_heat_diff=0.0,
         k_v=778600,
         epsilon_u=1e-8,
@@ -166,9 +179,11 @@ def test_cli_steady_state_defaults():
         steady_state_threshold=0.001,
         steady_state_check_both=True,
         smoothness_threshold=0.5,
+        restart_output_dir="./model_output",
     )
 
-    sw_config = setup_sw_config(args)
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
 
     assert sw_config.enable_steady_state is False
     assert sw_config.steady_state_window_size == 10
