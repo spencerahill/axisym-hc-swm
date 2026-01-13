@@ -175,3 +175,105 @@ def test_cli_steady_state_defaults():
     assert sw_config.steady_state_threshold == 0.001
     assert sw_config.steady_state_check_both is True
     assert sw_config.smoothness_threshold == 0.5
+
+
+def test_cli_rejects_seasonal_forcing_with_ss09():
+    """CLI should fail when user tries seasonal forcing with SS09 profile"""
+    from ss09.theta_e import SS09Profile
+
+    args = argparse.Namespace(
+        theta_e_type="SS09",
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        y_0_seasonal_amp=700e3,  # Enable seasonal forcing
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0,
+    )
+
+    theta_e_config = setup_theta_e_config(args)
+
+    # Attempting to instantiate profile should raise ValueError
+    with pytest.raises(ValueError) as exc_info:
+        SS09Profile(theta_e_config)
+
+    assert "Seasonal forcing" in str(exc_info.value)
+    assert "SS09Profile" in str(exc_info.value)
+    assert "not supported" in str(exc_info.value)
+
+
+def test_cli_rejects_seasonal_forcing_with_sin2():
+    """CLI should fail when user tries seasonal forcing with sin2 profile"""
+    from ss09.theta_e import Sin2Profile
+
+    args = argparse.Namespace(
+        theta_e_type="sin2",
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        y_0_seasonal_amp=500e3,  # Enable seasonal forcing
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0,
+    )
+
+    theta_e_config = setup_theta_e_config(args)
+
+    # Attempting to instantiate profile should raise ValueError
+    with pytest.raises(ValueError) as exc_info:
+        Sin2Profile(theta_e_config)
+
+    assert "Seasonal forcing" in str(exc_info.value)
+    assert "Sin2Profile" in str(exc_info.value)
+
+
+def test_cli_accepts_seasonal_forcing_with_sb08():
+    """CLI should succeed when user uses seasonal forcing with SB08 profile"""
+    from ss09.theta_e import SB08Profile
+
+    args = argparse.Namespace(
+        theta_e_type="SB08",
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        y_0_seasonal_amp=700e3,  # Enable seasonal forcing
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0,
+    )
+
+    theta_e_config = setup_theta_e_config(args)
+
+    # Profile instantiation should succeed
+    profile = SB08Profile(theta_e_config)
+
+    assert profile.config.y_0_seasonal_amp == 700e3
+    assert profile.config.seasonal_period_days == 360.0
+
+
+def test_cli_accepts_all_profiles_without_seasonal_forcing():
+    """All profiles should work when seasonal forcing is disabled"""
+    from ss09.theta_e import SS09Profile, Sin2Profile, SB08Profile
+
+    for theta_e_type, profile_class in [
+        ("SS09", SS09Profile),
+        ("sin2", Sin2Profile),
+        ("SB08", SB08Profile),
+    ]:
+        args = argparse.Namespace(
+            theta_e_type=theta_e_type,
+            theta_00=330.0,
+            y_0=0.0,
+            y_one=9439e3,
+            delta_y=50.0,
+            y_0_seasonal_amp=0.0,  # No seasonal forcing
+            seasonal_period_days=360.0,
+            seasonal_phase_days=0.0,
+        )
+
+        theta_e_config = setup_theta_e_config(args)
+
+        # All profiles should instantiate without error
+        profile = profile_class(theta_e_config)
+        assert profile.config.y_0_seasonal_amp == 0.0

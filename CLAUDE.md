@@ -72,6 +72,7 @@ run-sw-model --restart-from ./model_output/restart_day0050.nc \
 - Configuration parameters (ny, dt, domain_size, etc.) must match between restart file and new run
 - Steady-state detector history is preserved across restarts for continuous convergence monitoring
 - Output files contain only the days simulated in that run (filtered automatically)
+- **Seasonal forcing requires SB08 profile**: The `--y0-seasonal-amp` parameter only works with `--theta_e_type SB08`. Using seasonal parameters with SS09 or sin2 profiles will raise an error.
 
 ## Output File Organization
 

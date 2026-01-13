@@ -25,6 +25,23 @@ class ThetaEProfile(ABC):
 
     def __init__(self, config: ThetaEConfig):
         self.config = config
+        self._validate_seasonal_forcing()
+
+    def _validate_seasonal_forcing(self) -> None:
+        """
+        Validate that seasonal forcing is only used with compatible profiles.
+
+        Raises:
+            ValueError: If seasonal forcing is enabled but profile doesn't support it
+        """
+        if self.config.y_0_seasonal_amp > 0:
+            profile_name = self.__class__.__name__
+            raise ValueError(
+                f"Seasonal forcing (y_0_seasonal_amp = {self.config.y_0_seasonal_amp} m) "
+                f"is not supported by {profile_name}. "
+                f"Only SB08Profile supports seasonal ITCZ migration. "
+                f"To fix: Use --theta_e_type SB08 or set --y0-seasonal-amp 0"
+            )
 
     @abstractmethod
     def __call__(self, state: ModelState) -> np.ndarray:
@@ -62,6 +79,10 @@ class Sin2Profile(ThetaEProfile):
 
 class SB08Profile(ThetaEProfile):
     """θₑ profile using the formula from Schneider and Bordoni (2008)"""
+
+    def _validate_seasonal_forcing(self) -> None:
+        """SB08Profile supports seasonal forcing - no validation needed."""
+        pass
 
     def __call__(self, state: ModelState) -> np.ndarray:
         # Compute time-varying y_0 if seasonal amplitude > 0
