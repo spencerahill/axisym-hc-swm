@@ -60,6 +60,72 @@ run-sw-model --restart-from ./model_output/restart_day0050.nc \
 - Steady-state detector history is preserved across restarts for continuous convergence monitoring
 - Output files contain only the days simulated in that run (filtered automatically)
 
+## Output File Organization
+
+By default, the model automatically generates descriptive output paths based on run configuration, making it easy to organize and identify different model runs.
+
+### Directory Structure
+
+```
+./model_output/
+  {theta_e_type}/              # Profile type (SS09, sin2, or SB08)
+    run_{timestamp}_{params}_output.nc
+    run_{timestamp}_{params}_restart_day{NNNN}.nc
+```
+
+Files are organized with:
+- **One directory level** grouping by fundamental physics choice (theta_e_type)
+- **Descriptive filenames** encoding run-specific parameters and timestamp
+
+### Filename Components
+
+**Format:** `run_{timestamp}_{seasonal}_{y0}_{resolution}_{duration}_{file_type}.nc`
+
+**Components:**
+- **timestamp**: YYYYMMDD_HHMMSS (ensures uniqueness, chronological sorting)
+- **seasonal**: `seas` (seasonal cycle enabled) or `noseas` (no seasonal cycle)
+- **y0**: Mean ITCZ position in km with sign indicator (e.g., `y0p0000`, `y0p0700`, `y0n0500`)
+- **resolution**: Grid points `ny{NNN}` (e.g., `ny051`, `ny101`)
+- **duration**: Total integration days `{N}days` (e.g., `3600days`, `250days`)
+- **file_type**: `output` (main results) or `restart_day{NNNN}` (checkpoint files)
+
+### Examples
+
+```bash
+# Seasonal SB08 run: 700 km ITCZ migration, 51 grid points, 3600 days
+./model_output/SB08/run_20260111_134530_seas_y0p0000_ny051_3600days_output.nc
+./model_output/SB08/run_20260111_134530_seas_y0p0000_ny051_3600days_restart_day0100.nc
+
+# Non-seasonal sin2 run: centered ITCZ, 101 grid points, 250 days
+./model_output/sin2/run_20260112_093000_noseas_y0p0000_ny101_250days_output.nc
+./model_output/sin2/run_20260112_093000_noseas_y0p0000_ny101_250days_restart_day0250.nc
+
+# Shifted ITCZ: 1500 km north, SS09 profile
+./model_output/SS09/run_20260113_101500_noseas_y0p1500_ny051_1000days_output.nc
+```
+
+### Custom Paths
+
+You can override the automatic naming with explicit paths:
+
+```bash
+# Use custom output path
+run-sw-model --output_path ./my_custom_path/run_001.nc
+
+# Use custom restart directory
+run-sw-model --restart-output-dir ./my_checkpoints
+```
+
+When custom paths are provided, descriptive naming is disabled for those specific paths.
+
+### Benefits
+
+- **Self-documenting**: Key parameters visible in filesystem
+- **No overwrites**: Timestamp ensures unique filenames
+- **Easy browsing**: Profile types organized in directories
+- **Chronological**: Files sort by timestamp within each directory
+- **Restart matching**: Restart files clearly associated with output files
+
 ### Testing
 ```bash
 # Run all tests

@@ -14,6 +14,7 @@ from .daily_results import DailyResults
 from .steady_state import SteadyStateDetector
 from .hadley_diagnostics import HadleyDiagnostics
 from .restart_state import RestartState
+from .output_path_utils import generate_restart_filename
 
 # Configure logging
 logging.basicConfig(
@@ -395,7 +396,8 @@ class SWModel:
         Args:
             day: Current day number for filename
 
-        Filename: restart_day{day:04d}.nc (e.g., restart_day0100.nc)
+        Filename: Matches output file naming scheme with _restart_day{day:04d}.nc suffix
+        (e.g., run_20260111_134530_seas_y0p0000_ny051_3600days_restart_day0100.nc)
         """
         # Create restart directory if it doesn't exist
         os.makedirs(self.config.restart_output_dir, exist_ok=True)
@@ -429,10 +431,8 @@ class SWModel:
             theta_e_config_snapshot=asdict(self.theta_e_profile.config),
         )
 
-        # Generate filepath and save
-        filepath = os.path.join(
-            self.config.restart_output_dir, f"restart_day{day:04d}.nc"
-        )
+        # Generate filepath using descriptive naming scheme (matches output file)
+        filepath = generate_restart_filename(self.config.output_path, day)
         restart_state.to_netcdf(filepath)
 
     def load_from_restart(self, restart_file: str) -> int:
