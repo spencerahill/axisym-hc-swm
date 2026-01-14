@@ -143,9 +143,10 @@ class TestHadleyDiagnostics:
             20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
             + 15.0 * np.exp(-((y + 6000e3) / 3000e3) ** 2)
         )
+        v = np.zeros_like(y)  # Simple v for this test
 
         # Record day 0
-        diag.record_day(0, u, y, dy, beta)
+        diag.record_day(0, u, v, y, dy, beta)
 
         assert diag.days_recorded == 1
         assert not np.all(np.isnan(diag.rossby_number[0]))
@@ -161,11 +162,12 @@ class TestHadleyDiagnostics:
         """Test recording multiple days"""
         y, dy, beta, ny = basic_grid
         diag = HadleyDiagnostics(ny=ny, total_days=10)
+        v = np.zeros_like(y)  # Simple v for this test
 
         for day in range(5):
             # Vary jet position over time
             u = (20.0 + day) * np.exp(-((y - (5000 + day * 100) * 1e3) / 3000e3) ** 2)
-            diag.record_day(day, u, y, dy, beta)
+            diag.record_day(day, u, v, y, dy, beta)
 
         assert diag.days_recorded == 5
 
@@ -179,24 +181,29 @@ class TestHadleyDiagnostics:
         """Test conversion to dictionary for xarray"""
         y, dy, beta, ny = basic_grid
         diag = HadleyDiagnostics(ny=ny, total_days=100)
+        v = np.zeros_like(y)  # Simple v for this test
 
         # Record 5 days
         for day in range(5):
             u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
-            diag.record_day(day, u, y, dy, beta)
+            diag.record_day(day, u, v, y, dy, beta)
 
         diag_dict = diag.get_diagnostics_dict()
 
-        # Check all keys present
+        # Check all keys present (including new cell edge keys)
         assert "rossby_number" in diag_dict
         assert "north_jet_lat" in diag_dict
         assert "north_jet_magnitude" in diag_dict
         assert "south_jet_lat" in diag_dict
         assert "south_jet_magnitude" in diag_dict
+        assert "ascending_edge_lat" in diag_dict
+        assert "north_descending_edge_lat" in diag_dict
+        assert "south_descending_edge_lat" in diag_dict
 
         # Check filtered to recorded days
         assert diag_dict["rossby_number"].shape == (5, ny)
         assert diag_dict["north_jet_lat"].shape == (5,)
+        assert diag_dict["ascending_edge_lat"].shape == (5,)
 
         # Check no trailing NaN days included
         assert not np.all(np.isnan(diag_dict["rossby_number"][-1]))
@@ -289,11 +296,12 @@ class TestHadleyDiagnostics:
         """Test that diagnostics dict has correct size when starting from non-zero day (restart)."""
         y, dy, beta, ny = basic_grid
         diag = HadleyDiagnostics(ny=ny, total_days=100)
+        v = np.zeros_like(y)  # Simple v for this test
 
         # Simulate restart: record days 50-59 only (like restarting from day 50)
         for day in range(50, 60):
             u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
-            diag.record_day(day, u, y, dy, beta)
+            diag.record_day(day, u, v, y, dy, beta)
 
         diag_dict = diag.get_diagnostics_dict()
 
@@ -303,6 +311,200 @@ class TestHadleyDiagnostics:
         assert diag_dict["south_jet_lat"].shape == (10,)
         assert diag_dict["north_jet_magnitude"].shape == (10,)
         assert diag_dict["south_jet_magnitude"].shape == (10,)
+        assert diag_dict["ascending_edge_lat"].shape == (10,)
+        assert diag_dict["north_descending_edge_lat"].shape == (10,)
+        assert diag_dict["south_descending_edge_lat"].shape == (10,)
 
         # None should be NaN (all days were recorded)
         assert not np.any(np.isnan(diag_dict["north_jet_lat"]))
+
+
+class TestCellEdgeDiagnostics:
+    """Tests for Hadley cell edge detection."""
+
+    @pytest.fixture
+    def basic_grid(self):
+        """Create a basic symmetric grid"""
+        ny = 51
+        y = np.linspace(-15751e3, 15751e3, ny)
+        dy = np.diff(y)[0]
+        beta = 2e-11
+        return y, dy, beta, ny
+
+    def test_find_zero_crossings_simple(self, basic_grid):
+        """Test finding zero crossings with simple linear v profile"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Linear profile that crosses zero at y=0
+        v = y / 1e6  # Simple linear: v = y * 1e-6
+
+        crossings = diag.find_zero_crossings(v, y)
+
+        # Should find exactly one crossing near y=0
+        assert len(crossings) == 1
+        assert np.abs(crossings[0]) < dy  # Within one grid cell of equator
+
+    def test_find_zero_crossings_multiple(self, basic_grid):
+        """Test finding multiple zero crossings"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create v profile with 3 crossings (typical Hadley cell pattern)
+        # v > 0 in NH (poleward), v < 0 in SH (poleward)
+        # with zero crossings at ~-5000km, ~0, ~5000km
+        v = np.sin(np.pi * y / 10000e3)
+
+        crossings = diag.find_zero_crossings(v, y)
+
+        # Should find 3 crossings
+        assert len(crossings) == 3
+
+    def test_find_zero_crossings_no_crossing(self, basic_grid):
+        """Test when v doesn't change sign"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Constant positive v
+        v = np.ones_like(y) * 5.0
+
+        crossings = diag.find_zero_crossings(v, y)
+
+        assert len(crossings) == 0
+
+    def test_compute_cell_edges_realistic(self, basic_grid):
+        """Test cell edge detection with realistic Hadley cell pattern"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create realistic v profile:
+        # - Positive v in NH (poleward flow in upper branch)
+        # - Negative v in SH (poleward flow in upper branch)
+        # - Zero at equator (ascending) and at ~±6000km (descending)
+        # v = A * sin(pi*y/L) gives zeros at y = 0, ±L
+        L = 6000e3  # Cell width
+        v = 5.0 * np.sin(np.pi * y / L)
+
+        # Jets at ~5000 km in each hemisphere
+        north_jet_lat = 5000e3
+        south_jet_lat = -5000e3
+
+        ascending, north_desc, south_desc = diag.compute_cell_edges(
+            v, y, north_jet_lat, south_jet_lat
+        )
+
+        # Ascending edge should be near equator
+        assert np.abs(ascending) < dy
+
+        # Descending edges should be near ±6000 km
+        assert np.abs(north_desc - 6000e3) < 500e3
+        assert np.abs(south_desc + 6000e3) < 500e3
+
+        # Descending edges should be close to jet positions
+        assert np.abs(north_desc - north_jet_lat) < 2000e3
+        assert np.abs(south_desc - south_jet_lat) < 2000e3
+
+    def test_compute_cell_edges_ascending_between_descending(self, basic_grid):
+        """Test that ascending edge is always between descending edges"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create v profile with clear Hadley structure
+        L = 5000e3
+        v = 3.0 * np.sin(np.pi * y / L)
+
+        north_jet_lat = 4500e3
+        south_jet_lat = -4500e3
+
+        ascending, north_desc, south_desc = diag.compute_cell_edges(
+            v, y, north_jet_lat, south_jet_lat
+        )
+
+        # Ascending must be between descending edges
+        assert south_desc < ascending < north_desc
+
+    def test_compute_cell_edges_no_crossings(self, basic_grid):
+        """Test cell edge detection when no zero crossings exist"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Constant v (no crossings)
+        v = np.ones_like(y) * 2.0
+
+        north_jet_lat = 5000e3
+        south_jet_lat = -5000e3
+
+        ascending, north_desc, south_desc = diag.compute_cell_edges(
+            v, y, north_jet_lat, south_jet_lat
+        )
+
+        # All should be NaN when no crossings
+        assert np.isnan(ascending)
+        assert np.isnan(north_desc)
+        assert np.isnan(south_desc)
+
+    def test_compute_cell_edges_missing_jet(self, basic_grid):
+        """Test cell edge detection when jet position is NaN"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Normal v profile
+        L = 6000e3
+        v = 5.0 * np.sin(np.pi * y / L)
+
+        # Missing northern jet
+        north_jet_lat = np.nan
+        south_jet_lat = -5000e3
+
+        ascending, north_desc, south_desc = diag.compute_cell_edges(
+            v, y, north_jet_lat, south_jet_lat
+        )
+
+        # Northern descending and ascending should be NaN
+        assert np.isnan(north_desc)
+        assert np.isnan(ascending)
+        # Southern descending should still be found
+        assert not np.isnan(south_desc)
+
+    def test_compute_cell_edges_linear_interpolation_accuracy(self, basic_grid):
+        """Test that linear interpolation gives accurate crossing positions"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create v profile with known zero crossing at y = 3000 km
+        # v = y - 3000e3 crosses zero exactly at y = 3000 km
+        target_crossing = 3000e3
+        v = (y - target_crossing) / 1e6
+
+        crossings = diag.find_zero_crossings(v, y)
+
+        # Should find exactly one crossing very close to 3000 km
+        assert len(crossings) == 1
+        # Linear interpolation should be exact for linear function
+        assert np.abs(crossings[0] - target_crossing) < 1.0  # Within 1 meter
+
+    def test_record_day_with_realistic_v(self, basic_grid):
+        """Test that record_day computes cell edges correctly"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create realistic u profile with jets
+        u = (
+            20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+            + 15.0 * np.exp(-((y + 5000e3) / 3000e3) ** 2)
+        )
+
+        # Create realistic v profile
+        L = 6000e3
+        v = 5.0 * np.sin(np.pi * y / L)
+
+        diag.record_day(0, u, v, y, dy, beta)
+
+        # Check that cell edges were recorded
+        assert not np.isnan(diag.ascending_edge_lat[0])
+        assert not np.isnan(diag.north_descending_edge_lat[0])
+        assert not np.isnan(diag.south_descending_edge_lat[0])
+
+        # Check physical consistency
+        assert diag.south_descending_edge_lat[0] < diag.ascending_edge_lat[0]
+        assert diag.ascending_edge_lat[0] < diag.north_descending_edge_lat[0]

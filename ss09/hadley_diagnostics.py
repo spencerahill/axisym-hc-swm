@@ -35,6 +35,11 @@ class HadleyDiagnostics:
         self.south_jet_lat = np.full(total_days, np.nan)
         self.south_jet_magnitude = np.full(total_days, np.nan)
 
+        # Hadley cell edge latitudes (1D, time)
+        self.ascending_edge_lat = np.full(total_days, np.nan)
+        self.north_descending_edge_lat = np.full(total_days, np.nan)
+        self.south_descending_edge_lat = np.full(total_days, np.nan)
+
         self.days_recorded = 0
         self.start_day = None  # Track first recorded day for restart support
 
@@ -71,6 +76,94 @@ class HadleyDiagnostics:
         rossby[equator_mask] = np.nan
 
         return rossby
+
+    def find_zero_crossings(self, v: np.ndarray, y: np.ndarray) -> list[float]:
+        """
+        Find all latitudes where v=0 using linear interpolation.
+
+        Args:
+            v: Meridional wind field (ny,)
+            y: Meridional coordinate (ny,) in meters from equator
+
+        Returns:
+            List of latitudes where v crosses zero, sorted south to north.
+        """
+        crossings = []
+        for i in range(len(v) - 1):
+            # Check for exact zero at grid point (handle v[i] == 0 case)
+            if v[i] == 0:
+                # Only count if it's a true crossing (signs differ on either side)
+                # or if we're at the start and next point is non-zero
+                if i > 0 and v[i - 1] * v[i + 1] < 0:
+                    crossings.append(y[i])
+                elif i == 0 and v[i + 1] != 0:
+                    crossings.append(y[i])
+            elif v[i] * v[i + 1] < 0:  # Sign change between grid points
+                # Linear interpolation
+                y_zero = y[i] - v[i] * (y[i + 1] - y[i]) / (v[i + 1] - v[i])
+                crossings.append(y_zero)
+        # Check last point for exact zero
+        if v[-1] == 0 and len(v) > 1 and v[-2] != 0:
+            crossings.append(y[-1])
+        return crossings
+
+    def compute_cell_edges(
+        self, v: np.ndarray, y: np.ndarray, north_jet_lat: float, south_jet_lat: float
+    ) -> tuple[float, float, float]:
+        """
+        Compute Hadley cell edge latitudes from meridional wind field.
+
+        Uses jet positions to anchor the descending edges, then finds the
+        ascending edge as the v=0 crossing between them.
+
+        Args:
+            v: Meridional wind field (ny,)
+            y: Meridional coordinate (ny,) in meters from equator
+            north_jet_lat: Northern hemisphere jet latitude (m)
+            south_jet_lat: Southern hemisphere jet latitude (m)
+
+        Returns:
+            (ascending_edge_lat, north_descending_edge_lat, south_descending_edge_lat)
+            All in meters. NaN if edge not found.
+        """
+        crossings = self.find_zero_crossings(v, y)
+
+        if not crossings:
+            return np.nan, np.nan, np.nan
+
+        # North descending edge: v=0 crossing closest to northern jet
+        if np.isnan(north_jet_lat):
+            north_descending = np.nan
+        else:
+            north_descending = min(crossings, key=lambda x: abs(x - north_jet_lat))
+
+        # South descending edge: v=0 crossing closest to southern jet
+        if np.isnan(south_jet_lat):
+            south_descending = np.nan
+        else:
+            south_descending = min(crossings, key=lambda x: abs(x - south_jet_lat))
+
+        # Ascending edge: v=0 crossing between the two descending edges
+        if np.isnan(north_descending) or np.isnan(south_descending):
+            ascending = np.nan
+        else:
+            # Find crossings between south_descending and north_descending
+            inner_crossings = [
+                c
+                for c in crossings
+                if south_descending < c < north_descending
+                and c != south_descending
+                and c != north_descending
+            ]
+            if len(inner_crossings) == 1:
+                ascending = inner_crossings[0]
+            elif len(inner_crossings) == 0:
+                ascending = np.nan
+            else:
+                # Multiple crossings between edges — pick closest to equator
+                ascending = min(inner_crossings, key=abs)
+
+        return ascending, north_descending, south_descending
 
     def find_jet_position(
         self, u: np.ndarray, y: np.ndarray, hemisphere: str
@@ -180,7 +273,13 @@ class HadleyDiagnostics:
         return refined_jet_lat, jet_mag
 
     def record_day(
-        self, day: int, u: np.ndarray, y: np.ndarray, dy: float, beta: float
+        self,
+        day: int,
+        u: np.ndarray,
+        v: np.ndarray,
+        y: np.ndarray,
+        dy: float,
+        beta: float,
     ):
         """
         Compute and store diagnostics for a given day.
@@ -188,6 +287,7 @@ class HadleyDiagnostics:
         Args:
             day: Day number (0-indexed)
             u: Daily-averaged zonal wind (ny,)
+            v: Daily-averaged meridional wind (ny,)
             y: Meridional coordinate (ny,) in meters from equator
             dy: Grid spacing in meters
             beta: Beta parameter in m^-1 s^-1
@@ -207,6 +307,14 @@ class HadleyDiagnostics:
         self.north_jet_magnitude[day] = north_mag
         self.south_jet_lat[day] = south_lat
         self.south_jet_magnitude[day] = south_mag
+
+        # Compute cell edges using jet positions
+        ascending, north_desc, south_desc = self.compute_cell_edges(
+            v, y, north_lat, south_lat
+        )
+        self.ascending_edge_lat[day] = ascending
+        self.north_descending_edge_lat[day] = north_desc
+        self.south_descending_edge_lat[day] = south_desc
 
         self.days_recorded = day + 1
 
@@ -230,4 +338,7 @@ class HadleyDiagnostics:
             "north_jet_magnitude": self.north_jet_magnitude[mask],
             "south_jet_lat": self.south_jet_lat[mask],
             "south_jet_magnitude": self.south_jet_magnitude[mask],
+            "ascending_edge_lat": self.ascending_edge_lat[mask],
+            "north_descending_edge_lat": self.north_descending_edge_lat[mask],
+            "south_descending_edge_lat": self.south_descending_edge_lat[mask],
         }

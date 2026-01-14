@@ -82,7 +82,8 @@ class TestDailyResults:
         y = basic_config.y
         for day in range(recorded_days):
             u = np.random.randn(ny) * 10.0 + 20.0
-            hadley_diags.record_day(day, u, y, basic_config.dy, basic_config.beta)
+            v = np.zeros_like(y)  # Simple v for testing
+            hadley_diags.record_day(day, u, v, y, basic_config.dy, basic_config.beta)
 
         # This should NOT raise IndexError (the bug that was fixed)
         ds = results.to_xarray(basic_config, theta_e_profile, None, hadley_diags)
@@ -136,7 +137,8 @@ class TestDailyResults:
         y = config.y
         for day in range(recorded_days):
             u = np.random.randn(ny) * 10.0 + 20.0
-            hadley_diags.record_day(day, u, y, config.dy, config.beta)
+            v = np.zeros_like(y)  # Simple v for testing
+            hadley_diags.record_day(day, u, v, y, config.dy, config.beta)
 
         # Should not raise IndexError
         ds = results.to_xarray(config, theta_e_profile, steady_state, hadley_diags)
@@ -203,7 +205,8 @@ class TestDailyResults:
         y = config.y
         for day in range(recorded_days):
             u = np.random.randn(ny) * 10.0 + 20.0
-            hadley_diags.record_day(day, u, y, config.dy, config.beta)
+            v = np.zeros_like(y)  # Simple v for testing
+            hadley_diags.record_day(day, u, v, y, config.dy, config.beta)
 
         # The bug was: trying to apply mask[500 elements] to hadley_diags[238 elements]
         # This should NOT raise IndexError

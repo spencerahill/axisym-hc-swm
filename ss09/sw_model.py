@@ -332,9 +332,10 @@ class SWModel:
                 self.hadley_diagnostics.record_day(
                     day,
                     self.results.u[day],
+                    self.results.v[day],
                     self.config.y,
                     self.config.dy,
-                    self.config.beta
+                    self.config.beta,
                 )
 
                 # Check convergence based on forcing type

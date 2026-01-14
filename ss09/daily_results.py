@@ -166,6 +166,35 @@ class DailyResults:
                     }
                 )
 
+                # Hadley cell edge latitudes
+                data_vars['ascending_edge_lat'] = xr.DataArray(
+                    data=hadley_diags['ascending_edge_lat'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm',
+                        'long_name': 'ascending branch edge latitude',
+                        'description': 'Latitude where v=0 between the two descending edges (ITCZ/ascending branch)'
+                    }
+                )
+                data_vars['north_descending_edge_lat'] = xr.DataArray(
+                    data=hadley_diags['north_descending_edge_lat'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm',
+                        'long_name': 'northern descending branch edge latitude',
+                        'description': 'Latitude where v=0 closest to northern subtropical jet (descending branch)'
+                    }
+                )
+                data_vars['south_descending_edge_lat'] = xr.DataArray(
+                    data=hadley_diags['south_descending_edge_lat'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm',
+                        'long_name': 'southern descending branch edge latitude',
+                        'description': 'Latitude where v=0 closest to southern subtropical jet (descending branch)'
+                    }
+                )
+
         # Time coordinate without CF conventions - stored as plain numeric values (days)
         time_coord = xr.DataArray(
             data=time_filtered,
