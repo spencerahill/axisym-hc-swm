@@ -18,6 +18,7 @@ class ThetaEConfig:
     y_0_seasonal_amp: float = 0.0        # m - ITCZ migration amplitude (0 = no seasonal cycle)
     seasonal_period_days: float = 360.0  # days - seasonal period
     seasonal_phase_days: float = 0.0     # days - phase offset
+    seasonal_cycle_type: str = "sin"     # "sin" (default) or "square"
 
 
 class ThetaEProfile(ABC):
@@ -94,8 +95,13 @@ class SB08Profile(ThetaEProfile):
             # Compute seasonal phase
             phase = 2 * np.pi * (state.t - phase_seconds) / period_seconds
 
-            # Time-varying y_0
-            y_0_t = self.config.y_0 + self.config.y_0_seasonal_amp * np.sin(phase)
+            # Time-varying y_0 based on cycle type
+            if self.config.seasonal_cycle_type == "square":
+                # Square wave: instant flip between +/- amplitude at half-period
+                y_0_t = self.config.y_0 + self.config.y_0_seasonal_amp * np.sign(np.sin(phase))
+            else:
+                # Default: sinusoidal
+                y_0_t = self.config.y_0 + self.config.y_0_seasonal_amp * np.sin(phase)
         else:
             # No seasonal cycle - use constant y_0
             y_0_t = self.config.y_0

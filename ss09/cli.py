@@ -110,6 +110,14 @@ def parse_arguments():
         help="Phase offset in days (default: 0)",
     )
     parser.add_argument(
+        "--seasonal-cycle-type",
+        type=str,
+        choices=["sin", "square"],
+        default="sin",
+        dest="seasonal_cycle_type",
+        help="Shape of seasonal cycle: 'sin' (sinusoidal, default) or 'square' (instant flip at half-period)",
+    )
+    parser.add_argument(
         "--coeff_eddy_heat_diff",
         type=float,
         default=0.0,
