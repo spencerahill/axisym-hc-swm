@@ -370,6 +370,7 @@ def setup_theta_e_config(args) -> ThetaEConfig:
         y_0_seasonal_amp=getattr(args, 'y_0_seasonal_amp', 0.0),
         seasonal_period_days=getattr(args, 'seasonal_period_days', 360.0),
         seasonal_phase_days=getattr(args, 'seasonal_phase_days', 0.0),
+        seasonal_cycle_type=getattr(args, 'seasonal_cycle_type', "sin"),
     )
 
 

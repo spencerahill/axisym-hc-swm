@@ -133,6 +133,72 @@ def test_sb08_seasonal_phase_offset(theta_e_config, model_state):
     assert np.allclose(theta_e_t0, theta_e_t270_no_phase, rtol=1e-5)
 
 
+def test_sb08_square_wave_seasonal_cycle(theta_e_config, model_state):
+    """Test that square wave produces flat values with instant transitions"""
+    # Enable seasonal cycle with square wave
+    theta_e_config.y_0_seasonal_amp = 1000e3  # 1000 km amplitude
+    theta_e_config.seasonal_period_days = 360.0
+    theta_e_config.seasonal_cycle_type = "square"
+
+    profile = SB08Profile(theta_e_config)
+
+    # Square wave: first half (0-180 days) has y_0 = +amplitude
+    # second half (180-360 days) has y_0 = -amplitude
+
+    # t=45 and t=135 should be identical (both in first half)
+    theta_e_t45 = profile(model_state._replace(t=45*86400))
+    theta_e_t135 = profile(model_state._replace(t=135*86400))
+    assert np.allclose(theta_e_t45, theta_e_t135)
+
+    # t=225 and t=315 should be identical (both in second half)
+    theta_e_t225 = profile(model_state._replace(t=225*86400))
+    theta_e_t315 = profile(model_state._replace(t=315*86400))
+    assert np.allclose(theta_e_t225, theta_e_t315)
+
+    # First half differs from second half
+    assert not np.allclose(theta_e_t45, theta_e_t225)
+
+
+def test_sb08_square_vs_sin_differ_at_intermediate_times(model_state):
+    """Test that square and sin cycles differ at intermediate times but match at extremes"""
+    # Create separate configs to avoid shared state issues
+    config_sin = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=1000e3,
+        seasonal_period_days=360.0,
+        seasonal_cycle_type="sin",
+    )
+    config_square = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=1000e3,
+        seasonal_period_days=360.0,
+        seasonal_cycle_type="square",
+    )
+
+    profile_sin = SB08Profile(config_sin)
+    profile_square = SB08Profile(config_square)
+
+    # At t=90 days (quarter period): sin is at max (sin(π/2)=1), square also at +amplitude
+    theta_e_sin_90 = profile_sin(model_state._replace(t=90*86400))
+    theta_e_square_90 = profile_square(model_state._replace(t=90*86400))
+    assert np.allclose(theta_e_sin_90, theta_e_square_90)
+
+    # At t=45 days: sin is at sin(π/4) ≈ 0.707*amplitude, square is at full +amplitude
+    theta_e_sin_45 = profile_sin(model_state._replace(t=45*86400))
+    theta_e_square_45 = profile_square(model_state._replace(t=45*86400))
+
+    # These should differ because sin(π/4) ≠ 1.0
+    assert not np.allclose(theta_e_sin_45, theta_e_square_45)
+
+
 def test_sb08_zero_amplitude_equals_no_cycle(theta_e_config, model_state):
     """Test that y_0_seasonal_amp=0 behaves exactly like no seasonal parameters"""
     # Profile with explicit zero amplitude
