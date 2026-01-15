@@ -100,16 +100,26 @@ class SB08Profile(ThetaEProfile):
             # No seasonal cycle - use constant y_0
             y_0_t = self.config.y_0
 
-        # Original SB08 formula with time-varying y_0
-        term1 = np.sin(np.pi * state.y / (2 * self.config.y_one)) ** 2
-        term2 = (
-            2
-            * np.sin(np.pi * y_0_t / (2 * self.config.y_one))
-            * np.sin(np.pi * state.y / (2 * self.config.y_one))
+        y_one = self.config.y_one
+
+        # Helper to compute SB08 formula at any y value(s)
+        def sb08_at_y(y_val):
+            term1 = np.sin(np.pi * y_val / (2 * y_one)) ** 2
+            term2 = (
+                2
+                * np.sin(np.pi * y_0_t / (2 * y_one))
+                * np.sin(np.pi * y_val / (2 * y_one))
+            )
+            return self.config.theta_00 - self.config.delta_y * (term1 - term2)
+
+        # Compute raw profile and boundary values
+        raw_profile = sb08_at_y(state.y)
+        theta_at_plus_y1 = sb08_at_y(y_one)
+        theta_at_minus_y1 = sb08_at_y(-y_one)
+
+        # Clamp: use raw profile inside [-y₁, +y₁], boundary values outside
+        return np.where(
+            state.y > y_one,
+            theta_at_plus_y1,
+            np.where(state.y < -y_one, theta_at_minus_y1, raw_profile),
         )
-
-        raw_profile = self.config.theta_00 - self.config.delta_y * (term1 - term2)
-
-        # Apply minimum temperature floor (matches SS09/Sin2 behavior at high latitudes)
-        theta_e_min = self.config.theta_00 - self.config.delta_y
-        return np.maximum(theta_e_min, raw_profile)

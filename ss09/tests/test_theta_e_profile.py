@@ -73,71 +73,82 @@ def test_sin2_profile_call():
 
 
 def test_sb08_profile_call():
-    """Test SB08 profile in the tropics where floor is not active."""
+    """Test SB08 profile in the tropics where clamping is not active."""
     config = ThetaEConfig(theta_00=310.0, y_0=1000e3, y_one=9000e3, delta_y=45)
     profile = SB08Profile(config)
-    # Use small y values where floor won't be active
+    # Use small y values inside [-y_one, +y_one] where clamping won't apply
     state = ModelState(
         t=0.0, u=np.zeros(5), v=np.zeros(5), theta=np.zeros(5), y=np.linspace(-1, 1, 5)
     )
 
+    # Expected is just the raw SB08 formula (no clamping for |y| < y_one)
     term1 = np.sin(np.pi * state.y / (2 * config.y_one)) ** 2
     term2 = (
         2
         * np.sin(np.pi * config.y_0 / (2 * config.y_one))
         * np.sin(np.pi * state.y / (2 * config.y_one))
     )
-    raw_profile = config.theta_00 - config.delta_y * (term1 - term2)
-    theta_e_min = config.theta_00 - config.delta_y
-    expected = np.maximum(theta_e_min, raw_profile)
+    expected = config.theta_00 - config.delta_y * (term1 - term2)
 
     result = profile(state)
 
-    assert np.array_equal(result, expected)
+    np.testing.assert_array_almost_equal(result, expected)
 
 
-def test_sb08_profile_floor_at_high_latitudes():
-    """Test that SB08 profile applies minimum temperature floor at high latitudes.
+def test_sb08_profile_clamps_at_high_latitudes():
+    """Test that SB08 profile clamps to boundary values beyond ±y₁.
 
-    With nonzero y_0, the cross-term can push raw profile below theta_00 - delta_y
-    at certain high latitudes. The floor prevents this.
+    For y > y₁, use θₑ(+y₁). For y < -y₁, use θₑ(-y₁).
     """
     config = ThetaEConfig(theta_00=330.0, y_0=500e3, y_one=9439e3, delta_y=50)
     profile = SB08Profile(config)
 
-    # At y = 3*y_one with y_0 != 0, the raw profile goes below floor
-    # Raw value ~271.7 K should be clipped to floor of 280 K
-    y_high_lat = np.array([3.0 * config.y_one])
+    # Test points: inside, at boundary, and outside in both hemispheres
+    y_vals = np.array([
+        -2.0 * config.y_one,  # far south (should clamp to value at -y₁)
+        -config.y_one,         # at -y₁
+        0.0,                   # equator
+        config.y_one,          # at +y₁
+        2.0 * config.y_one,   # far north (should clamp to value at +y₁)
+    ])
     state = ModelState(
         t=0.0,
-        u=np.zeros_like(y_high_lat),
-        v=np.zeros_like(y_high_lat),
-        theta=np.zeros_like(y_high_lat),
-        y=y_high_lat,
+        u=np.zeros_like(y_vals),
+        v=np.zeros_like(y_vals),
+        theta=np.zeros_like(y_vals),
+        y=y_vals,
     )
 
     result = profile(state)
-    theta_e_min = config.theta_00 - config.delta_y  # 280 K
 
-    # Compute what raw value would be (without floor)
-    term1 = np.sin(np.pi * y_high_lat / (2 * config.y_one)) ** 2
-    term2 = 2 * np.sin(np.pi * config.y_0 / (2 * config.y_one)) * np.sin(
-        np.pi * y_high_lat / (2 * config.y_one)
-    )
-    raw_value = config.theta_00 - config.delta_y * (term1 - term2)
+    # Compute expected boundary values
+    def sb08_raw(y_val):
+        term1 = np.sin(np.pi * y_val / (2 * config.y_one)) ** 2
+        term2 = 2 * np.sin(np.pi * config.y_0 / (2 * config.y_one)) * np.sin(
+            np.pi * y_val / (2 * config.y_one)
+        )
+        return config.theta_00 - config.delta_y * (term1 - term2)
 
-    # Raw value should be below floor
-    assert raw_value[0] < theta_e_min, "Test setup: raw value should be below floor"
+    theta_at_minus_y1 = sb08_raw(-config.y_one)
+    theta_at_plus_y1 = sb08_raw(config.y_one)
 
-    # Result should be at the floor (not the raw value)
-    np.testing.assert_array_almost_equal(result, theta_e_min)
+    # Check: far south should equal value at -y₁
+    np.testing.assert_almost_equal(result[0], theta_at_minus_y1)
+    # Check: at -y₁ should equal value at -y₁
+    np.testing.assert_almost_equal(result[1], theta_at_minus_y1)
+    # Check: equator uses raw formula
+    np.testing.assert_almost_equal(result[2], sb08_raw(0.0))
+    # Check: at +y₁ should equal value at +y₁
+    np.testing.assert_almost_equal(result[3], theta_at_plus_y1)
+    # Check: far north should equal value at +y₁
+    np.testing.assert_almost_equal(result[4], theta_at_plus_y1)
 
 
-def test_sb08_profile_floor_with_seasonal_forcing():
-    """Test that floor works correctly with seasonal ITCZ migration.
+def test_sb08_profile_clamping_with_seasonal_forcing():
+    """Test that clamping works correctly with seasonal ITCZ migration.
 
-    At peak seasonal offset (y_0 = 700 km), the cross-term at y = 3*y_one
-    pushes the raw profile below the floor.
+    With y₀ ≠ 0 (due to seasonal forcing), the values at +y₁ and -y₁ differ,
+    so each hemisphere should clamp to its respective boundary value.
     """
     config = ThetaEConfig(
         theta_00=330.0,
@@ -149,34 +160,38 @@ def test_sb08_profile_floor_with_seasonal_forcing():
     )
     profile = SB08Profile(config)
 
-    # Test at y = 3*y_one with peak seasonal offset (t = 90 days)
-    # At this time, y_0_t = 700 km, which pushes profile below floor
-    y_high_lat = np.array([3.0 * config.y_one])
+    # At t = 90 days, y_0_t = +700 km (peak seasonal offset)
+    t = 90 * 86400
+    period_seconds = config.seasonal_period_days * 86400
+    phase = 2 * np.pi * t / period_seconds
+    y_0_t = config.y_0 + config.y_0_seasonal_amp * np.sin(phase)
+
+    # Test at high latitudes in both hemispheres
+    y_vals = np.array([-1.5 * config.y_one, 1.5 * config.y_one])
     state = ModelState(
-        t=90 * 86400,  # 90 days - peak seasonal offset (y_0 = +700 km)
-        u=np.zeros_like(y_high_lat),
-        v=np.zeros_like(y_high_lat),
-        theta=np.zeros_like(y_high_lat),
-        y=y_high_lat,
+        t=t,
+        u=np.zeros_like(y_vals),
+        v=np.zeros_like(y_vals),
+        theta=np.zeros_like(y_vals),
+        y=y_vals,
     )
 
     result = profile(state)
-    theta_e_min = config.theta_00 - config.delta_y
 
-    # Compute expected y_0_t at t = 90 days
-    period_seconds = config.seasonal_period_days * 86400
-    phase = 2 * np.pi * (90 * 86400) / period_seconds
-    y_0_t = config.y_0 + config.y_0_seasonal_amp * np.sin(phase)
+    # Compute expected boundary values with seasonal y_0_t
+    def sb08_raw(y_val):
+        term1 = np.sin(np.pi * y_val / (2 * config.y_one)) ** 2
+        term2 = 2 * np.sin(np.pi * y_0_t / (2 * config.y_one)) * np.sin(
+            np.pi * y_val / (2 * config.y_one)
+        )
+        return config.theta_00 - config.delta_y * (term1 - term2)
 
-    # Compute raw value (without floor)
-    term1 = np.sin(np.pi * y_high_lat / (2 * config.y_one)) ** 2
-    term2 = 2 * np.sin(np.pi * y_0_t / (2 * config.y_one)) * np.sin(
-        np.pi * y_high_lat / (2 * config.y_one)
-    )
-    raw_value = config.theta_00 - config.delta_y * (term1 - term2)
+    theta_at_minus_y1 = sb08_raw(-config.y_one)
+    theta_at_plus_y1 = sb08_raw(config.y_one)
 
-    # Raw value should be below floor when seasonal offset is active
-    assert raw_value[0] < theta_e_min, "Test setup: raw value should be below floor"
+    # With y_0_t > 0, the two boundary values should differ
+    assert theta_at_minus_y1 != theta_at_plus_y1, "Test setup: boundaries should differ"
 
-    # Result should be clipped to floor
-    np.testing.assert_array_almost_equal(result, theta_e_min)
+    # Check clamping in each hemisphere
+    np.testing.assert_almost_equal(result[0], theta_at_minus_y1)  # south
+    np.testing.assert_almost_equal(result[1], theta_at_plus_y1)   # north
