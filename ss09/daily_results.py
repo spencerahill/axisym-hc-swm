@@ -195,6 +195,44 @@ class DailyResults:
                     }
                 )
 
+                # Hadley cell center (v extremum) latitudes and strengths
+                data_vars['north_cell_center_lat'] = xr.DataArray(
+                    data=hadley_diags['north_cell_center_lat'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm',
+                        'long_name': 'northern Hadley cell center latitude',
+                        'description': 'Latitude where poleward meridional wind (v) is maximum in northern hemisphere'
+                    }
+                )
+                data_vars['north_cell_strength'] = xr.DataArray(
+                    data=hadley_diags['north_cell_strength'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm/s',
+                        'long_name': 'northern Hadley cell strength',
+                        'description': 'Maximum poleward meridional wind (v) in northern hemisphere'
+                    }
+                )
+                data_vars['south_cell_center_lat'] = xr.DataArray(
+                    data=hadley_diags['south_cell_center_lat'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm',
+                        'long_name': 'southern Hadley cell center latitude',
+                        'description': 'Latitude where poleward meridional wind (v) is minimum in southern hemisphere'
+                    }
+                )
+                data_vars['south_cell_strength'] = xr.DataArray(
+                    data=hadley_diags['south_cell_strength'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'm/s',
+                        'long_name': 'southern Hadley cell strength',
+                        'description': 'Minimum meridional wind (v) in southern hemisphere (most negative = strongest poleward)'
+                    }
+                )
+
         # Time coordinate without CF conventions - stored as plain numeric values (days)
         time_coord = xr.DataArray(
             data=time_filtered,

@@ -4,6 +4,7 @@ Hadley cell diagnostics for the shallow water model.
 This module computes diagnostics relevant to Hadley cell dynamics:
 - Local Rossby number: Ro = (du/dy) / (β*y)
 - Subtropical jet positions and magnitudes (both hemispheres)
+- Hadley cell center latitudes and strengths (where v extremizes)
 """
 
 import numpy as np
@@ -34,6 +35,13 @@ class HadleyDiagnostics:
         self.north_jet_magnitude = np.full(total_days, np.nan)
         self.south_jet_lat = np.full(total_days, np.nan)
         self.south_jet_magnitude = np.full(total_days, np.nan)
+
+        # Hadley cell center (where v extremizes in each hemisphere)
+        # Upper branch: poleward flow, so north has max v, south has min v
+        self.north_cell_center_lat = np.full(total_days, np.nan)
+        self.north_cell_strength = np.full(total_days, np.nan)
+        self.south_cell_center_lat = np.full(total_days, np.nan)
+        self.south_cell_strength = np.full(total_days, np.nan)
 
         # Hadley cell edge latitudes (1D, time)
         self.ascending_edge_lat = np.full(total_days, np.nan)
@@ -272,6 +280,107 @@ class HadleyDiagnostics:
 
         return refined_jet_lat, jet_mag
 
+    def find_cell_center(
+        self, v: np.ndarray, y: np.ndarray, dy: float, hemisphere: str
+    ) -> tuple[float, float]:
+        """
+        Find Hadley cell center (v extremum) using linear interpolation of dv/dy.
+
+        For upper-branch circulation (poleward flow):
+        - Northern cell: maximum v (northward flow)
+        - Southern cell: minimum v (southward flow)
+
+        Uses linear interpolation between grid points where dv/dy changes sign
+        to achieve sub-grid accuracy.
+
+        Args:
+            v: Meridional wind field (ny,)
+            y: Meridional coordinate (ny,) in meters from equator
+            dy: Grid spacing in meters
+            hemisphere: 'north' or 'south'
+
+        Returns:
+            (cell_center_lat, cell_strength) in meters and m/s
+            - latitude: Interpolated position where dv/dy = 0 (sub-grid accuracy)
+            - strength: Interpolated v value at cell center
+
+        Raises:
+            ValueError: If hemisphere is not 'north' or 'south'
+        """
+        # Validate hemisphere and extract data
+        if hemisphere == "north":
+            mask = y > 0
+            find_extremum = np.argmax  # max v for northward flow
+        elif hemisphere == "south":
+            mask = y < 0
+            find_extremum = np.argmin  # min v for southward flow
+        else:
+            raise ValueError(
+                f"hemisphere must be 'north' or 'south', got {hemisphere}"
+            )
+
+        v_hem = v[mask]
+        y_hem = y[mask]
+
+        if len(v_hem) == 0:
+            return np.nan, np.nan
+
+        # Find grid-point extremum
+        ext_idx = find_extremum(v_hem)
+        grid_center_lat = y_hem[ext_idx]
+        grid_strength = v_hem[ext_idx]
+
+        # Check if extremum is at boundary (can't interpolate)
+        if ext_idx == 0 or ext_idx == len(v_hem) - 1:
+            return grid_center_lat, grid_strength
+
+        # Compute dv/dy using centered differences at grid points
+        # dv/dy[i] ≈ (v[i+1] - v[i-1]) / (2*dy)
+        dvdy = np.zeros(len(v_hem))
+        dvdy[1:-1] = (v_hem[2:] - v_hem[:-2]) / (2 * dy)
+        # One-sided differences at boundaries
+        dvdy[0] = (v_hem[1] - v_hem[0]) / dy
+        dvdy[-1] = (v_hem[-1] - v_hem[-2]) / dy
+
+        # Find where dv/dy changes sign around the extremum
+        # Check interval [ext_idx-1, ext_idx] and [ext_idx, ext_idx+1]
+        dvdy_left = dvdy[ext_idx - 1]
+        dvdy_center = dvdy[ext_idx]
+        dvdy_right = dvdy[ext_idx + 1]
+
+        # Try left interval first [ext_idx-1, ext_idx]
+        if dvdy_left * dvdy_center < 0:
+            # Sign change in left interval - linear interpolate
+            # y_zero = y[i] - dvdy[i] * (y[i+1] - y[i]) / (dvdy[i+1] - dvdy[i])
+            y_left = y_hem[ext_idx - 1]
+            y_center = y_hem[ext_idx]
+            refined_lat = y_left - dvdy_left * (y_center - y_left) / (dvdy_center - dvdy_left)
+        elif dvdy_center * dvdy_right < 0:
+            # Sign change in right interval [ext_idx, ext_idx+1]
+            y_center = y_hem[ext_idx]
+            y_right = y_hem[ext_idx + 1]
+            refined_lat = y_center - dvdy_center * (y_right - y_center) / (dvdy_right - dvdy_center)
+        else:
+            # No clear sign change - use grid point
+            refined_lat = grid_center_lat
+
+        # Interpolate v at the refined latitude using linear interpolation
+        # Find which interval contains refined_lat
+        if refined_lat < y_hem[ext_idx]:
+            # In left interval
+            y_lo, y_hi = y_hem[ext_idx - 1], y_hem[ext_idx]
+            v_lo, v_hi = v_hem[ext_idx - 1], v_hem[ext_idx]
+        else:
+            # In right interval or at grid point
+            y_lo, y_hi = y_hem[ext_idx], y_hem[ext_idx + 1]
+            v_lo, v_hi = v_hem[ext_idx], v_hem[ext_idx + 1]
+
+        # Linear interpolation for v
+        frac = (refined_lat - y_lo) / (y_hi - y_lo) if y_hi != y_lo else 0.0
+        refined_strength = v_lo + frac * (v_hi - v_lo)
+
+        return refined_lat, refined_strength
+
     def record_day(
         self,
         day: int,
@@ -308,6 +417,15 @@ class HadleyDiagnostics:
         self.south_jet_lat[day] = south_lat
         self.south_jet_magnitude[day] = south_mag
 
+        # Find cell centers (where v extremizes)
+        north_center, north_strength = self.find_cell_center(v, y, dy, "north")
+        south_center, south_strength = self.find_cell_center(v, y, dy, "south")
+
+        self.north_cell_center_lat[day] = north_center
+        self.north_cell_strength[day] = north_strength
+        self.south_cell_center_lat[day] = south_center
+        self.south_cell_strength[day] = south_strength
+
         # Compute cell edges using jet positions
         ascending, north_desc, south_desc = self.compute_cell_edges(
             v, y, north_lat, south_lat
@@ -338,6 +456,10 @@ class HadleyDiagnostics:
             "north_jet_magnitude": self.north_jet_magnitude[mask],
             "south_jet_lat": self.south_jet_lat[mask],
             "south_jet_magnitude": self.south_jet_magnitude[mask],
+            "north_cell_center_lat": self.north_cell_center_lat[mask],
+            "north_cell_strength": self.north_cell_strength[mask],
+            "south_cell_center_lat": self.south_cell_center_lat[mask],
+            "south_cell_strength": self.south_cell_strength[mask],
             "ascending_edge_lat": self.ascending_edge_lat[mask],
             "north_descending_edge_lat": self.north_descending_edge_lat[mask],
             "south_descending_edge_lat": self.south_descending_edge_lat[mask],

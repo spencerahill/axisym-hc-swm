@@ -24,11 +24,16 @@ class TestHadleyDiagnostics:
         assert diag.north_jet_magnitude.shape == (100,)
         assert diag.south_jet_lat.shape == (100,)
         assert diag.south_jet_magnitude.shape == (100,)
+        assert diag.north_cell_center_lat.shape == (100,)
+        assert diag.north_cell_strength.shape == (100,)
+        assert diag.south_cell_center_lat.shape == (100,)
+        assert diag.south_cell_strength.shape == (100,)
         assert diag.days_recorded == 0
 
         # Check pre-filled with NaN
         assert np.all(np.isnan(diag.rossby_number))
         assert np.all(np.isnan(diag.north_jet_lat))
+        assert np.all(np.isnan(diag.north_cell_center_lat))
 
     def test_rossby_number_computation(self, basic_grid):
         """Test Rossby number computation"""
@@ -190,12 +195,16 @@ class TestHadleyDiagnostics:
 
         diag_dict = diag.get_diagnostics_dict()
 
-        # Check all keys present (including new cell edge keys)
+        # Check all keys present (including cell edge and cell center keys)
         assert "rossby_number" in diag_dict
         assert "north_jet_lat" in diag_dict
         assert "north_jet_magnitude" in diag_dict
         assert "south_jet_lat" in diag_dict
         assert "south_jet_magnitude" in diag_dict
+        assert "north_cell_center_lat" in diag_dict
+        assert "north_cell_strength" in diag_dict
+        assert "south_cell_center_lat" in diag_dict
+        assert "south_cell_strength" in diag_dict
         assert "ascending_edge_lat" in diag_dict
         assert "north_descending_edge_lat" in diag_dict
         assert "south_descending_edge_lat" in diag_dict
@@ -203,6 +212,7 @@ class TestHadleyDiagnostics:
         # Check filtered to recorded days
         assert diag_dict["rossby_number"].shape == (5, ny)
         assert diag_dict["north_jet_lat"].shape == (5,)
+        assert diag_dict["north_cell_center_lat"].shape == (5,)
         assert diag_dict["ascending_edge_lat"].shape == (5,)
 
         # Check no trailing NaN days included
@@ -311,12 +321,17 @@ class TestHadleyDiagnostics:
         assert diag_dict["south_jet_lat"].shape == (10,)
         assert diag_dict["north_jet_magnitude"].shape == (10,)
         assert diag_dict["south_jet_magnitude"].shape == (10,)
+        assert diag_dict["north_cell_center_lat"].shape == (10,)
+        assert diag_dict["north_cell_strength"].shape == (10,)
+        assert diag_dict["south_cell_center_lat"].shape == (10,)
+        assert diag_dict["south_cell_strength"].shape == (10,)
         assert diag_dict["ascending_edge_lat"].shape == (10,)
         assert diag_dict["north_descending_edge_lat"].shape == (10,)
         assert diag_dict["south_descending_edge_lat"].shape == (10,)
 
         # None should be NaN (all days were recorded)
         assert not np.any(np.isnan(diag_dict["north_jet_lat"]))
+        assert not np.any(np.isnan(diag_dict["north_cell_center_lat"]))
 
 
 class TestCellEdgeDiagnostics:
@@ -508,3 +523,203 @@ class TestCellEdgeDiagnostics:
         # Check physical consistency
         assert diag.south_descending_edge_lat[0] < diag.ascending_edge_lat[0]
         assert diag.ascending_edge_lat[0] < diag.north_descending_edge_lat[0]
+
+
+class TestCellCenterDiagnostics:
+    """Tests for Hadley cell center (v extremum) detection."""
+
+    @pytest.fixture
+    def basic_grid(self):
+        """Create a basic symmetric grid"""
+        ny = 51
+        y = np.linspace(-15751e3, 15751e3, ny)
+        dy = np.diff(y)[0]
+        beta = 2e-11
+        return y, dy, beta, ny
+
+    def test_find_cell_center_symmetric_profile(self, basic_grid):
+        """Test cell center detection with symmetric v profile"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create symmetric v profile: positive in NH, negative in SH
+        # v = v_max * sin(pi*y / (2*L)) gives max at y=L, min at y=-L
+        L = 5000e3
+        v_max = 8.0
+        v = v_max * np.sin(np.pi * y / (2 * L))
+
+        north_lat, north_strength = diag.find_cell_center(v, y, dy, "north")
+        south_lat, south_strength = diag.find_cell_center(v, y, dy, "south")
+
+        # Northern cell: max v near y=5000km
+        assert np.abs(north_lat - L) < 0.15 * dy
+        assert north_strength > 0
+
+        # Southern cell: min v near y=-5000km
+        assert np.abs(south_lat + L) < 0.15 * dy
+        assert south_strength < 0
+
+    def test_find_cell_center_gaussian_profile(self, basic_grid):
+        """Test cell center detection with Gaussian v profile"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create Gaussian profiles: v > 0 peak in NH, v < 0 peak in SH
+        v_north = 6.0 * np.exp(-((y - 4000e3) / 2000e3) ** 2)
+        v_south = -4.0 * np.exp(-((y + 5500e3) / 2000e3) ** 2)
+        v = v_north + v_south
+
+        north_lat, north_strength = diag.find_cell_center(v, y, dy, "north")
+        south_lat, south_strength = diag.find_cell_center(v, y, dy, "south")
+
+        # Northern cell should be near 4000 km with positive strength
+        assert np.abs(north_lat - 4000e3) < 0.15 * dy
+        assert north_strength > 0
+        assert np.abs(north_strength - 6.0) < 0.5
+
+        # Southern cell should be near -5500 km with negative strength
+        assert np.abs(south_lat + 5500e3) < 0.15 * dy
+        assert south_strength < 0
+        assert np.abs(south_strength + 4.0) < 0.5
+
+    def test_find_cell_center_linear_interpolation_accuracy(self, basic_grid):
+        """Test that linear interpolation achieves sub-grid accuracy"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create Gaussian with peak at off-grid location
+        true_center = 5137e3  # Deliberately between grid points
+        v_max = 7.0
+        v = v_max * np.exp(-((y - true_center) / 2000e3) ** 2)
+
+        lat, strength = diag.find_cell_center(v, y, dy, "north")
+
+        # Should find center within 15% of grid spacing
+        assert np.abs(lat - true_center) < 0.15 * dy
+
+    def test_find_cell_center_boundary_maximum(self, basic_grid):
+        """Test fallback when extremum is at hemisphere boundary"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create monotonically increasing v in northern hemisphere
+        v = np.where(y > 0, y / 1e6, 0)  # Linear increase
+
+        lat, strength = diag.find_cell_center(v, y, dy, "north")
+
+        # Should return northernmost point (boundary) - no interpolation
+        assert lat == y[y > 0][-1]
+        assert not np.isnan(lat)
+
+    def test_find_cell_center_invalid_hemisphere(self, basic_grid):
+        """Test that invalid hemisphere raises error"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+        v = np.sin(y / 1e6)
+
+        with pytest.raises(ValueError, match="hemisphere must be"):
+            diag.find_cell_center(v, y, dy, "west")
+
+    def test_find_cell_center_no_hemisphere_data(self):
+        """Test cell center when hemisphere has no data"""
+        # Grid that doesn't include northern hemisphere
+        y = np.linspace(-15751e3, -1000e3, 25)
+        dy = np.diff(y)[0]
+        v = np.ones_like(y) * -5.0
+
+        diag = HadleyDiagnostics(ny=25, total_days=10)
+        lat, strength = diag.find_cell_center(v, y, dy, "north")
+
+        # Should return NaN when hemisphere not present
+        assert np.isnan(lat)
+        assert np.isnan(strength)
+
+    def test_cell_center_recorded_in_diagnostics(self, basic_grid):
+        """Test that cell center is recorded during record_day"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create realistic profiles
+        u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+        v = 5.0 * np.sin(np.pi * y / 10000e3)
+
+        diag.record_day(0, u, v, y, dy, beta)
+
+        # Check that cell centers were recorded
+        assert not np.isnan(diag.north_cell_center_lat[0])
+        assert not np.isnan(diag.north_cell_strength[0])
+        assert not np.isnan(diag.south_cell_center_lat[0])
+        assert not np.isnan(diag.south_cell_strength[0])
+
+        # Check physical consistency
+        assert diag.north_cell_center_lat[0] > 0  # North hemisphere
+        assert diag.south_cell_center_lat[0] < 0  # South hemisphere
+        assert diag.north_cell_strength[0] > 0    # Poleward (positive) in NH
+        assert diag.south_cell_strength[0] < 0    # Poleward (negative) in SH
+
+    def test_cell_center_in_diagnostics_dict(self, basic_grid):
+        """Test that cell center appears in diagnostics dict"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+        v = 5.0 * np.sin(np.pi * y / 10000e3)
+
+        for day in range(3):
+            diag.record_day(day, u, v, y, dy, beta)
+
+        diag_dict = diag.get_diagnostics_dict()
+
+        # Check all cell center keys present
+        assert "north_cell_center_lat" in diag_dict
+        assert "north_cell_strength" in diag_dict
+        assert "south_cell_center_lat" in diag_dict
+        assert "south_cell_strength" in diag_dict
+
+        # Check shapes
+        assert diag_dict["north_cell_center_lat"].shape == (3,)
+        assert diag_dict["north_cell_strength"].shape == (3,)
+        assert diag_dict["south_cell_center_lat"].shape == (3,)
+        assert diag_dict["south_cell_strength"].shape == (3,)
+
+    def test_cell_center_interpolation_improves_accuracy(self, basic_grid):
+        """Test that linear interpolation refines grid-point extremum"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create smooth Gaussian v offset from grid points
+        true_center = 6253e3  # Deliberately between grid points
+        v = 8.0 * np.exp(-((y - true_center) / 2000e3) ** 2)
+
+        lat, strength = diag.find_cell_center(v, y, dy, "north")
+
+        # Interpolated position should be closer to true position than nearest grid point
+        grid_points = y[y > 0]
+        nearest_grid_dist = np.min(np.abs(grid_points - true_center))
+        interp_dist = np.abs(lat - true_center)
+
+        assert interp_dist < nearest_grid_dist  # Interpolation improves accuracy
+
+    def test_cell_center_restart_scenario(self, basic_grid):
+        """Test cell center diagnostics in restart scenario"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=100)
+
+        u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+        v = 5.0 * np.sin(np.pi * y / 10000e3)
+
+        # Simulate restart: record days 50-59 only
+        for day in range(50, 60):
+            diag.record_day(day, u, v, y, dy, beta)
+
+        diag_dict = diag.get_diagnostics_dict()
+
+        # Should have exactly 10 days
+        assert diag_dict["north_cell_center_lat"].shape == (10,)
+        assert diag_dict["south_cell_center_lat"].shape == (10,)
+        assert diag_dict["north_cell_strength"].shape == (10,)
+        assert diag_dict["south_cell_strength"].shape == (10,)
+
+        # None should be NaN
+        assert not np.any(np.isnan(diag_dict["north_cell_center_lat"]))
+        assert not np.any(np.isnan(diag_dict["south_cell_center_lat"]))
