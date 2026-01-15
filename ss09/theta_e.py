@@ -108,4 +108,8 @@ class SB08Profile(ThetaEProfile):
             * np.sin(np.pi * state.y / (2 * self.config.y_one))
         )
 
-        return self.config.theta_00 - self.config.delta_y * (term1 - term2)
+        raw_profile = self.config.theta_00 - self.config.delta_y * (term1 - term2)
+
+        # Apply minimum temperature floor (matches SS09/Sin2 behavior at high latitudes)
+        theta_e_min = self.config.theta_00 - self.config.delta_y
+        return np.maximum(theta_e_min, raw_profile)
