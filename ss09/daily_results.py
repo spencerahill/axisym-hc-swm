@@ -8,20 +8,26 @@ from .sw_config import SWConfig
 class DailyResults:
     """Handler for daily-averaged model output."""
 
-    def __init__(self, total_days: int, ny: int):
+    def __init__(self, total_days: int, ny: int, store_theta_e: bool = False):
         self.time = np.zeros(total_days)
         self.u = np.zeros([total_days, ny])
         self.v = np.zeros([total_days, ny])
         self.theta = np.zeros([total_days, ny])
+        self.store_theta_e = store_theta_e
+        if store_theta_e:
+            self.theta_e = np.zeros([total_days, ny])
 
     def store_day(
-        self, day: int, time: float, u: np.ndarray, v: np.ndarray, theta: np.ndarray
+        self, day: int, time: float, u: np.ndarray, v: np.ndarray, theta: np.ndarray,
+        theta_e: np.ndarray = None
     ):
         """Store results for one day."""
         self.time[day] = time
         self.u[day] = u
         self.v[day] = v
         self.theta[day] = theta
+        if self.store_theta_e and theta_e is not None:
+            self.theta_e[day] = theta_e
 
     def to_xarray(
         self, config: SWConfig, theta_e_profile: ThetaEProfile, steady_state_detector=None,
@@ -30,16 +36,6 @@ class DailyResults:
         """Convert results to xarray Dataset with metadata."""
         mask = self.time != 0
         time_filtered = self.time[mask]
-
-        # Calculate theta_e for the output
-        state = ModelState(
-            0.0,
-            np.zeros_like(config.y),
-            np.zeros_like(config.y),
-            np.zeros_like(config.y),
-            config.y,
-        )
-        theta_e = theta_e_profile(state)
 
         data_vars = {
             "u": xr.DataArray(
@@ -60,13 +56,32 @@ class DailyResults:
                 coords={"time": time_filtered, "y": config.y},
                 attrs={"units": "K", "long_name": "temperature"},
             ),
-            "theta_e": xr.DataArray(
+        }
+
+        # Add theta_e: 2D (time, y) if time-varying, 1D (y) if static
+        if self.store_theta_e:
+            data_vars["theta_e"] = xr.DataArray(
+                data=self.theta_e[mask],
+                dims=["time", "y"],
+                coords={"time": time_filtered, "y": config.y},
+                attrs={"units": "K", "long_name": "equilibrium potential temperature"},
+            )
+        else:
+            # Static theta_e - compute once at t=0
+            state = ModelState(
+                0.0,
+                np.zeros_like(config.y),
+                np.zeros_like(config.y),
+                np.zeros_like(config.y),
+                config.y,
+            )
+            theta_e = theta_e_profile(state)
+            data_vars["theta_e"] = xr.DataArray(
                 data=theta_e,
                 dims=["y"],
                 coords={"y": config.y},
                 attrs={"units": "K", "long_name": "equilibrium potential temperature"},
-            ),
-        }
+            )
 
         # Add steady-state convergence history if available
         if steady_state_detector is not None and steady_state_detector.enabled:

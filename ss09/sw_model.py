@@ -42,6 +42,7 @@ class TempVars(NamedTuple):
     u: np.ndarray
     v: np.ndarray
     theta: np.ndarray
+    theta_e: np.ndarray
     time: np.ndarray
 
 
@@ -60,11 +61,15 @@ class SWModel:
             y=config.y,
         )
         self.state = self.state._replace(theta=self.theta_e_profile(self.state))
-        self.results = DailyResults(config.total_integration_days, config.ny)
+        self.results = DailyResults(
+            config.total_integration_days, config.ny,
+            store_theta_e=self.has_seasonal_forcing()
+        )
         self.temp_vars = TempVars(
             u=np.zeros((0, config.ny)),
             v=np.zeros((0, config.ny)),
             theta=np.zeros((0, config.ny)),
+            theta_e=np.zeros((0, config.ny)),
             time=np.zeros(0),
         )
         self.vars_prev_step = AuxiliaryVars(
@@ -111,6 +116,7 @@ class SWModel:
             u=np.zeros([steps_per_day, self.config.ny]),
             v=np.zeros([steps_per_day, self.config.ny]),
             theta=np.zeros([steps_per_day, self.config.ny]),
+            theta_e=np.zeros([steps_per_day, self.config.ny]),
             time=np.zeros(steps_per_day),
         )
 
@@ -239,16 +245,22 @@ class SWModel:
         self.temp_vars.u[j - 1] = self.state.u
         self.temp_vars.v[j - 1] = self.state.v
         self.temp_vars.theta[j - 1] = self.state.theta
+        self.temp_vars.theta_e[j - 1] = self.theta_e_profile(self.state)
         self.temp_vars.time[j - 1] = timestamp / SECONDS_PER_DAY
 
     def store_daily_avgs(self, day: int):
         """Store daily averages."""
+        theta_e_avg = (
+            np.mean(self.temp_vars.theta_e, axis=0)
+            if self.has_seasonal_forcing() else None
+        )
         self.results.store_day(
             day,
             np.mean(self.temp_vars.time),
             np.mean(self.temp_vars.u, axis=0),
             np.mean(self.temp_vars.v, axis=0),
             np.mean(self.temp_vars.theta, axis=0),
+            theta_e_avg,
         )
 
     def reset_temp_storage(self):
@@ -257,6 +269,7 @@ class SWModel:
             u=np.zeros_like(self.temp_vars.u),
             v=np.zeros_like(self.temp_vars.v),
             theta=np.zeros_like(self.temp_vars.theta),
+            theta_e=np.zeros_like(self.temp_vars.theta_e),
             time=np.zeros_like(self.temp_vars.time),
         )
 

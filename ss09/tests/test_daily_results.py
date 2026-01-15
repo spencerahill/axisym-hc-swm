@@ -3,7 +3,7 @@ import numpy as np
 from dataclasses import replace
 from ss09.daily_results import DailyResults
 from ss09.sw_config import SWConfig
-from ss09.theta_e import ThetaEConfig, Sin2Profile
+from ss09.theta_e import ThetaEConfig, Sin2Profile, SB08Profile
 from ss09.hadley_diagnostics import HadleyDiagnostics
 from ss09.steady_state import SteadyStateDetector
 
@@ -252,3 +252,135 @@ class TestDailyResults:
         assert np.all(ds.time.values > 0)
         # Should not include the zeros from unrecorded days
         assert len(ds.time) < total_days
+
+    def test_theta_e_static_output_for_non_seasonal(self, basic_config, basic_theta_e_config):
+        """Test that theta_e output is 1D (y only) for non-seasonal profiles"""
+        total_days = 10
+        ny = basic_config.ny
+
+        # Create results without store_theta_e (non-seasonal case)
+        results = DailyResults(total_days, ny, store_theta_e=False)
+        theta_e_profile = Sin2Profile(basic_theta_e_config)
+
+        # Record some days
+        for day in range(total_days):
+            time = float(day + 1)
+            u = np.random.randn(ny) * 10.0 + 20.0
+            v = np.random.randn(ny) * 2.0
+            theta = np.random.randn(ny) * 5.0 + 300.0
+            results.store_day(day, time, u, v, theta)
+
+        ds = results.to_xarray(basic_config, theta_e_profile, None, None)
+
+        # theta_e should be 1D with dimension 'y' only
+        assert ds.theta_e.dims == ('y',)
+        assert ds.theta_e.shape == (ny,)
+        # Verify it's the expected profile shape
+        assert ds.theta_e.values[ny // 2] > ds.theta_e.values[0]  # Peak at center
+
+    def test_theta_e_time_varying_output_for_seasonal(self, basic_config):
+        """Test that theta_e output is 2D (time, y) for seasonal profiles"""
+        total_days = 10
+        ny = basic_config.ny
+
+        # Create seasonal theta_e config (SB08 with seasonal amplitude)
+        seasonal_config = ThetaEConfig(
+            theta_00=330.0,
+            y_0=0.0,
+            y_one=9439e3,
+            delta_y=50.0,
+            theta_e_type="SB08",
+            y_0_seasonal_amp=700e3,  # 700 km seasonal migration
+            seasonal_period_days=360.0,
+            seasonal_phase_days=0.0,
+        )
+        theta_e_profile = SB08Profile(seasonal_config)
+
+        # Create results with store_theta_e=True (seasonal case)
+        results = DailyResults(total_days, ny, store_theta_e=True)
+
+        # Record days with time-varying theta_e
+        for day in range(total_days):
+            time = float(day + 1)
+            u = np.random.randn(ny) * 10.0 + 20.0
+            v = np.random.randn(ny) * 2.0
+            theta = np.random.randn(ny) * 5.0 + 300.0
+            # Compute theta_e for this day
+            from ss09.model_state import ModelState
+            state = ModelState(
+                t=day * 86400,  # time in seconds
+                u=u,
+                v=v,
+                theta=theta,
+                y=basic_config.y,
+            )
+            theta_e = theta_e_profile(state)
+            results.store_day(day, time, u, v, theta, theta_e)
+
+        ds = results.to_xarray(basic_config, theta_e_profile, None, None)
+
+        # theta_e should be 2D with dimensions (time, y)
+        assert ds.theta_e.dims == ('time', 'y')
+        assert ds.theta_e.shape == (total_days, ny)
+
+    def test_theta_e_varies_with_time_in_seasonal_case(self, basic_config):
+        """Test that theta_e values actually vary with time in seasonal case"""
+        total_days = 180  # Half a seasonal cycle (360 days)
+        ny = basic_config.ny
+
+        # Create seasonal theta_e config with large amplitude for clear variation
+        seasonal_config = ThetaEConfig(
+            theta_00=330.0,
+            y_0=0.0,
+            y_one=9439e3,
+            delta_y=50.0,
+            theta_e_type="SB08",
+            y_0_seasonal_amp=1000e3,  # 1000 km seasonal migration
+            seasonal_period_days=360.0,
+            seasonal_phase_days=0.0,
+        )
+        theta_e_profile = SB08Profile(seasonal_config)
+
+        # Create results with store_theta_e=True
+        results = DailyResults(total_days, ny, store_theta_e=True)
+
+        # Record days
+        from ss09.model_state import ModelState
+        for day in range(total_days):
+            time = float(day + 1)
+            u = np.zeros(ny)
+            v = np.zeros(ny)
+            theta = np.zeros(ny) + 300.0
+            state = ModelState(
+                t=day * 86400,
+                u=u,
+                v=v,
+                theta=theta,
+                y=basic_config.y,
+            )
+            theta_e = theta_e_profile(state)
+            results.store_day(day, time, u, v, theta, theta_e)
+
+        ds = results.to_xarray(basic_config, theta_e_profile, None, None)
+
+        # theta_e should vary over time
+        theta_e_day_0 = ds.theta_e.isel(time=0).values
+        theta_e_day_90 = ds.theta_e.isel(time=89).values  # 90 days in (quarter cycle)
+
+        # The profiles should be different due to seasonal y_0 migration
+        assert not np.allclose(theta_e_day_0, theta_e_day_90, atol=0.1)
+
+        # At day 0, y_0 = 0 (sin(0) = 0)
+        # At day 90, y_0 = 1000 km (sin(pi/2) = 1)
+        # The peak should have shifted northward
+        center_idx = ny // 2
+        # Check that the asymmetry has changed
+        north_half_day_0 = np.mean(theta_e_day_0[center_idx:])
+        south_half_day_0 = np.mean(theta_e_day_0[:center_idx])
+        north_half_day_90 = np.mean(theta_e_day_90[center_idx:])
+        south_half_day_90 = np.mean(theta_e_day_90[:center_idx])
+
+        # At day 90, the profile should be shifted north (warmer in north)
+        asymmetry_day_0 = north_half_day_0 - south_half_day_0
+        asymmetry_day_90 = north_half_day_90 - south_half_day_90
+        assert asymmetry_day_90 > asymmetry_day_0  # More warmth in north at day 90
