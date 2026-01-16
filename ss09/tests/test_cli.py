@@ -346,3 +346,61 @@ def test_cli_seasonal_cycle_type_default():
 
     theta_e_config = setup_theta_e_config(args)
     assert theta_e_config.seasonal_cycle_type == "sin"
+
+
+def test_cli_tanh_seasonal_cycle_type():
+    """Test that --seasonal-cycle-type tanh is passed to ThetaEConfig"""
+    args = argparse.Namespace(
+        theta_e_type="SB08",
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        y_0_seasonal_amp=700e3,
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0,
+        seasonal_cycle_type="tanh",
+        tanh_steepness=4.0,
+    )
+
+    theta_e_config = setup_theta_e_config(args)
+    assert theta_e_config.seasonal_cycle_type == "tanh"
+    assert theta_e_config.tanh_steepness == 4.0
+
+
+def test_cli_tanh_steepness_custom():
+    """Test that --tanh-steepness is passed to ThetaEConfig"""
+    args = argparse.Namespace(
+        theta_e_type="SB08",
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        y_0_seasonal_amp=700e3,
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0,
+        seasonal_cycle_type="tanh",
+        tanh_steepness=8.0,
+    )
+
+    theta_e_config = setup_theta_e_config(args)
+    assert theta_e_config.tanh_steepness == 8.0
+
+
+def test_cli_tanh_steepness_default():
+    """Test that tanh_steepness defaults to 4.0 when not provided"""
+    args = argparse.Namespace(
+        theta_e_type="SB08",
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        y_0_seasonal_amp=700e3,
+        seasonal_period_days=360.0,
+        seasonal_phase_days=0.0,
+        seasonal_cycle_type="tanh",
+        # Note: tanh_steepness NOT included
+    )
+
+    theta_e_config = setup_theta_e_config(args)
+    assert theta_e_config.tanh_steepness == 4.0

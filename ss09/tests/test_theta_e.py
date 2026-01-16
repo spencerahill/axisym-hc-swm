@@ -221,3 +221,135 @@ def test_sb08_zero_amplitude_equals_no_cycle(theta_e_config, model_state):
     theta_e_default = profile_default(model_state)
 
     assert np.allclose(theta_e_zero, theta_e_default)
+
+
+def test_sb08_tanh_seasonal_cycle(model_state):
+    """Test that tanh cycle produces smooth transitions (not flat like square, not sinusoidal)"""
+    config = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=1000e3,
+        seasonal_period_days=360.0,
+        seasonal_cycle_type="tanh",
+        tanh_steepness=4.0,
+    )
+    profile = SB08Profile(config)
+
+    # Get values at multiple times in first half of cycle
+    t_days = [0, 30, 60, 90, 120, 150]
+    theta_e_values = [
+        profile(model_state._replace(t=d*86400)) for d in t_days
+    ]
+
+    # Values should differ (unlike square wave which is flat in each half)
+    assert not np.allclose(theta_e_values[0], theta_e_values[1])
+    assert not np.allclose(theta_e_values[1], theta_e_values[2])
+
+    # At t=90 (phase = π/2), sin(phase) = 1, so tanh(k*1) approaches 1 for k >= 4
+    # This should be near maximum amplitude position
+    theta_e_t90 = theta_e_values[3]
+
+    # First half (t=45) and second half (t=315) should differ (like sin and square)
+    theta_e_t45 = profile(model_state._replace(t=45*86400))
+    theta_e_t315 = profile(model_state._replace(t=315*86400))
+    assert not np.allclose(theta_e_t45, theta_e_t315)
+
+
+def test_sb08_tanh_steepness_effect(model_state):
+    """Test that high steepness approaches square wave, low steepness approaches sinusoidal"""
+    amp = 1000e3
+    period = 360.0
+
+    # Low steepness (k=1): closer to sinusoidal
+    config_low = ThetaEConfig(
+        theta_00=330.0, y_0=0.0, y_one=9439e3, delta_y=50.0,
+        theta_e_type="SB08", y_0_seasonal_amp=amp,
+        seasonal_period_days=period, seasonal_cycle_type="tanh",
+        tanh_steepness=1.0,
+    )
+    # High steepness (k=10): closer to square wave
+    config_high = ThetaEConfig(
+        theta_00=330.0, y_0=0.0, y_one=9439e3, delta_y=50.0,
+        theta_e_type="SB08", y_0_seasonal_amp=amp,
+        seasonal_period_days=period, seasonal_cycle_type="tanh",
+        tanh_steepness=10.0,
+    )
+    # Sinusoidal reference
+    config_sin = ThetaEConfig(
+        theta_00=330.0, y_0=0.0, y_one=9439e3, delta_y=50.0,
+        theta_e_type="SB08", y_0_seasonal_amp=amp,
+        seasonal_period_days=period, seasonal_cycle_type="sin",
+    )
+    # Square wave reference
+    config_square = ThetaEConfig(
+        theta_00=330.0, y_0=0.0, y_one=9439e3, delta_y=50.0,
+        theta_e_type="SB08", y_0_seasonal_amp=amp,
+        seasonal_period_days=period, seasonal_cycle_type="square",
+    )
+
+    profile_low = SB08Profile(config_low)
+    profile_high = SB08Profile(config_high)
+    profile_sin = SB08Profile(config_sin)
+    profile_square = SB08Profile(config_square)
+
+    # At t=45 days (phase = π/4): sin(phase) = sqrt(2)/2 ≈ 0.707
+    t = 45 * 86400
+    state = model_state._replace(t=t)
+
+    theta_e_low = profile_low(state)
+    theta_e_high = profile_high(state)
+    theta_e_sin = profile_sin(state)
+    theta_e_square = profile_square(state)
+
+    # Low steepness should be closer to sinusoidal than high steepness
+    diff_low_sin = np.abs(theta_e_low - theta_e_sin).max()
+    diff_high_sin = np.abs(theta_e_high - theta_e_sin).max()
+    assert diff_low_sin < diff_high_sin
+
+    # High steepness should be closer to square wave than low steepness
+    diff_low_square = np.abs(theta_e_low - theta_e_square).max()
+    diff_high_square = np.abs(theta_e_high - theta_e_square).max()
+    assert diff_high_square < diff_low_square
+
+
+def test_sb08_tanh_at_extremes(model_state):
+    """Test that tanh approaches ±amplitude at phase extremes for high steepness"""
+    config = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=1000e3,
+        seasonal_period_days=360.0,
+        seasonal_cycle_type="tanh",
+        tanh_steepness=4.0,
+    )
+    # Same config but with square wave for comparison
+    config_square = ThetaEConfig(
+        theta_00=330.0,
+        y_0=0.0,
+        y_one=9439e3,
+        delta_y=50.0,
+        theta_e_type="SB08",
+        y_0_seasonal_amp=1000e3,
+        seasonal_period_days=360.0,
+        seasonal_cycle_type="square",
+    )
+
+    profile_tanh = SB08Profile(config)
+    profile_square = SB08Profile(config_square)
+
+    # At t=90 days: phase = π/2, sin(phase) = 1, tanh(4*1) ≈ 0.9993
+    # At t=270 days: phase = 3π/2, sin(phase) = -1, tanh(4*-1) ≈ -0.9993
+    theta_e_tanh_90 = profile_tanh(model_state._replace(t=90*86400))
+    theta_e_tanh_270 = profile_tanh(model_state._replace(t=270*86400))
+    theta_e_square_90 = profile_square(model_state._replace(t=90*86400))
+    theta_e_square_270 = profile_square(model_state._replace(t=270*86400))
+
+    # At extremes, tanh should be very close to square wave (within ~0.1%)
+    assert np.allclose(theta_e_tanh_90, theta_e_square_90, rtol=0.01)
+    assert np.allclose(theta_e_tanh_270, theta_e_square_270, rtol=0.01)

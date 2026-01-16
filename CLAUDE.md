@@ -2,16 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Environment Setup (MANDATORY)
-
-**CRITICAL**: Before running ANY command (tests, model runs, pip install, etc.), you MUST first activate the project's mamba environment:
-
-```bash
-mamba activate claude-swm
-```
-
-This environment contains all required dependencies including `netcdf4` for reading/writing NetCDF files. Failure to activate this environment will cause test failures and runtime errors.
-
 ## Overview
 
 This is a Python implementation of the Sobel-Schneider single-layer shallow water model for simulating Hadley circulation with parameterized eddy momentum forcing, based on Sobel and Schneider (2009, 2013). The model integrates momentum and thermodynamic equations on an equatorial beta plane using a leapfrog time-stepping scheme with Asselin filtering.
@@ -240,6 +230,34 @@ run-sw-model --no-merid-advec-u --no-vert-advec-u
 - Linear vs nonlinear comparison for understanding mechanisms
 - Verifying linear theory predictions
 - Isolating effects of advection on circulation strength
+
+### Seasonal Cycle Types
+
+Control the shape of the seasonal ITCZ migration when using SB08 profile:
+
+```bash
+# Sinusoidal (default): smooth sinusoidal variation
+run-sw-model --theta_e_type SB08 --y0-seasonal-amp 700000 --seasonal-cycle-type sin
+
+# Square wave: instant flip between +/- amplitude at half-period
+run-sw-model --theta_e_type SB08 --y0-seasonal-amp 700000 --seasonal-cycle-type square
+
+# Tanh (smoothed square wave): smooth transitions with configurable steepness
+run-sw-model --theta_e_type SB08 --y0-seasonal-amp 700000 --seasonal-cycle-type tanh
+
+# Tanh with custom steepness (higher = sharper transitions)
+run-sw-model --theta_e_type SB08 --y0-seasonal-amp 700000 --seasonal-cycle-type tanh --tanh-steepness 8.0
+```
+
+**Formulas**:
+- **sin**: `y_0(t) = y_0 + amplitude × sin(phase)`
+- **square**: `y_0(t) = y_0 + amplitude × sign(sin(phase))`
+- **tanh**: `y_0(t) = y_0 + amplitude × tanh(k × sin(phase))` where k is the steepness
+
+**Tanh steepness parameter** (default: 4.0):
+- k = 1: Close to sinusoidal
+- k = 4: Moderate smoothing (default)
+- k = 10+: Approaches square wave with smooth transitions
 
 ### Testing Strategy
 

@@ -18,7 +18,8 @@ class ThetaEConfig:
     y_0_seasonal_amp: float = 0.0        # m - ITCZ migration amplitude (0 = no seasonal cycle)
     seasonal_period_days: float = 360.0  # days - seasonal period
     seasonal_phase_days: float = 0.0     # days - phase offset
-    seasonal_cycle_type: str = "sin"     # "sin" (default) or "square"
+    seasonal_cycle_type: str = "sin"     # "sin" (default), "square", or "tanh"
+    tanh_steepness: float = 4.0           # Steepness of tanh smoothing (only used when seasonal_cycle_type="tanh")
 
 
 class ThetaEProfile(ABC):
@@ -99,6 +100,11 @@ class SB08Profile(ThetaEProfile):
             if self.config.seasonal_cycle_type == "square":
                 # Square wave: instant flip between +/- amplitude at half-period
                 y_0_t = self.config.y_0 + self.config.y_0_seasonal_amp * np.sign(np.sin(phase))
+            elif self.config.seasonal_cycle_type == "tanh":
+                # Smoothed square wave: tanh(k * sin(phase)) transitions smoothly
+                y_0_t = self.config.y_0 + self.config.y_0_seasonal_amp * np.tanh(
+                    self.config.tanh_steepness * np.sin(phase)
+                )
             else:
                 # Default: sinusoidal
                 y_0_t = self.config.y_0 + self.config.y_0_seasonal_amp * np.sin(phase)

@@ -112,10 +112,17 @@ def parse_arguments():
     parser.add_argument(
         "--seasonal-cycle-type",
         type=str,
-        choices=["sin", "square"],
+        choices=["sin", "square", "tanh"],
         default="sin",
         dest="seasonal_cycle_type",
-        help="Shape of seasonal cycle: 'sin' (sinusoidal, default) or 'square' (instant flip at half-period)",
+        help="Shape of seasonal cycle: 'sin' (sinusoidal, default), 'square' (instant flip), or 'tanh' (smoothed square wave)",
+    )
+    parser.add_argument(
+        "--tanh-steepness",
+        type=float,
+        default=4.0,
+        dest="tanh_steepness",
+        help="Steepness of tanh smoothing for seasonal cycle (default: 4.0, only used with --seasonal-cycle-type tanh)",
     )
     parser.add_argument(
         "--coeff_eddy_heat_diff",
@@ -371,6 +378,7 @@ def setup_theta_e_config(args) -> ThetaEConfig:
         seasonal_period_days=getattr(args, 'seasonal_period_days', 360.0),
         seasonal_phase_days=getattr(args, 'seasonal_phase_days', 0.0),
         seasonal_cycle_type=getattr(args, 'seasonal_cycle_type', "sin"),
+        tanh_steepness=getattr(args, 'tanh_steepness', 4.0),
     )
 
 
