@@ -48,6 +48,10 @@ class HadleyDiagnostics:
         self.north_descending_edge_lat = np.full(total_days, np.nan)
         self.south_descending_edge_lat = np.full(total_days, np.nan)
 
+        # Hadley cell widths (1D, time) in km
+        self.north_hadley_width = np.full(total_days, np.nan)
+        self.south_hadley_width = np.full(total_days, np.nan)
+
         self.days_recorded = 0
         self.start_day = None  # Track first recorded day for restart support
 
@@ -434,6 +438,12 @@ class HadleyDiagnostics:
         self.north_descending_edge_lat[day] = north_desc
         self.south_descending_edge_lat[day] = south_desc
 
+        # Compute Hadley cell widths (always positive, in km)
+        if not np.isnan(ascending) and not np.isnan(north_desc):
+            self.north_hadley_width[day] = abs(north_desc - ascending) / 1000.0
+        if not np.isnan(ascending) and not np.isnan(south_desc):
+            self.south_hadley_width[day] = abs(ascending - south_desc) / 1000.0
+
         self.days_recorded = day + 1
 
     def get_diagnostics_dict(self) -> dict:
@@ -463,4 +473,6 @@ class HadleyDiagnostics:
             "ascending_edge_lat": self.ascending_edge_lat[mask],
             "north_descending_edge_lat": self.north_descending_edge_lat[mask],
             "south_descending_edge_lat": self.south_descending_edge_lat[mask],
+            "north_hadley_width": self.north_hadley_width[mask],
+            "south_hadley_width": self.south_hadley_width[mask],
         }

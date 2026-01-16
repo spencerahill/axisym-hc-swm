@@ -195,7 +195,7 @@ class TestHadleyDiagnostics:
 
         diag_dict = diag.get_diagnostics_dict()
 
-        # Check all keys present (including cell edge and cell center keys)
+        # Check all keys present (including cell edge, cell center, and width keys)
         assert "rossby_number" in diag_dict
         assert "north_jet_lat" in diag_dict
         assert "north_jet_magnitude" in diag_dict
@@ -208,6 +208,8 @@ class TestHadleyDiagnostics:
         assert "ascending_edge_lat" in diag_dict
         assert "north_descending_edge_lat" in diag_dict
         assert "south_descending_edge_lat" in diag_dict
+        assert "north_hadley_width" in diag_dict
+        assert "south_hadley_width" in diag_dict
 
         # Check filtered to recorded days
         assert diag_dict["rossby_number"].shape == (5, ny)
@@ -328,6 +330,8 @@ class TestHadleyDiagnostics:
         assert diag_dict["ascending_edge_lat"].shape == (10,)
         assert diag_dict["north_descending_edge_lat"].shape == (10,)
         assert diag_dict["south_descending_edge_lat"].shape == (10,)
+        assert diag_dict["north_hadley_width"].shape == (10,)
+        assert diag_dict["south_hadley_width"].shape == (10,)
 
         # None should be NaN (all days were recorded)
         assert not np.any(np.isnan(diag_dict["north_jet_lat"]))
@@ -723,3 +727,146 @@ class TestCellCenterDiagnostics:
         # None should be NaN
         assert not np.any(np.isnan(diag_dict["north_cell_center_lat"]))
         assert not np.any(np.isnan(diag_dict["south_cell_center_lat"]))
+
+
+class TestHadleyCellWidth:
+    """Tests for Hadley cell width diagnostics."""
+
+    @pytest.fixture
+    def basic_grid(self):
+        """Create a basic symmetric grid"""
+        ny = 51
+        y = np.linspace(-15751e3, 15751e3, ny)
+        dy = np.diff(y)[0]
+        beta = 2e-11
+        return y, dy, beta, ny
+
+    def test_initialization_includes_width_arrays(self, basic_grid):
+        """Test that width arrays are initialized correctly"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=100)
+
+        assert diag.north_hadley_width.shape == (100,)
+        assert diag.south_hadley_width.shape == (100,)
+        assert np.all(np.isnan(diag.north_hadley_width))
+        assert np.all(np.isnan(diag.south_hadley_width))
+
+    def test_width_computed_correctly(self, basic_grid):
+        """Test that width is computed as abs(edge difference) in km"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create realistic profiles with known edge positions
+        u = (
+            20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+            + 15.0 * np.exp(-((y + 5000e3) / 3000e3) ** 2)
+        )
+        # v profile with zeros at ~0, ~±6000 km
+        L = 6000e3
+        v = 5.0 * np.sin(np.pi * y / L)
+
+        diag.record_day(0, u, v, y, dy, beta)
+
+        # Check widths are positive
+        assert diag.north_hadley_width[0] > 0
+        assert diag.south_hadley_width[0] > 0
+
+        # Check widths are in km (should be ~6000 km each)
+        assert 4000 < diag.north_hadley_width[0] < 8000
+        assert 4000 < diag.south_hadley_width[0] < 8000
+
+        # Verify width matches edge difference
+        expected_north = abs(diag.north_descending_edge_lat[0] - diag.ascending_edge_lat[0]) / 1000
+        expected_south = abs(diag.ascending_edge_lat[0] - diag.south_descending_edge_lat[0]) / 1000
+        assert np.isclose(diag.north_hadley_width[0], expected_north)
+        assert np.isclose(diag.south_hadley_width[0], expected_south)
+
+    def test_width_always_positive(self, basic_grid):
+        """Test that width is always positive regardless of edge order"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create profiles where ascending edge might be > or < descending edge
+        u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+        v = 5.0 * np.sin(np.pi * y / 6000e3)
+
+        diag.record_day(0, u, v, y, dy, beta)
+
+        # Width must always be positive (or NaN)
+        if not np.isnan(diag.north_hadley_width[0]):
+            assert diag.north_hadley_width[0] > 0
+        if not np.isnan(diag.south_hadley_width[0]):
+            assert diag.south_hadley_width[0] > 0
+
+    def test_width_nan_when_edges_undefined(self, basic_grid):
+        """Test that width is NaN when cell edges cannot be determined"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Constant v (no zero crossings)
+        u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+        v = np.ones_like(y) * 2.0
+
+        diag.record_day(0, u, v, y, dy, beta)
+
+        # Widths should be NaN since edges aren't defined
+        assert np.isnan(diag.north_hadley_width[0])
+        assert np.isnan(diag.south_hadley_width[0])
+
+    def test_width_in_diagnostics_dict(self, basic_grid):
+        """Test that widths appear in diagnostics dict"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+        v = 5.0 * np.sin(np.pi * y / 6000e3)
+
+        for day in range(3):
+            diag.record_day(day, u, v, y, dy, beta)
+
+        diag_dict = diag.get_diagnostics_dict()
+
+        assert "north_hadley_width" in diag_dict
+        assert "south_hadley_width" in diag_dict
+        assert diag_dict["north_hadley_width"].shape == (3,)
+        assert diag_dict["south_hadley_width"].shape == (3,)
+
+    def test_width_restart_scenario(self, basic_grid):
+        """Test width diagnostics in restart scenario"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=100)
+
+        u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+        v = 5.0 * np.sin(np.pi * y / 6000e3)
+
+        # Simulate restart: record days 50-59 only
+        for day in range(50, 60):
+            diag.record_day(day, u, v, y, dy, beta)
+
+        diag_dict = diag.get_diagnostics_dict()
+
+        # Should have exactly 10 days
+        assert diag_dict["north_hadley_width"].shape == (10,)
+        assert diag_dict["south_hadley_width"].shape == (10,)
+
+    def test_asymmetric_widths(self, basic_grid):
+        """Test that cells can have different widths"""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create asymmetric profiles
+        u = (
+            20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+            + 15.0 * np.exp(-((y + 7000e3) / 3000e3) ** 2)
+        )
+        # Asymmetric v: wider cell in south
+        # v peaks at different distances from equator
+        v = np.zeros_like(y)
+        v[y >= 0] = 5.0 * np.sin(np.pi * y[y >= 0] / 5000e3)  # NH: zero at 5000 km
+        v[y < 0] = -5.0 * np.sin(np.pi * y[y < 0] / 8000e3)   # SH: zero at -8000 km
+
+        diag.record_day(0, u, v, y, dy, beta)
+
+        # If both widths are defined, southern should be larger
+        if not np.isnan(diag.north_hadley_width[0]) and not np.isnan(diag.south_hadley_width[0]):
+            assert diag.south_hadley_width[0] > diag.north_hadley_width[0]

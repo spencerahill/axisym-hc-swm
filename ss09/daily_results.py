@@ -248,6 +248,26 @@ class DailyResults:
                     }
                 )
 
+                # Hadley cell widths
+                data_vars['north_hadley_width'] = xr.DataArray(
+                    data=hadley_diags['north_hadley_width'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'km',
+                        'long_name': 'northern Hadley cell width',
+                        'description': 'Meridional extent from ascending edge to northern descending edge'
+                    }
+                )
+                data_vars['south_hadley_width'] = xr.DataArray(
+                    data=hadley_diags['south_hadley_width'],
+                    dims=['time'],
+                    attrs={
+                        'units': 'km',
+                        'long_name': 'southern Hadley cell width',
+                        'description': 'Meridional extent from ascending edge to southern descending edge'
+                    }
+                )
+
         # Time coordinate without CF conventions - stored as plain numeric values (days)
         time_coord = xr.DataArray(
             data=time_filtered,
