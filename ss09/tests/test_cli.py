@@ -9,97 +9,87 @@ import argparse
 
 @pytest.fixture
 def default_args():
+    """Default argument values using internal attribute names (not CLI flags)."""
     return {
-        "--total_integration_days": 1,
-        "--gravity": 9.81,
-        "--height": 16e3,
-        "--beta": 2e-11,
-        "--t_ref": 300.0,
-        "--output_path": "./model_output/output.nc",
-        "--ny": 51,
-        "--dt": 3600,
-        "--theta_e_type": "sin2",
-        "--y_0": 0.0,
-        "--delta_y": 50.0,
-        "--theta_00": 330.0,
-        "--y_one": 9439e3,
-        "--coeff_eddy_heat_diff": 0.0,
-        "--k_v": 778600,
-        "--epsilon_u": 1e-8,
-        "--delta_z": 60,
-        "--delta": 4e3,
-        "--tau": 37.0 * 86400,
-        "--v_d": 2.5,
-        "--domain_size": 15751e3 * 2,
-        "--asselin_filt_coef": 0.04,
-        "--include_vert_advec_u": True,
-        "--include_merid_advec_u": True,
-        "--enable_steady_state": False,
-        "--steady_state_window_size": 10,
-        "--steady_state_threshold": 0.001,
-        "--steady_state_check_both": True,
-        "--smoothness_threshold": 0.5,
-        "--restart_output_dir": "./model_output",
+        "total_integration_days": 1,
+        "gravity": 9.81,
+        "height": 16e3,
+        "beta": 2e-11,
+        "t_ref": 300.0,
+        "output_path": "./model_output/output.nc",
+        "ny": 51,
+        "dt": 3600,
+        "theta_e_type": "sin2",
+        "y_0": 0.0,
+        "delta_y": 50.0,
+        "theta_00": 330.0,
+        "y_one": 9439e3,
+        "coeff_eddy_heat_diff": 0.0,
+        "k_v": 778600,
+        "epsilon_u": 1e-8,
+        "delta_z": 60,
+        "delta": 4e3,
+        "tau": 37.0 * 86400,
+        "v_d": 2.5,
+        "domain_size": 15751e3 * 2,
+        "asselin_filt_coef": 0.04,
+        "include_vert_advec_u": True,
+        "include_merid_advec_u": True,
+        "enable_steady_state": False,
+        "steady_state_window_size": 10,
+        "steady_state_threshold": 0.001,
+        "steady_state_check_both": True,
+        "smoothness_threshold": 0.5,
+        "restart_output_dir": "./model_output",
     }
 
 
 @pytest.mark.parametrize(
-    "param, value",
+    "attr, value",
     [
-        ("--total_integration_days", 3),
-        ("--gravity", 9.8),
-        ("--height", 15000),
-        ("--beta", 2.1e-11),
-        ("--t_ref", 290.0),
-        ("--output_path", "./output/test.nc"),
-        ("--ny", 60),
-        ("--dt", 1800),
-        ("--theta_e_type", "SS09"),
-        ("--y_0", 100.0),
-        ("--delta_y", 60.0),
-        ("--theta_00", 340.0),
-        ("--y_one", 9500e3),
-        ("--coeff_eddy_heat_diff", 0.1),
-        ("--k_v", 800000),
-        ("--epsilon_u", 1e-7),
-        ("--delta_z", 70),
-        ("--delta", 5000),
-        ("--tau", 40.0 * 86400),
-        ("--v_d", 3.0),
-        ("--domain_size", 16000e3 * 2),
-        ("--asselin_filt_coef", 0.05),
-        ("--no-vert-advec-u", False),
-        ("--no-merid-advec-u", False),
+        ("total_integration_days", 3),
+        ("gravity", 9.8),
+        ("height", 15000),
+        ("beta", 2.1e-11),
+        ("t_ref", 290.0),
+        ("output_path", "./output/test.nc"),
+        ("ny", 60),
+        ("dt", 1800),
+        ("theta_e_type", "SS09"),
+        ("y_0", 100.0),
+        ("delta_y", 60.0),
+        ("theta_00", 340.0),
+        ("y_one", 9500e3),
+        ("coeff_eddy_heat_diff", 0.1),
+        ("k_v", 800000),
+        ("epsilon_u", 1e-7),
+        ("delta_z", 70),
+        ("delta", 5000),
+        ("tau", 40.0 * 86400),
+        ("v_d", 3.0),
+        ("domain_size", 16000e3 * 2),
+        ("asselin_filt_coef", 0.05),
+        ("include_vert_advec_u", False),
+        ("include_merid_advec_u", False),
     ],
 )
-def test_cli_arguments(default_args, param, value):
+def test_cli_arguments(default_args, attr, value):
+    """Test that config setup functions correctly map argument values."""
     args = default_args.copy()
-    if param == "--no-vert-advec-u":
-        args["--include_vert_advec_u"] = False
-    elif param == "--no-merid-advec-u":
-        args["--include_merid_advec_u"] = False
-    else:
-        args[param] = value
+    args[attr] = value
 
-    # Convert arguments to a list of strings
-    cli_args = [str(item) for sublist in args.items() for item in sublist]
-
-    # Simulate argument parsing
-    parsed_args = argparse.Namespace(**{k.lstrip("--"): v for k, v in args.items()})
+    # Create Namespace directly from attribute names
+    parsed_args = argparse.Namespace(**args)
 
     # Setup configurations
     theta_e_config = setup_theta_e_config(parsed_args)
     sw_config = setup_sw_config(parsed_args, theta_e_config)
 
     # Verify ThetaEConfig if applicable
-    if param in ["--theta_00", "--y_0", "--y_one", "--delta_y", "--theta_e_type"]:
-        assert getattr(theta_e_config, param.lstrip("--")) == value
-    elif param == "--no-vert-advec-u":
-        assert sw_config.include_vert_advec_u == value
-    elif param == "--no-merid-advec-u":
-        assert sw_config.include_merid_advec_u == value
+    if attr in ["theta_00", "y_0", "y_one", "delta_y", "theta_e_type"]:
+        assert getattr(theta_e_config, attr) == value
     else:
-        assert getattr(sw_config, param.lstrip("--")) == value
+        assert getattr(sw_config, attr) == value
 
 
 def test_cli_steady_state_args():
@@ -295,7 +285,7 @@ def test_cli_accepts_all_profiles_without_seasonal_forcing():
 
 
 def test_cli_seasonal_cycle_type_passed_to_config():
-    """Test that --seasonal-cycle-type is passed to ThetaEConfig"""
+    """Test that --seas-cycle-type is passed to ThetaEConfig"""
     # Test square wave
     args_square = argparse.Namespace(
         theta_e_type="SB08",
@@ -349,7 +339,7 @@ def test_cli_seasonal_cycle_type_default():
 
 
 def test_cli_tanh_seasonal_cycle_type():
-    """Test that --seasonal-cycle-type tanh is passed to ThetaEConfig"""
+    """Test that --seas-cycle-type tanh is passed to ThetaEConfig"""
     args = argparse.Namespace(
         theta_e_type="SB08",
         theta_00=330.0,
@@ -369,7 +359,7 @@ def test_cli_tanh_seasonal_cycle_type():
 
 
 def test_cli_tanh_steepness_custom():
-    """Test that --tanh-steepness is passed to ThetaEConfig"""
+    """Test that tanh_steepness is passed to ThetaEConfig"""
     args = argparse.Namespace(
         theta_e_type="SB08",
         theta_00=330.0,

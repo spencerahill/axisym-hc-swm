@@ -32,7 +32,7 @@ pip install -e .
 run-sw-model
 
 # Run with custom parameters
-run-sw-model --total_integration_days 250 --ny 51 --dt 3600 --theta_e_type sin2 --output_path ./model_output/output.nc
+run-sw-model --ndays 250 --ny 51 --dt 3600 --theta-e-type sin2 --output-path ./model_output/output.nc
 ```
 
 ### Restart/Checkpoint Functionality
@@ -42,13 +42,13 @@ The model supports saving and loading simulation state for extending runs or rec
 **Saving restart files:**
 ```bash
 # Save restart file only at end of simulation
-run-sw-model --total_integration_days 100
+run-sw-model --ndays 100
 
 # Save periodic restart files every 20 days (plus final file)
-run-sw-model --total_integration_days 100 --save-restart-every 20
+run-sw-model --ndays 100 --restart-every 20
 
 # Specify restart file directory
-run-sw-model --total_integration_days 100 --save-restart-every 20 --restart-output-dir ./checkpoints
+run-sw-model --ndays 100 --restart-every 20 --restart-dir ./checkpoints
 ```
 
 **Restart files** are named `restart_day{NNNN}.nc` (e.g., `restart_day0050.nc`) and contain:
@@ -59,20 +59,20 @@ run-sw-model --total_integration_days 100 --save-restart-every 20 --restart-outp
 **Continuing from a restart:**
 ```bash
 # Continue from day 50 to day 100
-run-sw-model --restart-from ./model_output/restart_day0050.nc --total_integration_days 100
+run-sw-model --restart-from ./model_output/restart_day0050.nc --ndays 100
 
 # Continue with different output path
 run-sw-model --restart-from ./model_output/restart_day0050.nc \
-             --total_integration_days 150 \
-             --output_path ./extended_run.nc
+             --ndays 150 \
+             --output-path ./extended_run.nc
 ```
 
 **Important notes:**
 - Restart files contain instantaneous snapshots at day boundaries, not daily-averaged output
-- Configuration parameters (ny, dt, domain_size, etc.) must match between restart file and new run
+- Configuration parameters (ny, dt, domain-size, etc.) must match between restart file and new run
 - Steady-state detector history is preserved across restarts for continuous convergence monitoring
 - Output files contain only the days simulated in that run (filtered automatically)
-- **Seasonal forcing requires SB08 profile**: The `--y0-seasonal-amp` parameter only works with `--theta_e_type SB08`. Using seasonal parameters with SS09 or sin2 profiles will raise an error.
+- **Seasonal forcing requires SB08 profile**: The `--y0-seas-amp` parameter only works with `--theta-e-type SB08`. Using seasonal parameters with SS09 or sin2 profiles will raise an error.
 
 ## Output File Organization
 
@@ -124,10 +124,10 @@ You can override the automatic naming with explicit paths:
 
 ```bash
 # Use custom output path
-run-sw-model --output_path ./my_custom_path/run_001.nc
+run-sw-model --output-path ./my_custom_path/run_001.nc
 
 # Use custom restart directory
-run-sw-model --restart-output-dir ./my_checkpoints
+run-sw-model --restart-dir ./my_checkpoints
 ```
 
 When custom paths are provided, descriptive naming is disabled for those specific paths.
@@ -237,16 +237,16 @@ Control the shape of the seasonal ITCZ migration when using SB08 profile:
 
 ```bash
 # Sinusoidal (default): smooth sinusoidal variation
-run-sw-model --theta_e_type SB08 --y0-seasonal-amp 700000 --seasonal-cycle-type sin
+run-sw-model --theta-e-type SB08 --y0-seas-amp 700000 --seas-cycle-type sin
 
 # Square wave: instant flip between +/- amplitude at half-period
-run-sw-model --theta_e_type SB08 --y0-seasonal-amp 700000 --seasonal-cycle-type square
+run-sw-model --theta-e-type SB08 --y0-seas-amp 700000 --seas-cycle-type square
 
 # Tanh (smoothed square wave): smooth transitions with configurable steepness
-run-sw-model --theta_e_type SB08 --y0-seasonal-amp 700000 --seasonal-cycle-type tanh
+run-sw-model --theta-e-type SB08 --y0-seas-amp 700000 --seas-cycle-type tanh
 
 # Tanh with custom steepness (higher = sharper transitions)
-run-sw-model --theta_e_type SB08 --y0-seasonal-amp 700000 --seasonal-cycle-type tanh --tanh-steepness 8.0
+run-sw-model --theta-e-type SB08 --y0-seas-amp 700000 --seas-cycle-type tanh --tanh-steepness 8.0
 ```
 
 **Formulas**:
@@ -279,25 +279,25 @@ The model supports optional early termination when it reaches statistical steady
 Enable via CLI:
 ```bash
 # Basic usage - stop when both KE and Tvar converge
-run-sw-model --enable-steady-state
+run-sw-model --stop-at-steady-state
 
 # Custom window and threshold
-run-sw-model --enable-steady-state --steady-state-window 15 --steady-state-threshold 0.0005
+run-sw-model --stop-at-steady-state --steady-state-window 15 --steady-state-thresh 0.0005
 
 # Require only one metric to converge instead of both
-run-sw-model --enable-steady-state --steady-state-either
+run-sw-model --stop-at-steady-state --steady-state-either
 
 # Run for up to 500 days but stop early if steady state reached
-run-sw-model --total_integration_days 500 --enable-steady-state
+run-sw-model --ndays 500 --stop-at-steady-state
 ```
 
 ### Parameters
 
-- `--enable-steady-state`: Turn on detection (default: disabled)
+- `--stop-at-steady-state`: Turn on detection (default: disabled)
 - `--steady-state-window N`: Use N-day window for convergence check (default: 10)
-- `--steady-state-threshold X`: Relative change threshold (default: 0.001 = 0.1%)
+- `--steady-state-thresh X`: Relative change threshold (default: 0.001 = 0.1%)
 - `--steady-state-either`: Require only one metric to converge instead of both
-- `--smoothness-threshold X`: Neighbor correlation threshold for v field smoothness (default: 0.5)
+- `--v-smooth-thresh X`: Neighbor correlation threshold for v field smoothness (default: 0.5)
 
 ### Convergence Metrics
 
@@ -331,10 +331,10 @@ When steady-state detection is enabled, the model automatically monitors the smo
 **Configuration**:
 ```bash
 # Adjust smoothness threshold (default: 0.5)
-run-sw-model --enable-steady-state --smoothness-threshold 0.7
+run-sw-model --stop-at-steady-state --v-smooth-thresh 0.7
 ```
 
-**Physical Interpretation**: Grid-scale oscillations typically occur when friction (especially `k_v`) is too weak to damp the 2Δy computational mode inherent to leapfrog schemes. Increasing `k_v` suppresses these oscillations. See the `analyze_v_smoothness.py` script for detailed smoothness analysis.
+**Physical Interpretation**: Grid-scale oscillations typically occur when friction (especially `--kv`) is too weak to damp the 2Δy computational mode inherent to leapfrog schemes. Increasing `--kv` suppresses these oscillations. See the `analyze_v_smoothness.py` script for detailed smoothness analysis.
 
 ## Hadley Cell Diagnostics
 

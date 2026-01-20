@@ -9,9 +9,10 @@ from .output_path_utils import generate_descriptive_path
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Run the S-S model simulation.")
     parser.add_argument(
-        "--total_integration_days",
+        "--ndays",
         type=int,
         default=250,
+        dest="total_integration_days",
         help="Total number of integration days (default: 250)",
     )
     parser.add_argument(
@@ -33,15 +34,17 @@ def parse_arguments():
         help="Beta parameter (default: 2e-11)",
     )
     parser.add_argument(
-        "--t_ref",
+        "--t-ref",
         type=float,
         default=300.0,
+        dest="t_ref",
         help="Reference temperature (default: 300 K)",
     )
     parser.add_argument(
-        "--output_path",
+        "--output-path",
         type=str,
         default="./model_output/output.nc",
+        dest="output_path",
         help="Path to save the output NetCDF file",
     )
     parser.add_argument(
@@ -57,60 +60,65 @@ def parse_arguments():
         help="Time step size in seconds (default: 3600)",
     )
     parser.add_argument(
-        "--theta_e_type",
+        "--theta-e-type",
         type=str,
         choices=["SS09", "sin2", "SB08"],
         default="sin2",
+        dest="theta_e_type",
         help="Profile to use for theta_e calculation (default: sin2)",
     )
     parser.add_argument(
-        "--y_0",
+        "--y0",
         type=float,
         default=0.0,
+        dest="y_0",
         help="Position in meters north of the domain center where the theta_e profile peaks (default: 0.0)",
     )
     parser.add_argument(
-        "--delta_y",
+        "--delta-y",
         type=float,
         default=50.0,
+        dest="delta_y",
         help="Delta y for theta_e profile (default: 50.0)",
     )
     parser.add_argument(
-        "--theta_00",
+        "--theta00",
         type=float,
         default=330.0,
+        dest="theta_00",
         help="Peak temperature of the θₑ profile (default: 330.0 K)",
     )
     parser.add_argument(
-        "--y_one",
+        "--y1",
         type=float,
         default=9439e3,
+        dest="y_one",
         help="Width parameter for the θₑ profile (default: 9439e3 m)",
     )
     # Seasonal cycle arguments (ITCZ migration)
     parser.add_argument(
-        "--y0-seasonal-amp",
+        "--y0-seas-amp",
         type=float,
         default=0.0,
         dest="y_0_seasonal_amp",
         help="Amplitude of y_0 (ITCZ) migration in m (default: 0, no seasonal cycle)",
     )
     parser.add_argument(
-        "--seasonal-period",
+        "--seas-period",
         type=float,
         default=360.0,
         dest="seasonal_period_days",
         help="Seasonal period in days (default: 360)",
     )
     parser.add_argument(
-        "--seasonal-phase",
+        "--seas-phase",
         type=float,
         default=0.0,
         dest="seasonal_phase_days",
         help="Phase offset in days (default: 0)",
     )
     parser.add_argument(
-        "--seasonal-cycle-type",
+        "--seas-cycle-type",
         type=str,
         choices=["sin", "square", "tanh"],
         default="sin",
@@ -122,30 +130,34 @@ def parse_arguments():
         type=float,
         default=4.0,
         dest="tanh_steepness",
-        help="Steepness of tanh smoothing for seasonal cycle (default: 4.0, only used with --seasonal-cycle-type tanh)",
+        help="Steepness of tanh smoothing for seasonal cycle (default: 4.0, only used with --seas-cycle-type tanh)",
     )
     parser.add_argument(
-        "--coeff_eddy_heat_diff",
+        "--coeff-eddy-heat-diff",
         type=float,
         default=0.0,
+        dest="coeff_eddy_heat_diff",
         help="Diffusivity constant for eddy heat flux (default: 0.0, inactive)",
     )
     parser.add_argument(
-        "--k_v",
+        "--kv",
         type=float,
         default=7786 * 100,
+        dest="k_v",
         help="Vertical eddy viscosity (default: 778600)",
     )
     parser.add_argument(
-        "--epsilon_u",
+        "--eps-u",
         type=float,
         default=1e-8,
+        dest="epsilon_u",
         help="Rayleigh drag coefficient for u (default: 1e-8)",
     )
     parser.add_argument(
-        "--delta_z",
+        "--delta-z",
         type=float,
         default=60,
+        dest="delta_z",
         help="Vertical potential temperature gradient (default: 60 K)",
     )
     parser.add_argument(
@@ -161,21 +173,24 @@ def parse_arguments():
         help="Newtonian cooling timescale (default: 37 days)",
     )
     parser.add_argument(
-        "--v_d",
+        "--vd",
         type=float,
         default=2.5,
+        dest="v_d",
         help="Eddy momentum flux divergence coefficient (default: 2.5)",
     )
     parser.add_argument(
-        "--domain_size",
+        "--domain-size",
         type=float,
         default=15751e3 * 2,
+        dest="domain_size",
         help="Size of the domain (default: 31502000 m)",
     )
     parser.add_argument(
-        "--asselin_filt_coef",
+        "--asselin-coef",
         type=float,
         default=0.04,
+        dest="asselin_filt_coef",
         help="Asselin filter coefficient (default: 0.04)",
     )
     parser.add_argument(
@@ -192,10 +207,10 @@ def parse_arguments():
     )
     # Steady-state detection arguments
     parser.add_argument(
-        "--enable-steady-state",
+        "--stop-at-steady-state",
         action="store_true",
         dest="enable_steady_state",
-        help="Enable steady-state detection to stop simulation early when convergence criteria are met",
+        help="Stop simulation early when convergence criteria are met",
     )
     parser.add_argument(
         "--steady-state-window",
@@ -205,7 +220,7 @@ def parse_arguments():
         help="Number of days to use for steady-state convergence check (default: 10)",
     )
     parser.add_argument(
-        "--steady-state-threshold",
+        "--steady-state-thresh",
         type=float,
         default=0.001,
         dest="steady_state_threshold",
@@ -218,7 +233,7 @@ def parse_arguments():
         help="Require only one metric (KE or Tvar) to converge instead of both (default: require both)",
     )
     parser.add_argument(
-        "--smoothness-threshold",
+        "--v-smooth-thresh",
         type=float,
         default=0.5,
         dest="smoothness_threshold",
@@ -226,20 +241,20 @@ def parse_arguments():
     )
     # Seasonal convergence arguments (for seasonally-varying forcing)
     parser.add_argument(
-        "--enable-seasonal-convergence",
+        "--seas-conv",
         action="store_true",
         dest="seasonal_convergence_enabled",
-        help="Enable automatic stopping when seasonal cycle converges (default: disabled)",
+        help="Stop when seasonal cycle converges (default: disabled)",
     )
     parser.add_argument(
-        "--seasonal-convergence-window",
+        "--seas-conv-window",
         type=int,
         default=30,
         dest="seasonal_convergence_window",
         help="Number of days that must match previous year for convergence (default: 30)",
     )
     parser.add_argument(
-        "--seasonal-convergence-threshold",
+        "--seas-conv-thresh",
         type=float,
         default=0.01,
         dest="seasonal_convergence_threshold",
@@ -254,14 +269,14 @@ def parse_arguments():
         help="Path to restart file to continue from (default: None, fresh start)",
     )
     parser.add_argument(
-        "--save-restart-every",
+        "--restart-every",
         type=int,
         default=0,
         dest="save_restart_every",
         help="Save restart file every N days (default: 0, only save at end)",
     )
     parser.add_argument(
-        "--restart-output-dir",
+        "--restart-dir",
         type=str,
         default="./model_output",
         dest="restart_output_dir",
