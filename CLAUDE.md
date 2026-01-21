@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Python implementation of the Sobel-Schneider single-layer shallow water model for simulating Hadley circulation with parameterized eddy momentum forcing, based on Sobel and Schneider (2009, 2013). The model integrates momentum and thermodynamic equations on an equatorial beta plane using a leapfrog time-stepping scheme with Asselin filtering.
 
+See **SCIENCE.md** for detailed physics background (governing equations, parameterizations, dynamical regimes).
+
 ## Git Workflow
 
 **IMPORTANT**: Always create a git commit after every substantive change to the codebase. This ensures:
