@@ -79,13 +79,11 @@ class HadleyDiagnostics:
         # Compute planetary vorticity: β*y
         planetary_vorticity = beta * y
 
-        # Compute Rossby number
-        rossby = du_dy / planetary_vorticity
-
-        # Set to NaN where |y| is small (equator singularity)
-        # Threshold: 1 grid point from equator
-        equator_mask = np.abs(y) < dy
-        rossby[equator_mask] = np.nan
+        # Compute Rossby number (NaN near equator where |y| < dy to avoid singularity)
+        rossby = np.divide(
+            du_dy, planetary_vorticity,
+            out=np.full_like(du_dy, np.nan), where=(np.abs(y) >= dy)
+        )
 
         return rossby
 
