@@ -22,13 +22,13 @@ def run_model(output_path):
         subprocess.run(
             [
                 "run-sw-model",
-                "--total_integration_days",
+                "--ndays",
                 "5",
                 "--ny",
                 "801",
                 "--dt",
                 "30",
-                "--output_path",
+                "--output-path",
                 output_path,
             ],
             check=True,
