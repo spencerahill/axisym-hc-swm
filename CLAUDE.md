@@ -16,10 +16,76 @@ See **SCIENCE.md** for detailed physics background (governing equations, paramet
 - Better collaboration and code review
 
 When committing:
-1. Review `git status` and `git diff` to understand what changed
-2. Check recent commit messages (`git log --oneline`) for style consistency
-3. Write descriptive commit messages focusing on the "why" not just the "what"
-4. Include the Co-Authored-By tag: `Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>`
+1. **Run the full test suite and ensure all tests pass** - never commit with failing tests
+   ```bash
+   pytest ss09/tests/
+   ```
+2. Review `git status` and `git diff` to understand what changed
+3. Check recent commit messages (`git log --oneline`) for style consistency
+4. Write descriptive commit messages focusing on the "why" not just the "what"
+5. Include the Co-Authored-By tag: `Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>`
+
+## Test-Driven Development (TDD)
+
+**IMPORTANT**: Always follow Test-Driven Development practices when writing or modifying code.
+
+### TDD Workflow
+
+For every code change, follow this strict sequence:
+
+1. **Write tests first**: Before implementing any functionality, write unit tests that specify the expected behavior
+2. **Verify tests fail (Red)**: Run the new tests to confirm they fail - this validates the tests are actually testing new behavior
+3. **Implement the change (Green)**: Write the minimum code necessary to make the new tests pass
+4. **Verify new tests pass**: Run the new tests to confirm the implementation is correct
+5. **Run full test suite**: Execute all tests including regression tests to ensure no regressions
+   ```bash
+   pytest ss09/tests/
+   ```
+6. **Refactor if needed**: Clean up the implementation while keeping all tests green
+
+### When Tests Are Required
+
+Tests are **mandatory** for:
+- All new functions, classes, or methods
+- All bug fixes (write a test that reproduces the bug first)
+- All modifications to existing behavior
+- All new CLI arguments or options
+
+### Test Naming Conventions
+
+Follow this naming pattern for test functions:
+```
+test_<function_or_class>_<scenario_or_condition>
+```
+
+Examples:
+- `test_du_dt_coriolis_term_positive_v` - tests du_dt Coriolis with positive v
+- `test_theta_e_profile_at_equator` - tests theta_e value at y=0
+- `test_cli_rejects_invalid_dt` - tests CLI validation for dt parameter
+- `test_restart_preserves_state` - tests that restart loading reproduces state
+
+### Test Verification Commands
+
+```bash
+# Run only the new/modified test to verify it fails before implementation
+pytest ss09/tests/test_file.py::test_new_function -v
+
+# After implementation, verify new tests pass
+pytest ss09/tests/test_file.py::test_new_function -v
+
+# Run full test suite including regression tests
+pytest ss09/tests/
+
+# Run with verbose output to see all test names
+pytest ss09/tests/ -v
+```
+
+### Common Mistakes to Avoid
+
+- **Never** implement code before writing tests
+- **Never** skip the "verify tests fail" step - it catches tests that pass for wrong reasons
+- **Never** commit code without running the full test suite
+- **Never** assume a small change doesn't need tests - it does
 
 ## Commands
 
