@@ -87,6 +87,102 @@ class HadleyDiagnostics:
 
         return rossby
 
+    def find_descending_edge_threshold(
+        self, v: np.ndarray, y: np.ndarray, hemisphere: str, threshold_fraction: float = 0.1
+    ) -> float:
+        """
+        Find descending edge using threshold approach.
+
+        The descending edge is defined as the latitude where |v| drops below
+        threshold_fraction * |v_extremum|, searching poleward from the extremum.
+
+        Args:
+            v: Meridional wind field (ny,)
+            y: Meridional coordinate (ny,) in meters from equator
+            hemisphere: 'north' or 'south'
+            threshold_fraction: Fraction of extremum to use as threshold (default 0.1 = 10%)
+
+        Returns:
+            Latitude of descending edge in meters, NaN if not found.
+        """
+        if hemisphere == "north":
+            mask = y > 0
+            extremum_idx_func = np.argmax  # max v for northward flow
+        elif hemisphere == "south":
+            mask = y < 0
+            extremum_idx_func = np.argmin  # min v for southward flow
+        else:
+            raise ValueError(f"hemisphere must be 'north' or 'south', got {hemisphere}")
+
+        v_hem = v[mask]
+        y_hem = y[mask]
+
+        if len(v_hem) == 0:
+            return np.nan
+
+        # Find extremum
+        ext_idx = extremum_idx_func(v_hem)
+        v_ext = v_hem[ext_idx]
+
+        if v_ext == 0:
+            return np.nan
+
+        threshold = threshold_fraction * abs(v_ext)
+
+        # Search poleward from extremum, looking for threshold crossing between grid points
+        if hemisphere == "north":
+            # Search toward larger y (more poleward)
+            search_pairs = zip(range(ext_idx, len(v_hem) - 1), range(ext_idx + 1, len(v_hem)))
+        else:
+            # Search toward smaller y (more poleward, more negative)
+            search_pairs = zip(range(ext_idx, 0, -1), range(ext_idx - 1, -1, -1))
+
+        # Check each pair of adjacent points for threshold crossing
+        for i_prev, i_curr in search_pairs:
+            v_abs_prev = abs(v_hem[i_prev])
+            v_abs_curr = abs(v_hem[i_curr])
+
+            # Check if threshold was crossed between these points
+            # (one above threshold, one below, or vice versa)
+            if (v_abs_prev >= threshold and v_abs_curr < threshold) or \
+               (v_abs_prev > threshold and v_abs_curr <= threshold):
+                # Linear interpolation to find exact threshold crossing
+                y_prev, y_curr = y_hem[i_prev], y_hem[i_curr]
+
+                if v_abs_prev != v_abs_curr:
+                    frac = (v_abs_prev - threshold) / (v_abs_prev - v_abs_curr)
+                    return y_prev + frac * (y_curr - y_prev)
+                else:
+                    return y_hem[i_curr]
+
+            # Also handle case where |v| jumps across threshold (e.g., sign change)
+            # If |v| was above threshold and now above again, check if it dipped below
+            if v_abs_prev > threshold and v_abs_curr > threshold:
+                # Check if v changed sign between points (crossed zero)
+                if v_hem[i_prev] * v_hem[i_curr] < 0:
+                    # v crossed zero - find where |v| = threshold on each side
+                    # The descending edge is where |v| first drops below threshold
+                    # before the zero crossing
+                    y_prev, y_curr = y_hem[i_prev], y_hem[i_curr]
+                    # Interpolate to find zero crossing
+                    v_prev, v_curr = v_hem[i_prev], v_hem[i_curr]
+                    y_zero = y_prev - v_prev * (y_curr - y_prev) / (v_curr - v_prev)
+                    # Now find where |v| = threshold before zero crossing
+                    # Linear interp from (y_prev, v_abs_prev) to (y_zero, 0)
+                    frac = (v_abs_prev - threshold) / v_abs_prev
+                    return y_prev + frac * (y_zero - y_prev)
+
+        # Check if last point is below threshold
+        if hemisphere == "north":
+            if abs(v_hem[-1]) < threshold:
+                return y_hem[-1]
+        else:
+            if abs(v_hem[0]) < threshold:
+                return y_hem[0]
+
+        # Threshold never reached - return NaN
+        return np.nan
+
     def find_zero_crossings(self, v: np.ndarray, y: np.ndarray) -> list[float]:
         """
         Find all latitudes where v=0 using linear interpolation.
@@ -118,59 +214,53 @@ class HadleyDiagnostics:
         return crossings
 
     def compute_cell_edges(
-        self, v: np.ndarray, y: np.ndarray, north_jet_lat: float, south_jet_lat: float
+        self, v: np.ndarray, y: np.ndarray
     ) -> tuple[float, float, float]:
         """
         Compute Hadley cell edge latitudes from meridional wind field.
 
-        Uses jet positions to anchor the descending edges, then finds the
-        ascending edge as the v=0 crossing between them.
+        Descending edges: Where |v| drops below 10% of its extremum, searching poleward.
+        Ascending edge: v=0 crossing closest to equator, searching between cell centers.
 
         Args:
             v: Meridional wind field (ny,)
             y: Meridional coordinate (ny,) in meters from equator
-            north_jet_lat: Northern hemisphere jet latitude (m)
-            south_jet_lat: Southern hemisphere jet latitude (m)
 
         Returns:
             (ascending_edge_lat, north_descending_edge_lat, south_descending_edge_lat)
             All in meters. NaN if edge not found.
         """
-        crossings = self.find_zero_crossings(v, y)
+        # Find descending edges using threshold approach
+        north_descending = self.find_descending_edge_threshold(v, y, "north")
+        south_descending = self.find_descending_edge_threshold(v, y, "south")
 
-        if not crossings:
-            return np.nan, np.nan, np.nan
+        # Find cell centers (v extrema) to use as bounds for ascending edge search
+        # These are closer to the ascending edge than the descending edges
+        nh_mask = y > 0
+        sh_mask = y < 0
 
-        # North descending edge: v=0 crossing closest to northern jet
-        if np.isnan(north_jet_lat):
-            north_descending = np.nan
+        if np.any(nh_mask) and np.any(sh_mask):
+            north_center = y[nh_mask][np.argmax(v[nh_mask])]
+            south_center = y[sh_mask][np.argmin(v[sh_mask])]
         else:
-            north_descending = min(crossings, key=lambda x: abs(x - north_jet_lat))
+            north_center = np.nan
+            south_center = np.nan
 
-        # South descending edge: v=0 crossing closest to southern jet
-        if np.isnan(south_jet_lat):
-            south_descending = np.nan
-        else:
-            south_descending = min(crossings, key=lambda x: abs(x - south_jet_lat))
-
-        # Ascending edge: v=0 crossing between the two descending edges
-        if np.isnan(north_descending) or np.isnan(south_descending):
+        # Find ascending edge as v=0 crossing between cell centers
+        if np.isnan(north_center) or np.isnan(south_center):
             ascending = np.nan
         else:
-            # Find crossings between south_descending and north_descending
+            crossings = self.find_zero_crossings(v, y)
             inner_crossings = [
-                c
-                for c in crossings
-                if south_descending < c < north_descending
-                and c != south_descending
-                and c != north_descending
+                c for c in crossings
+                if south_center < c < north_center
             ]
-            if len(inner_crossings) == 1:
-                ascending = inner_crossings[0]
-            elif len(inner_crossings) == 0:
+            if len(inner_crossings) == 0:
                 ascending = np.nan
+            elif len(inner_crossings) == 1:
+                ascending = inner_crossings[0]
             else:
-                # Multiple crossings between edges — pick closest to equator
+                # Multiple crossings - pick closest to equator
                 ascending = min(inner_crossings, key=abs)
 
         return ascending, north_descending, south_descending
@@ -428,10 +518,8 @@ class HadleyDiagnostics:
         self.south_cell_center_lat[day] = south_center
         self.south_cell_strength[day] = south_strength
 
-        # Compute cell edges using jet positions
-        ascending, north_desc, south_desc = self.compute_cell_edges(
-            v, y, north_lat, south_lat
-        )
+        # Compute cell edges using threshold approach
+        ascending, north_desc, south_desc = self.compute_cell_edges(v, y)
         self.ascending_edge_lat[day] = ascending
         self.north_descending_edge_lat[day] = north_desc
         self.south_descending_edge_lat[day] = south_desc

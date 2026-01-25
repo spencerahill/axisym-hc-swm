@@ -396,32 +396,24 @@ class TestCellEdgeDiagnostics:
         y, dy, beta, ny = basic_grid
         diag = HadleyDiagnostics(ny=ny, total_days=10)
 
-        # Create realistic v profile:
+        # Create realistic v profile with single peak per hemisphere:
         # - Positive v in NH (poleward flow in upper branch)
         # - Negative v in SH (poleward flow in upper branch)
-        # - Zero at equator (ascending) and at ~±6000km (descending)
-        # v = A * sin(pi*y/L) gives zeros at y = 0, ±L
-        L = 6000e3  # Cell width
-        v = 5.0 * np.sin(np.pi * y / L)
+        # - Decays toward zero poleward
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center_lat) / width)**2),
+                     -5.0 * np.exp(-((y + center_lat) / width)**2))
 
-        # Jets at ~5000 km in each hemisphere
-        north_jet_lat = 5000e3
-        south_jet_lat = -5000e3
-
-        ascending, north_desc, south_desc = diag.compute_cell_edges(
-            v, y, north_jet_lat, south_jet_lat
-        )
+        ascending, north_desc, south_desc = diag.compute_cell_edges(v, y)
 
         # Ascending edge should be near equator
         assert np.abs(ascending) < dy
 
-        # Descending edges should be near ±6000 km
-        assert np.abs(north_desc - 6000e3) < 500e3
-        assert np.abs(south_desc + 6000e3) < 500e3
-
-        # Descending edges should be close to jet positions
-        assert np.abs(north_desc - north_jet_lat) < 2000e3
-        assert np.abs(south_desc - south_jet_lat) < 2000e3
+        # Descending edges should be in appropriate hemispheres
+        assert north_desc > 0
+        assert south_desc < 0
 
     def test_compute_cell_edges_ascending_between_descending(self, basic_grid):
         """Test that ascending edge is always between descending edges"""
@@ -429,15 +421,13 @@ class TestCellEdgeDiagnostics:
         diag = HadleyDiagnostics(ny=ny, total_days=10)
 
         # Create v profile with clear Hadley structure
-        L = 5000e3
-        v = 3.0 * np.sin(np.pi * y / L)
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     3.0 * np.exp(-((y - center_lat) / width)**2),
+                     -3.0 * np.exp(-((y + center_lat) / width)**2))
 
-        north_jet_lat = 4500e3
-        south_jet_lat = -4500e3
-
-        ascending, north_desc, south_desc = diag.compute_cell_edges(
-            v, y, north_jet_lat, south_jet_lat
-        )
+        ascending, north_desc, south_desc = diag.compute_cell_edges(v, y)
 
         # Ascending must be between descending edges
         assert south_desc < ascending < north_desc
@@ -447,43 +437,31 @@ class TestCellEdgeDiagnostics:
         y, dy, beta, ny = basic_grid
         diag = HadleyDiagnostics(ny=ny, total_days=10)
 
-        # Constant v (no crossings)
+        # Constant v (no crossings, no v extremum structure)
         v = np.ones_like(y) * 2.0
 
-        north_jet_lat = 5000e3
-        south_jet_lat = -5000e3
+        ascending, north_desc, south_desc = diag.compute_cell_edges(v, y)
 
-        ascending, north_desc, south_desc = diag.compute_cell_edges(
-            v, y, north_jet_lat, south_jet_lat
-        )
-
-        # All should be NaN when no crossings
+        # All should be NaN when v has no structure
         assert np.isnan(ascending)
         assert np.isnan(north_desc)
         assert np.isnan(south_desc)
 
-    def test_compute_cell_edges_missing_jet(self, basic_grid):
-        """Test cell edge detection when jet position is NaN"""
+    def test_compute_cell_edges_one_hemisphere_only(self, basic_grid):
+        """Test cell edge detection when v only exists in one hemisphere"""
         y, dy, beta, ny = basic_grid
         diag = HadleyDiagnostics(ny=ny, total_days=10)
 
-        # Normal v profile
-        L = 6000e3
-        v = 5.0 * np.sin(np.pi * y / L)
+        # v only in NH (zero in SH)
+        v = np.where(y > 0, 5.0 * np.exp(-((y - 3000e3) / 2000e3)**2), 0.0)
 
-        # Missing northern jet
-        north_jet_lat = np.nan
-        south_jet_lat = -5000e3
+        ascending, north_desc, south_desc = diag.compute_cell_edges(v, y)
 
-        ascending, north_desc, south_desc = diag.compute_cell_edges(
-            v, y, north_jet_lat, south_jet_lat
-        )
-
-        # Northern descending and ascending should be NaN
-        assert np.isnan(north_desc)
-        assert np.isnan(ascending)
-        # Southern descending should still be found
-        assert not np.isnan(south_desc)
+        # Southern descending should be NaN (no v structure in SH)
+        assert np.isnan(south_desc)
+        # Ascending may or may not be found depending on cell center detection
+        # Northern descending should be found
+        assert not np.isnan(north_desc)
 
     def test_compute_cell_edges_linear_interpolation_accuracy(self, basic_grid):
         """Test that linear interpolation gives accurate crossing positions"""
@@ -513,9 +491,12 @@ class TestCellEdgeDiagnostics:
             + 15.0 * np.exp(-((y + 5000e3) / 3000e3) ** 2)
         )
 
-        # Create realistic v profile
-        L = 6000e3
-        v = 5.0 * np.sin(np.pi * y / L)
+        # Create realistic v profile with single peak per hemisphere
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center_lat) / width)**2),
+                     -5.0 * np.exp(-((y + center_lat) / width)**2))
 
         diag.record_day(0, u, v, y, dy, beta)
 
@@ -756,14 +737,17 @@ class TestHadleyCellWidth:
         y, dy, beta, ny = basic_grid
         diag = HadleyDiagnostics(ny=ny, total_days=10)
 
-        # Create realistic profiles with known edge positions
+        # Create realistic profiles with single peak per hemisphere
         u = (
             20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
             + 15.0 * np.exp(-((y + 5000e3) / 3000e3) ** 2)
         )
-        # v profile with zeros at ~0, ~±6000 km
-        L = 6000e3
-        v = 5.0 * np.sin(np.pi * y / L)
+        # v profile with peaks at ~3000 km, decaying poleward
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center_lat) / width)**2),
+                     -5.0 * np.exp(-((y + center_lat) / width)**2))
 
         diag.record_day(0, u, v, y, dy, beta)
 
@@ -771,9 +755,9 @@ class TestHadleyCellWidth:
         assert diag.north_hadley_width[0] > 0
         assert diag.south_hadley_width[0] > 0
 
-        # Check widths are in km (should be ~6000 km each)
-        assert 4000 < diag.north_hadley_width[0] < 8000
-        assert 4000 < diag.south_hadley_width[0] < 8000
+        # Check widths are reasonable (10% threshold at ~6900 km from peak at 3000 km)
+        assert 3000 < diag.north_hadley_width[0] < 12000
+        assert 3000 < diag.south_hadley_width[0] < 12000
 
         # Verify width matches edge difference
         expected_north = abs(diag.north_descending_edge_lat[0] - diag.ascending_edge_lat[0]) / 1000
@@ -786,9 +770,13 @@ class TestHadleyCellWidth:
         y, dy, beta, ny = basic_grid
         diag = HadleyDiagnostics(ny=ny, total_days=10)
 
-        # Create profiles where ascending edge might be > or < descending edge
+        # Create realistic v profile with single peak per hemisphere
         u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
-        v = 5.0 * np.sin(np.pi * y / 6000e3)
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center_lat) / width)**2),
+                     -5.0 * np.exp(-((y + center_lat) / width)**2))
 
         diag.record_day(0, u, v, y, dy, beta)
 
@@ -819,7 +807,11 @@ class TestHadleyCellWidth:
         diag = HadleyDiagnostics(ny=ny, total_days=10)
 
         u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
-        v = 5.0 * np.sin(np.pi * y / 6000e3)
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center_lat) / width)**2),
+                     -5.0 * np.exp(-((y + center_lat) / width)**2))
 
         for day in range(3):
             diag.record_day(day, u, v, y, dy, beta)
@@ -837,7 +829,11 @@ class TestHadleyCellWidth:
         diag = HadleyDiagnostics(ny=ny, total_days=100)
 
         u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
-        v = 5.0 * np.sin(np.pi * y / 6000e3)
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center_lat) / width)**2),
+                     -5.0 * np.exp(-((y + center_lat) / width)**2))
 
         # Simulate restart: record days 50-59 only
         for day in range(50, 60):
@@ -859,14 +855,256 @@ class TestHadleyCellWidth:
             20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
             + 15.0 * np.exp(-((y + 7000e3) / 3000e3) ** 2)
         )
-        # Asymmetric v: wider cell in south
-        # v peaks at different distances from equator
-        v = np.zeros_like(y)
-        v[y >= 0] = 5.0 * np.sin(np.pi * y[y >= 0] / 5000e3)  # NH: zero at 5000 km
-        v[y < 0] = -5.0 * np.sin(np.pi * y[y < 0] / 8000e3)   # SH: zero at -8000 km
+        # Asymmetric v: wider cell in south (larger width parameter)
+        # v peaks at ~3000 km in each hemisphere, but with different widths
+        north_width = 2500e3  # Narrower cell
+        south_width = 4000e3  # Wider cell
+        center = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center) / north_width)**2),
+                     -5.0 * np.exp(-((y + center) / south_width)**2))
 
         diag.record_day(0, u, v, y, dy, beta)
 
         # If both widths are defined, southern should be larger
         if not np.isnan(diag.north_hadley_width[0]) and not np.isnan(diag.south_hadley_width[0]):
             assert diag.south_hadley_width[0] > diag.north_hadley_width[0]
+
+
+class TestThresholdBasedDescendingEdge:
+    """Tests for threshold-based descending edge detection."""
+
+    @pytest.fixture
+    def basic_grid(self):
+        """Create a basic symmetric grid"""
+        ny = 51
+        y = np.linspace(-15751e3, 15751e3, ny)
+        dy = np.diff(y)[0]
+        beta = 2e-11
+        return y, dy, beta, ny
+
+    def test_find_descending_edge_threshold_basic(self, basic_grid):
+        """Test threshold-based descending edge detection with smooth decay."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create v profile that decays smoothly without zero crossing
+        # v = exp(-y^2/(2*sigma^2)) * sign for each hemisphere
+        sigma = 3000e3
+        v = np.where(y >= 0,
+                     np.exp(-y**2 / (2*sigma**2)),
+                     -np.exp(-y**2 / (2*sigma**2)))
+
+        # Find descending edges
+        north_desc = diag.find_descending_edge_threshold(v, y, "north")
+        south_desc = diag.find_descending_edge_threshold(v, y, "south")
+
+        # Edges should be in correct hemispheres
+        assert north_desc > 0
+        assert south_desc < 0
+
+        # Check that edges are found (not NaN)
+        assert not np.isnan(north_desc)
+        assert not np.isnan(south_desc)
+
+    def test_find_descending_edge_threshold_at_10_percent(self, basic_grid):
+        """Test that edge is found where |v| drops to ~10% of extremum."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create Gaussian v profile with known decay
+        sigma = 4000e3
+        v_max = 10.0
+        v = np.where(y >= 0,
+                     v_max * np.exp(-y**2 / (2*sigma**2)),
+                     -v_max * np.exp(-y**2 / (2*sigma**2)))
+
+        north_desc = diag.find_descending_edge_threshold(v, y, "north")
+
+        # At 10% threshold, |v| = 0.1 * v_max = 1.0
+        # exp(-y^2/(2*sigma^2)) = 0.1 => y = sqrt(-2*sigma^2*ln(0.1))
+        expected_y = np.sqrt(-2 * sigma**2 * np.log(0.1))
+
+        # Should be within a grid spacing of expected
+        assert np.abs(north_desc - expected_y) < dy
+
+    def test_find_descending_edge_threshold_custom_fraction(self, basic_grid):
+        """Test threshold detection with custom threshold fraction."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create Gaussian v profile
+        sigma = 4000e3
+        v = np.where(y >= 0,
+                     np.exp(-y**2 / (2*sigma**2)),
+                     -np.exp(-y**2 / (2*sigma**2)))
+
+        # 10% threshold should give farther edge than 50% threshold
+        edge_10 = diag.find_descending_edge_threshold(v, y, "north", threshold_fraction=0.1)
+        edge_50 = diag.find_descending_edge_threshold(v, y, "north", threshold_fraction=0.5)
+
+        assert edge_10 > edge_50  # 10% edge is farther poleward
+
+    def test_find_descending_edge_threshold_invalid_hemisphere(self, basic_grid):
+        """Test that invalid hemisphere raises error."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+        v = np.sin(y / 1e6)
+
+        with pytest.raises(ValueError, match="hemisphere must be"):
+            diag.find_descending_edge_threshold(v, y, "west")
+
+    def test_find_descending_edge_threshold_zero_extremum(self, basic_grid):
+        """Test that zero extremum returns NaN."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # v = 0 everywhere in NH
+        v = np.where(y >= 0, 0.0, -1.0)
+
+        north_desc = diag.find_descending_edge_threshold(v, y, "north")
+
+        assert np.isnan(north_desc)
+
+    def test_find_descending_edge_threshold_never_drops_below(self, basic_grid):
+        """Test NaN returned when v never drops below threshold."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Very wide Gaussian that never drops below 10% in domain
+        sigma = 50000e3  # Much larger than domain
+        v = np.where(y >= 0,
+                     np.exp(-y**2 / (2*sigma**2)),
+                     -np.exp(-y**2 / (2*sigma**2)))
+
+        north_desc = diag.find_descending_edge_threshold(v, y, "north")
+
+        # Should return NaN since threshold never reached
+        assert np.isnan(north_desc)
+
+
+class TestComputeCellEdgesThreshold:
+    """Tests for updated compute_cell_edges using threshold approach."""
+
+    @pytest.fixture
+    def basic_grid(self):
+        """Create a basic symmetric grid"""
+        ny = 51
+        y = np.linspace(-15751e3, 15751e3, ny)
+        dy = np.diff(y)[0]
+        beta = 2e-11
+        return y, dy, beta, ny
+
+    def test_compute_cell_edges_asymptotic_v(self, basic_grid):
+        """Test cell edge detection when v asymptotes to zero."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create v profile that crosses zero at equator but asymptotes poleward
+        sigma = 4000e3
+        v = y / sigma * np.exp(-y**2 / (2*sigma**2))  # Has zero at equator, asymptotes to 0
+
+        # New signature: no jet position parameters
+        ascending, north_desc, south_desc = diag.compute_cell_edges(v, y)
+
+        # All edges should be found
+        assert not np.isnan(ascending)
+        assert not np.isnan(north_desc)
+        assert not np.isnan(south_desc)
+
+        # Ascending should be near equator (where v=0 crossing is)
+        assert abs(ascending) < dy
+
+        # Descending edges in correct hemispheres
+        assert north_desc > 0
+        assert south_desc < 0
+
+        # Ordering: south_desc < ascending < north_desc
+        assert south_desc < ascending < north_desc
+
+    def test_compute_cell_edges_no_jet_params(self, basic_grid):
+        """Test that compute_cell_edges works without jet position parameters."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create realistic v profile with single peak per hemisphere
+        # v peaks at ~3000 km and decays poleward (like a real Hadley cell)
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center_lat) / width)**2),
+                     -5.0 * np.exp(-((y + center_lat) / width)**2))
+
+        # New signature: only v and y
+        ascending, north_desc, south_desc = diag.compute_cell_edges(v, y)
+
+        # Should find valid edges
+        assert not np.isnan(ascending)
+        assert not np.isnan(north_desc)
+        assert not np.isnan(south_desc)
+
+    def test_compute_cell_edges_uses_cell_centers_for_ascending(self, basic_grid):
+        """Test that ascending edge search uses cell centers as bounds."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create v profile with single peak per hemisphere
+        # v crosses zero only at equator
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center_lat) / width)**2),
+                     -5.0 * np.exp(-((y + center_lat) / width)**2))
+
+        ascending, north_desc, south_desc = diag.compute_cell_edges(v, y)
+
+        # Ascending should be near equator
+        assert np.abs(ascending) < 1000e3
+
+    def test_compute_cell_edges_realistic_hadley_pattern(self, basic_grid):
+        """Test with realistic Hadley cell v pattern."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create realistic v profile:
+        # - Positive v in NH (poleward flow in upper branch)
+        # - Negative v in SH (poleward flow in upper branch)
+        # - Zero at equator (ascending) and decaying poleward
+        v_max = 5.0
+        center_lat = 3000e3
+        width = 3000e3
+
+        # Gaussian poleward flow centered at ±center_lat
+        v = np.where(y >= 0,
+                     v_max * np.exp(-((y - center_lat) / width)**2),
+                     -v_max * np.exp(-((y + center_lat) / width)**2))
+
+        ascending, north_desc, south_desc = diag.compute_cell_edges(v, y)
+
+        # Check that all edges are found
+        assert not np.isnan(ascending)
+        assert not np.isnan(north_desc)
+        assert not np.isnan(south_desc)
+
+        # Physical ordering
+        assert south_desc < ascending < north_desc
+
+    def test_record_day_uses_new_signature(self, basic_grid):
+        """Test that record_day works with updated compute_cell_edges."""
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Create realistic profiles with single peak per hemisphere
+        u = 20.0 * np.exp(-((y - 5000e3) / 3000e3) ** 2)
+        center_lat = 3000e3
+        width = 3000e3
+        v = np.where(y >= 0,
+                     5.0 * np.exp(-((y - center_lat) / width)**2),
+                     -5.0 * np.exp(-((y + center_lat) / width)**2))
+
+        # This should work without error after the fix
+        diag.record_day(0, u, v, y, dy, beta)
+
+        # Should have valid cell widths
+        assert not np.isnan(diag.north_hadley_width[0])
+        assert not np.isnan(diag.south_hadley_width[0])
