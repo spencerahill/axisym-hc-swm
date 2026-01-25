@@ -106,6 +106,32 @@ def test_steady_state_disabled_by_default(sw_config, theta_e_config):
     assert not model.steady_state_detector.is_converged
 
 
+def test_steady_state_warning_when_not_converged(sw_config, theta_e_config, caplog):
+    """Test that a warning is logged when steady-state is enabled but not reached"""
+    import logging
+
+    # Configure a very short simulation that won't converge
+    sw_config.total_integration_days = 5
+    sw_config.enable_steady_state = True
+    sw_config.steady_state_window_size = 3
+    sw_config.steady_state_threshold = 1e-10  # Very strict threshold to ensure no convergence
+
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+
+    # Run simulation with caplog to capture warnings
+    with caplog.at_level(logging.WARNING):
+        model.run_sim()
+
+    # Check that we did NOT converge
+    assert not model.steady_state_detector.is_converged
+
+    # Check that the warning was logged
+    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    convergence_warnings = [m for m in warning_messages if "convergence" in m.lower()]
+    assert len(convergence_warnings) >= 1, "Expected a warning about convergence not being reached"
+    assert "without reaching convergence" in convergence_warnings[0].lower() or "not reached" in convergence_warnings[0].lower()
+
+
 def test_merid_advec_u_toggle(sw_config, theta_e_config):
     """Test that meridional advection of u can be toggled on/off"""
     # Test with advection enabled (default)

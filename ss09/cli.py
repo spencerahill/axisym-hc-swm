@@ -11,9 +11,9 @@ def parse_arguments():
     parser.add_argument(
         "--ndays",
         type=int,
-        default=250,
+        default=None,  # None to detect if user explicitly provided it
         dest="total_integration_days",
-        help="Total number of integration days (default: 250)",
+        help="Total number of integration days (default: 250, or 200000 with --stop-at-steady-state)",
     )
     parser.add_argument(
         "--gravity",
@@ -282,7 +282,25 @@ def parse_arguments():
         dest="restart_output_dir",
         help="Directory for restart files (default: ./model_output)",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # Handle mutual exclusivity: --ndays and --stop-at-steady-state
+    ndays_provided = args.total_integration_days is not None
+    if ndays_provided and args.enable_steady_state:
+        raise SystemExit(
+            "Error: Cannot specify both --ndays and --stop-at-steady-state. "
+            "Use --ndays for fixed-length runs, or --stop-at-steady-state "
+            "for convergence-based termination."
+        )
+
+    # Apply conditional default for ndays
+    if args.total_integration_days is None:
+        if args.enable_steady_state:
+            args.total_integration_days = 200000  # Large default for convergence runs
+        else:
+            args.total_integration_days = 250  # Original default
+
+    return args
 
 
 def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:

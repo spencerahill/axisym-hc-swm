@@ -394,3 +394,56 @@ def test_cli_tanh_steepness_default():
 
     theta_e_config = setup_theta_e_config(args)
     assert theta_e_config.tanh_steepness == 4.0
+
+
+def test_cli_rejects_ndays_with_steady_state():
+    """CLI should error when both --ndays and --stop-at-steady-state are provided"""
+    from ss09.cli import parse_arguments
+    import sys
+
+    # Simulate CLI args with both flags
+    test_args = ["run-sw-model", "--ndays", "100", "--stop-at-steady-state"]
+    original_argv = sys.argv
+    sys.argv = test_args
+
+    try:
+        with pytest.raises(SystemExit) as exc_info:
+            parse_arguments()
+        # Should exit with error (non-zero exit code or error message)
+        assert exc_info.value.code != 0 or "Cannot specify both" in str(exc_info.value)
+    finally:
+        sys.argv = original_argv
+
+
+def test_cli_default_ndays_without_steady_state():
+    """When --stop-at-steady-state is NOT used, ndays should default to 250"""
+    from ss09.cli import parse_arguments
+    import sys
+
+    # Simulate CLI args without --ndays and without --stop-at-steady-state
+    test_args = ["run-sw-model"]
+    original_argv = sys.argv
+    sys.argv = test_args
+
+    try:
+        args = parse_arguments()
+        assert args.total_integration_days == 250
+    finally:
+        sys.argv = original_argv
+
+
+def test_cli_default_ndays_with_steady_state():
+    """When --stop-at-steady-state is used without --ndays, default to 200000 days"""
+    from ss09.cli import parse_arguments
+    import sys
+
+    # Simulate CLI args with --stop-at-steady-state but no --ndays
+    test_args = ["run-sw-model", "--stop-at-steady-state"]
+    original_argv = sys.argv
+    sys.argv = test_args
+
+    try:
+        args = parse_arguments()
+        assert args.total_integration_days == 200000
+    finally:
+        sys.argv = original_argv

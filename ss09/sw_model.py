@@ -391,6 +391,15 @@ class SWModel:
                 logging.warning("NaN detected in u, breaking the loop.")
                 break
 
+        # Warn if steady-state detection was enabled but convergence not reached
+        if self.config.enable_steady_state and not self.steady_state_detector.is_converged:
+            logging.warning(
+                f"Steady-state convergence was enabled but simulation ended after {day} days "
+                f"without reaching convergence. "
+                f"KE converged: {self.steady_state_detector.ke_converged}, "
+                f"Tvar converged: {self.steady_state_detector.tvar_converged}."
+            )
+
         # Always save final restart file (unless save_restart_every is explicitly 0 to disable all restarts)
         # Note: if save_restart_every == 0, we still save a final restart file for manual continuation
         if day > 0:  # Only save if we actually ran some days
