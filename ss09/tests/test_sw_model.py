@@ -317,3 +317,36 @@ def test_has_seasonal_forcing_detection(sw_config, theta_e_config):
     )
     model_no_amp = SWModel(sw_config, SB08Profile(theta_e_config_no_amp))
     assert not model_no_amp.has_seasonal_forcing()
+
+
+def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
+    """Test that EMFD only acts where u > 0 (westerlies), per SCIENCE.md eq 3.1.
+
+    The Heaviside function H(u) = 1 if u > 0, else 0 ensures that eddies
+    only extract momentum from westerly flow.
+    """
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+
+    ny = model.config.ny
+    equator_idx = ny // 2
+
+    # Create u profile: easterlies near equator, westerlies in subtropics
+    u_profile = np.zeros(ny)
+    u_profile[equator_idx - 5:equator_idx + 6] = -5.0  # easterlies (u < 0)
+    u_profile[:equator_idx - 5] = np.linspace(10.0, 2.0, equator_idx - 5)  # SH westerlies
+    u_profile[equator_idx + 6:] = np.linspace(2.0, 10.0, ny - equator_idx - 6)  # NH westerlies
+
+    model.state = model.state._replace(u=u_profile)
+    emfd = model.edd_mom_flux_div_u()
+
+    # EMFD must be exactly zero where u <= 0 (binary Heaviside)
+    easterly_mask = u_profile <= 0
+    assert np.all(emfd[easterly_mask] == 0.0), \
+        f"EMFD must be exactly zero in easterly regions, got: {emfd[easterly_mask]}"
+
+    # EMFD should be non-zero where u > 0 and du/dy != 0
+    westerly_mask = u_profile > 0
+    du_dy = np.gradient(u_profile, model.config.dy)
+    active_mask = westerly_mask & (np.abs(du_dy) > 1e-10)
+    assert not np.allclose(emfd[active_mask], 0.0), \
+        "EMFD should be non-zero in westerly regions with shear"

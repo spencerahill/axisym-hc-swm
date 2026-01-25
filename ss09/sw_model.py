@@ -139,6 +139,7 @@ class SWModel:
         """Calculate the eddy momentum flux divergence."""
         return (
             self.config.v_d
+            * np.heaviside(self.state.u, 0)  # H(u)=1 if u>0, else 0
             * np.sign(self.config.y)
             * np.gradient(self.state.u, self.config.dy)
         )
