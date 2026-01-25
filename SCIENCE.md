@@ -18,13 +18,13 @@ The model solves three prognostic equations for zonal wind $u$, meridional wind 
 
 ### 2.1 Zonal Momentum Equation
 
-$$\frac{\partial u}{\partial t} - v(\beta y - \frac{\partial u}{\partial y}) = -\mathcal{H}(\frac{\partial v}{\partial y}) \cdot (\frac{\partial v}{\partial y}) \cdot u - \mathcal{F} - \mathcal{S}$$
+$$\frac{\partial u}{\partial t} - v(\beta y - \frac{\partial u}{\partial y}) = -\mathcal{H}(\theta_E - \theta) \cdot (\frac{\partial v}{\partial y}) \cdot u - \mathcal{F} - \mathcal{S}$$
 
 | Term | Expression | Physical Meaning |
 |------|------------|------------------|
 | Tendency | $\partial u / \partial t$ | Rate of change of zonal wind |
 | Coriolis + advection | $v(\beta y - \partial u / \partial y)$ | Acceleration from planetary vorticity and relative vorticity advection |
-| Vertical advection | $-\mathcal{H}(\partial_y v)(\partial_y v) u$ | Momentum exchange with lower layer; only active in ascent regions ($\partial_y v > 0$). Assumes ascending air carries **zero zonal momentum**. |
+| Vertical advection | $-\mathcal{H}(\theta_E - \theta)(\partial_y v) u$ | Momentum exchange with lower layer; only active where atmosphere is cooler than equilibrium ($\theta_E > \theta$). Assumes ascending air carries **zero zonal momentum**. |
 | Rayleigh drag | $\mathcal{F} = \epsilon_u u$ | Linear damping; ensures numerical stability, no direct atmospheric analog |
 | EMFD | $\mathcal{S}$ | Eddy momentum flux divergence (see §3.1) |
 
@@ -48,12 +48,15 @@ This vertical structure doubles the inertial term relative to a single-layer for
 
 ### 2.3 Thermodynamic Equation
 
-$$\frac{\partial \theta}{\partial t} + \frac{\delta \Delta_z}{H} \frac{\partial v}{\partial y} = \frac{\theta_E - \theta}{\tau}$$
+$$\frac{\partial \theta}{\partial t} + \frac{\delta \Delta_z}{H} \frac{\partial v}{\partial y} = \frac{\theta_E - \theta}{\tau} + \kappa_\theta \frac{\partial^2 \theta}{\partial y^2}$$
 
 | Term | Physical Meaning |
 |------|------------------|
 | $(\delta \Delta_z / H) \partial v / \partial y$ | Adiabatic cooling/warming from vertical motion; divergence implies ascent |
 | $(\theta_E - \theta) / \tau$ | Newtonian cooling toward radiative-convective equilibrium (RCE) profile |
+| $\kappa_\theta \partial^2 \theta / \partial y^2$ | Eddy heat diffusion; optional extension (default $\kappa_\theta = 0$) |
+
+**Note**: The eddy heat diffusion term is an optional extension not in the original SS09 equations. It is disabled by default (`coeff_eddy_heat_diff=0.0`) and values below ~10⁴ m²/s have minimal effect.
 
 ### 2.4 Sobel & Schneider (2013) Corrigendum
 
@@ -88,11 +91,13 @@ A weak linear drag ($\epsilon_u \sim 10^{-8}$ s⁻¹, ~1000-day timescale) ensur
 
 ### 3.3 Vertical Momentum Advection
 
-The term $-\mathcal{H}(\partial_y v)(\partial_y v) u$ represents exchange between the upper layer and lower troposphere. Two limiting assumptions are possible:
+The term $-\mathcal{H}(\theta_E - \theta)(\partial_y v) u$ represents exchange between the upper layer and lower troposphere. Two limiting assumptions are possible:
 1. **Ascending air carries zero zonal momentum** (default): creates the term shown
 2. **Ascending air carries the upper-layer zonal momentum**: eliminates this term entirely
 
 The model uses assumption (1). Sensitivity to this choice is modest compared to EMFD effects.
+
+**Activation condition**: The Heaviside function $\mathcal{H}(\theta_E - \theta)$ uses a thermodynamic criterion rather than a kinematic one. Vertical momentum exchange is active where the atmosphere is cooler than radiative-convective equilibrium ($\theta_E > \theta$), which indicates a convective tendency. When the atmosphere is at or above equilibrium ($\theta \geq \theta_E$), no convective mixing occurs and the term is inactive.
 
 ## 4. Equilibrium Temperature Profiles ($\theta_E$)
 

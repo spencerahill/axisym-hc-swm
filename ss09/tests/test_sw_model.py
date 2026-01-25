@@ -350,3 +350,92 @@ def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
     active_mask = westerly_mask & (np.abs(du_dy) > 1e-10)
     assert not np.allclose(emfd[active_mask], 0.0), \
         "EMFD should be non-zero in westerly regions with shear"
+
+
+def test_vert_advec_u_heaviside_at_equilibrium(sw_config, theta_e_config):
+    """Test that vertical advection is inactive when theta equals theta_e.
+
+    Per physics: H(theta_e - theta) should return 0 when theta_e = theta exactly,
+    meaning vertical momentum exchange is inactive at radiative-convective equilibrium.
+    """
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+
+    # Set u to non-zero values so vert_advec_u term would be nonzero if H != 0
+    model.state = model.state._replace(u=np.ones(model.config.ny) * 10.0)
+
+    # Set v to have divergence (so dv/dy != 0)
+    v_profile = np.sin(np.pi * model.config.y / model.config.y.max())
+    model.state = model.state._replace(v=v_profile)
+
+    # Crucially: set theta = theta_e exactly (at equilibrium)
+    theta_e = model.theta_e_profile(model.state)
+    model.state = model.state._replace(theta=theta_e.copy())
+
+    # At equilibrium (theta_e - theta = 0), the Heaviside function should be 0,
+    # so vertical advection should be exactly zero
+    vert_advec = model.vert_advec_u()
+
+    assert np.allclose(vert_advec, 0.0), (
+        f"Vertical advection should be zero at equilibrium (theta = theta_e). "
+        f"Max value: {np.abs(vert_advec).max()}"
+    )
+
+
+def test_vert_advec_u_active_when_cooler_than_equilibrium(sw_config, theta_e_config):
+    """Test that vertical advection is active when theta < theta_e.
+
+    Per physics: H(theta_e - theta) = 1 when theta_e > theta (atmosphere is
+    cooler than equilibrium, indicating convective tendency).
+    """
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+
+    # Set u to non-zero values
+    model.state = model.state._replace(u=np.ones(model.config.ny) * 10.0)
+
+    # Set v to have divergence (so dv/dy != 0)
+    v_profile = np.sin(np.pi * model.config.y / model.config.y.max())
+    model.state = model.state._replace(v=v_profile)
+
+    # Set theta cooler than theta_e
+    theta_e = model.theta_e_profile(model.state)
+    model.state = model.state._replace(theta=theta_e - 5.0)  # 5 K cooler
+
+    # Now H(theta_e - theta) = H(5) = 1, so vertical advection should be active
+    vert_advec = model.vert_advec_u()
+
+    # Check that at least some points have non-zero vertical advection
+    # (where dv/dy != 0)
+    dv_dy = np.gradient(v_profile, model.config.dy)
+    active_mask = np.abs(dv_dy) > 1e-10
+
+    assert not np.allclose(vert_advec[active_mask], 0.0), (
+        "Vertical advection should be active when theta < theta_e"
+    )
+
+
+def test_vert_advec_u_inactive_when_warmer_than_equilibrium(sw_config, theta_e_config):
+    """Test that vertical advection is inactive when theta > theta_e.
+
+    Per physics: H(theta_e - theta) = 0 when theta_e < theta (atmosphere is
+    warmer than equilibrium, no convective tendency).
+    """
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+
+    # Set u to non-zero values
+    model.state = model.state._replace(u=np.ones(model.config.ny) * 10.0)
+
+    # Set v to have divergence (so dv/dy != 0)
+    v_profile = np.sin(np.pi * model.config.y / model.config.y.max())
+    model.state = model.state._replace(v=v_profile)
+
+    # Set theta warmer than theta_e
+    theta_e = model.theta_e_profile(model.state)
+    model.state = model.state._replace(theta=theta_e + 5.0)  # 5 K warmer
+
+    # Now H(theta_e - theta) = H(-5) = 0, so vertical advection should be zero
+    vert_advec = model.vert_advec_u()
+
+    assert np.allclose(vert_advec, 0.0), (
+        f"Vertical advection should be zero when theta > theta_e. "
+        f"Max value: {np.abs(vert_advec).max()}"
+    )

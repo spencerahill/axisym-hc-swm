@@ -154,7 +154,7 @@ class SWModel:
         return (
             self.state.u
             * dv_dy
-            * np.heaviside(self.theta_e_profile(self.state) - self.state.theta, 0.5)
+            * np.heaviside(self.theta_e_profile(self.state) - self.state.theta, 0)
         )
 
     def coriolis_term(self, u_or_v: np.ndarray) -> np.ndarray:
