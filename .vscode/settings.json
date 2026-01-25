@@ -1,7 +1,0 @@
-{
-    "python.testing.pytestArgs": [
-        "ss09/tests"
-    ],
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
-}
