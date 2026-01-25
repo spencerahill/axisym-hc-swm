@@ -10,6 +10,54 @@ See **SCIENCE.md** for detailed physics background (governing equations, paramet
 
 ## Git Workflow
 
+### Branch Workflow
+
+**IMPORTANT**: Always create a new branch before starting any work. Never commit directly to main.
+
+**Complete workflow:**
+
+1. **Sync local main with remote** (FIRST STEP - before any work):
+   ```bash
+   git checkout main
+   git fetch origin
+   # Check if local and remote are in sync
+   git status
+   ```
+   - If local is behind: `git pull origin main`
+   - If local is ahead: `git push origin main`
+   - If there are conflicts: **STOP and ask the user for input** before proceeding
+
+2. **Create a feature branch**:
+   ```bash
+   git checkout -b feature/descriptive-name
+   ```
+
+3. **Do your work** on the feature branch with incremental commits (see Committing below)
+
+4. **Merge back to main** when work is complete and all tests pass:
+   ```bash
+   git checkout main
+   git merge feature/descriptive-name
+   ```
+
+5. **Push to remote main** (LAST STEP - after merge):
+   ```bash
+   git push origin main
+   ```
+
+6. **Delete the feature branch** (optional but recommended):
+   ```bash
+   git branch -d feature/descriptive-name
+   ```
+
+**Branch naming conventions:**
+- `feature/description` - for new features
+- `fix/description` - for bug fixes
+- `refactor/description` - for code refactoring
+- `docs/description` - for documentation updates
+
+### Committing
+
 **IMPORTANT**: Always create a git commit after every substantive change to the codebase. This ensures:
 - Changes are tracked incrementally with clear history
 - Easy rollback if needed
