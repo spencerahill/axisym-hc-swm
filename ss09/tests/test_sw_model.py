@@ -379,10 +379,11 @@ def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
 
 
 def test_vert_advec_u_heaviside_at_equilibrium(sw_config, theta_e_config):
-    """Test that vertical advection is inactive when theta equals theta_e.
+    """Test that vertical advection is half-strength when theta equals theta_e.
 
-    Per physics: H(theta_e - theta) should return 0 when theta_e = theta exactly,
-    meaning vertical momentum exchange is inactive at radiative-convective equilibrium.
+    Per physics: H(theta_e - theta) uses H(0) = 0.5 at exact equilibrium to provide
+    implicit smoothing at the convective boundary. This prevents oscillations that
+    would otherwise occur when small perturbations flip the Heaviside on/off sharply.
     """
     model = SWModel(sw_config, SS09Profile(theta_e_config))
 
@@ -397,13 +398,15 @@ def test_vert_advec_u_heaviside_at_equilibrium(sw_config, theta_e_config):
     theta_e = model.theta_e_profile(model.state)
     model.state = model.state._replace(theta=theta_e.copy())
 
-    # At equilibrium (theta_e - theta = 0), the Heaviside function should be 0,
-    # so vertical advection should be exactly zero
+    # At equilibrium (theta_e - theta = 0), the Heaviside function returns 0.5,
+    # so vertical advection should be half of full strength: 0.5 * u * dv/dy
     vert_advec = model.vert_advec_u()
+    dv_dy = np.gradient(model.state.v, model.config.dy)
+    expected_half_strength = 0.5 * model.state.u * dv_dy
 
-    assert np.allclose(vert_advec, 0.0), (
-        f"Vertical advection should be zero at equilibrium (theta = theta_e). "
-        f"Max value: {np.abs(vert_advec).max()}"
+    assert np.allclose(vert_advec, expected_half_strength), (
+        f"Vertical advection should be half-strength at equilibrium (theta = theta_e). "
+        f"Max difference: {np.abs(vert_advec - expected_half_strength).max()}"
     )
 
 
