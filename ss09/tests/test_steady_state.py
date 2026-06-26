@@ -12,6 +12,19 @@ class TestSteadyStateDetector:
         assert not detector.is_converged
         assert detector.convergence_day is None
 
+    def test_compute_v_smoothness_constant_field_no_nan(self):
+        """A constant (e.g. all-zero) v field is perfectly smooth, not NaN.
+
+        np.corrcoef of a constant array is NaN (zero variance); that NaN would
+        compare False against the threshold and trip a spurious grid-noise
+        warning on, e.g., an early day with a near-uniform v field.
+        """
+        detector = SteadyStateDetector(enabled=True)
+        result = detector.compute_v_smoothness(np.zeros(51), dy=1000.0)
+        assert result["neighbor_correlation"] == 1.0
+        assert result["is_smooth"] is True
+        assert not np.isnan(result["neighbor_correlation"])
+
     def test_kinetic_energy_computation(self):
         """Test KE computation"""
         detector = SteadyStateDetector(enabled=True)

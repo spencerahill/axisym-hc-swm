@@ -582,6 +582,28 @@ class TestCellCenterDiagnostics:
         # Should find center within 15% of grid spacing
         assert np.abs(lat - true_center) < 0.15 * dy
 
+    def test_find_cell_center_strength_not_below_grid_extremum(self, basic_grid):
+        """Cell strength must not fall below the grid-point extremum.
+
+        For an asymmetric peak the refined latitude lands off-grid; linearly
+        interpolating v there returns a value below the grid maximum and thus
+        understates the cell strength. Report the grid-point extremum instead.
+        """
+        y, dy, beta, ny = basic_grid
+        diag = HadleyDiagnostics(ny=ny, total_days=10)
+
+        # Asymmetric NH bump with the grid maximum at an interior point.
+        v = np.zeros(ny)
+        nh = np.where(y > 0)[0]
+        peak = nh[len(nh) // 2]
+        v[peak - 1] = 3.0
+        v[peak] = 5.0
+        v[peak + 1] = 4.0
+        v[peak + 2] = 2.0
+
+        lat, strength = diag.find_cell_center(v, y, dy, "north")
+        assert strength == np.max(v[y > 0])
+
     def test_find_cell_center_boundary_maximum(self, basic_grid):
         """Test fallback when extremum is at hemisphere boundary"""
         y, dy, beta, ny = basic_grid

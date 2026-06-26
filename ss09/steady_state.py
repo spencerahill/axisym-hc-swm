@@ -127,7 +127,12 @@ class SteadyStateDetector:
         if len(v) < 2:
             return {'neighbor_correlation': 1.0, 'grid_variance': 0.0, 'is_smooth': True}
 
-        neighbor_corr = np.corrcoef(v[:-1], v[1:])[0, 1]
+        # A constant field has zero variance, for which np.corrcoef returns NaN;
+        # treat it as perfectly smooth (correlation 1.0) instead.
+        if np.std(v[:-1]) == 0 or np.std(v[1:]) == 0:
+            neighbor_corr = 1.0
+        else:
+            neighbor_corr = np.corrcoef(v[:-1], v[1:])[0, 1]
 
         # Grid-scale variance (what k_v damps)
         if len(v) >= 3:

@@ -394,7 +394,7 @@ class HadleyDiagnostics:
         Returns:
             (cell_center_lat, cell_strength) in meters and m/s
             - latitude: Interpolated position where dv/dy = 0 (sub-grid accuracy)
-            - strength: Interpolated v value at cell center
+            - strength: Grid-point extremum value (no interpolation)
 
         Raises:
             ValueError: If hemisphere is not 'north' or 'south'
@@ -456,22 +456,11 @@ class HadleyDiagnostics:
             # No clear sign change - use grid point
             refined_lat = grid_center_lat
 
-        # Interpolate v at the refined latitude using linear interpolation
-        # Find which interval contains refined_lat
-        if refined_lat < y_hem[ext_idx]:
-            # In left interval
-            y_lo, y_hi = y_hem[ext_idx - 1], y_hem[ext_idx]
-            v_lo, v_hi = v_hem[ext_idx - 1], v_hem[ext_idx]
-        else:
-            # In right interval or at grid point
-            y_lo, y_hi = y_hem[ext_idx], y_hem[ext_idx + 1]
-            v_lo, v_hi = v_hem[ext_idx], v_hem[ext_idx + 1]
-
-        # Linear interpolation for v
-        frac = (refined_lat - y_lo) / (y_hi - y_lo) if y_hi != y_lo else 0.0
-        refined_strength = v_lo + frac * (v_hi - v_lo)
-
-        return refined_lat, refined_strength
+        # Report the grid-point extremum as the strength (as find_jet_position
+        # does for jet magnitude). The true peak is at least the grid maximum,
+        # whereas linearly interpolating v at the off-grid refined latitude
+        # returns a value below the grid extremum and so understates it.
+        return refined_lat, grid_strength
 
     def record_day(
         self,
