@@ -498,7 +498,7 @@ Jet positions (`north_jet_lat`, `south_jet_lat`) and magnitudes are tracked usin
 
 ## Important Implementation Notes
 
-- The factor of 2 in `dv_dt()` at line 163 is intentional per the physics formulation
+- The factor of 2 in `dv_dt()` is intentional per the physics formulation
 - `THETA_TO_TEMP = 1/1.6` converts potential temperature to temperature assuming (p_s/p_t)^(R/c_p) = 1.6
 - Vertical advection of zonal momentum can be toggled via `include_vert_advec_u` (enabled by default)
 - Eddy heat diffusion is disabled by default (`coeff_eddy_heat_diff=0.0`); values <1e4 have minimal effect
