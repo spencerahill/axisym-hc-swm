@@ -1,4 +1,4 @@
-from typing import Optional, NamedTuple
+from typing import NamedTuple
 import numpy as np
 
 
@@ -10,4 +10,3 @@ class ModelState(NamedTuple):
     v: np.ndarray  # instantaneous meridional wind
     theta: np.ndarray  # instantaneous potential temperature
     y: np.ndarray  # meridional distance from equator
-    div: Optional[np.ndarray] = None  # meridional divergence if needed

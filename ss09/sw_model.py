@@ -150,10 +150,9 @@ class SWModel:
 
     def vert_advec_u(self) -> np.ndarray:
         """Calculate the vertical momentum advection."""
-        dv_dy = np.gradient(self.state.v, self.config.dy)
         return (
             self.state.u
-            * dv_dy
+            * self.dv_dy()
             * np.heaviside(self.theta_e_profile(self.state) - self.state.theta, 0.5)
         )
 
@@ -209,7 +208,7 @@ class SWModel:
         return (
             -self.config.delta
             * self.config.delta_z
-            * np.gradient(self.state.v, self.config.dy)
+            * self.dv_dy()
             / self.config.height
         )
 

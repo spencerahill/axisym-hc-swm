@@ -1,6 +1,6 @@
 """Restart state management for simulation checkpoints."""
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 import numpy as np
 import xarray as xr
