@@ -280,20 +280,23 @@ class SWModel:
 
     def run_sim(self):
         """Run the S-S model simulation."""
-        self.vars_prev_step = AuxiliaryVars(*self.init_prev_step_vars())
-
         total_time_steps = int(
             SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
         )
 
         # Determine starting day and step (for restart support)
-        if hasattr(self, 'restart_day') and self.restart_day is not None:
+        if getattr(self, "restart_day", None) is not None:
             day = self.restart_day
             starting_step = int(day * SECONDS_PER_DAY / self.config.dt)
             logging.info(f"Restarting from day {day}, step {starting_step}")
+            # vars_prev_step (the filtered n-1 state) was restored from the
+            # restart file by load_from_restart; reconstructing it here would
+            # discard it and break exact continuation, so leave it untouched.
         else:
             day = 0
             starting_step = 0
+            # Fresh start: seed the leapfrog scheme with a one-off backward step.
+            self.vars_prev_step = AuxiliaryVars(*self.init_prev_step_vars())
 
         self.init_temp_storage()
 
