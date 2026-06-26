@@ -77,7 +77,7 @@ $$\mathcal{S} = v_d \cdot \mathcal{H}(u) \cdot \text{sgn}(y) \cdot \frac{\partia
 **Physical interpretation**: Extratropical baroclinic eddies (Rossby waves) propagate equatorward from midlatitudes. They have westerly or zero phase speeds and reach their **critical latitudes** where the mean flow matches their phase speed. There they dissipate or reflect, depositing momentum.
 
 - $v_d$ ≈ 2.5 m/s: drag velocity controlling EMFD magnitude (tuned to match GCM results)
-- $\mathcal{H}(u)$: Heaviside function ($\mathcal{H}(u) = 1$ if $u > 0$, else $0$); eddies only act where $u > 0$ (westerlies)
+- $\mathcal{H}(u)$: Heaviside function ($\mathcal{H}(u) = 1$ for $u > 0$, $0$ for $u < 0$, and $0.5$ at $u = 0$ for implicit smoothing at the boundary); eddies only act where $u > 0$ (westerlies)
 - $\text{sgn}(y)$: ensures correct sign in each hemisphere
 - $\partial u / \partial y$: EMFD scales with wind shear
 

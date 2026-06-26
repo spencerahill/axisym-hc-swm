@@ -118,9 +118,9 @@ def main():
     import subprocess
     subprocess.run([
         'run-sw-model',
-        '--total_integration_days', '100',
-        '--v_d', '0.0',
-        '--output_path', './model_output/smooth_test_default.nc'
+        '--ndays', '100',
+        '--vd', '0.0',
+        '--output-path', './model_output/smooth_test_default.nc'
     ], capture_output=True)
     cases.append(('Default\n(εᵤ=1e-8, kᵥ=7.8e5)', './model_output/smooth_test_default.nc'))
 
@@ -128,10 +128,10 @@ def main():
     print("Case 2: No Rayleigh drag (epsilon_u=0, k_v=778600)")
     subprocess.run([
         'run-sw-model',
-        '--total_integration_days', '100',
-        '--v_d', '0.0',
-        '--epsilon_u', '0.0',
-        '--output_path', './model_output/smooth_test_no_eps.nc'
+        '--ndays', '100',
+        '--vd', '0.0',
+        '--eps-u', '0.0',
+        '--output-path', './model_output/smooth_test_no_eps.nc'
     ], capture_output=True)
     cases.append(('No Rayleigh\n(εᵤ=0, kᵥ=7.8e5)', './model_output/smooth_test_no_eps.nc'))
 
@@ -139,10 +139,10 @@ def main():
     print("Case 3: No eddy viscosity (epsilon_u=1e-8, k_v=0)")
     subprocess.run([
         'run-sw-model',
-        '--total_integration_days', '100',
-        '--v_d', '0.0',
-        '--k_v', '0.0',
-        '--output_path', './model_output/smooth_test_no_kv.nc'
+        '--ndays', '100',
+        '--vd', '0.0',
+        '--kv', '0.0',
+        '--output-path', './model_output/smooth_test_no_kv.nc'
     ], capture_output=True)
     cases.append(('No Eddy Visc\n(εᵤ=1e-8, kᵥ=0)', './model_output/smooth_test_no_kv.nc'))
 
@@ -150,11 +150,11 @@ def main():
     print("Case 4: Both off (epsilon_u=0, k_v=0)")
     subprocess.run([
         'run-sw-model',
-        '--total_integration_days', '100',
-        '--v_d', '0.0',
-        '--epsilon_u', '0.0',
-        '--k_v', '0.0',
-        '--output_path', './model_output/smooth_test_both_off.nc'
+        '--ndays', '100',
+        '--vd', '0.0',
+        '--eps-u', '0.0',
+        '--kv', '0.0',
+        '--output-path', './model_output/smooth_test_both_off.nc'
     ], capture_output=True)
     cases.append(('Both Off\n(εᵤ=0, kᵥ=0)', './model_output/smooth_test_both_off.nc'))
 
@@ -162,10 +162,10 @@ def main():
     print("Case 5: Reduced k_v (epsilon_u=1e-8, k_v=10000)")
     subprocess.run([
         'run-sw-model',
-        '--total_integration_days', '100',
-        '--v_d', '0.0',
-        '--k_v', '10000',
-        '--output_path', './model_output/smooth_test_small_kv.nc'
+        '--ndays', '100',
+        '--vd', '0.0',
+        '--kv', '10000',
+        '--output-path', './model_output/smooth_test_small_kv.nc'
     ], capture_output=True)
     cases.append(('Small kᵥ\n(εᵤ=1e-8, kᵥ=1e4)', './model_output/smooth_test_small_kv.nc'))
 

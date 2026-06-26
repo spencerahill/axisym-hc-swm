@@ -139,7 +139,7 @@ class SWModel:
         """Calculate the eddy momentum flux divergence."""
         return (
             self.config.v_d
-            * np.heaviside(self.state.u, 0)  # H(u)=1 if u>0, else 0
+            * np.heaviside(self.state.u, 0.5)  # H(u)=1 if u>0, 0 if u<0, 0.5 at u=0
             * np.sign(self.config.y)
             * np.gradient(self.state.u, self.config.dy)
         )
@@ -150,10 +150,9 @@ class SWModel:
 
     def vert_advec_u(self) -> np.ndarray:
         """Calculate the vertical momentum advection."""
-        dv_dy = np.gradient(self.state.v, self.config.dy)
         return (
             self.state.u
-            * dv_dy
+            * self.dv_dy()
             * np.heaviside(self.theta_e_profile(self.state) - self.state.theta, 0.5)
         )
 
@@ -209,7 +208,7 @@ class SWModel:
         return (
             -self.config.delta
             * self.config.delta_z
-            * np.gradient(self.state.v, self.config.dy)
+            * self.dv_dy()
             / self.config.height
         )
 
@@ -280,20 +279,23 @@ class SWModel:
 
     def run_sim(self):
         """Run the S-S model simulation."""
-        self.vars_prev_step = AuxiliaryVars(*self.init_prev_step_vars())
-
         total_time_steps = int(
             SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
         )
 
         # Determine starting day and step (for restart support)
-        if hasattr(self, 'restart_day') and self.restart_day is not None:
+        if getattr(self, "restart_day", None) is not None:
             day = self.restart_day
             starting_step = int(day * SECONDS_PER_DAY / self.config.dt)
             logging.info(f"Restarting from day {day}, step {starting_step}")
+            # vars_prev_step (the filtered n-1 state) was restored from the
+            # restart file by load_from_restart; reconstructing it here would
+            # discard it and break exact continuation, so leave it untouched.
         else:
             day = 0
             starting_step = 0
+            # Fresh start: seed the leapfrog scheme with a one-off backward step.
+            self.vars_prev_step = AuxiliaryVars(*self.init_prev_step_vars())
 
         self.init_temp_storage()
 

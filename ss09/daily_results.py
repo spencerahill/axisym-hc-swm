@@ -5,6 +5,178 @@ from .theta_e import ThetaEProfile
 from .sw_config import SWConfig
 
 
+# Specs for the optional diagnostic output variables, used to build the
+# (otherwise highly repetitive) xr.DataArray entries in to_xarray.
+# Steady-state vars: (output_name, history_dict_key, attrs); all dims ("time",).
+_STEADY_STATE_VARS = [
+    (
+        "steady_state_kinetic_energy",
+        "kinetic_energy",
+        {
+            "units": "(m/s)^2",
+            "long_name": "domain-averaged kinetic energy for steady-state detection",
+        },
+    ),
+    (
+        "steady_state_temp_variance",
+        "temp_variance",
+        {
+            "units": "K",
+            "long_name": "temperature standard deviation for steady-state detection",
+        },
+    ),
+]
+_V_SMOOTHNESS_VARS = [
+    (
+        "v_neighbor_correlation",
+        "v_smoothness",
+        {
+            "units": "dimensionless",
+            "long_name": "v field neighbor correlation (smoothness indicator)",
+            "description": "Correlation between adjacent grid points. Values > 0.5 indicate smooth field, < 0.5 indicates grid-scale oscillations.",
+        },
+    ),
+    (
+        "v_grid_variance",
+        "v_grid_variance",
+        {
+            "units": "m^-2 s^-2",
+            "long_name": "v field grid-scale variance",
+            "description": "Variance of second spatial derivative (d²v/dy²). High values indicate grid-scale noise.",
+        },
+    ),
+]
+# Hadley diagnostics: (name, dims, attrs); name is also the diagnostics-dict key.
+_HADLEY_VARS = [
+    (
+        "rossby_number",
+        ["time", "y"],
+        {
+            "units": "dimensionless",
+            "long_name": "local Rossby number",
+            "description": "Ratio of relative vorticity (du/dy) to planetary vorticity (beta*y). NaN near equator to avoid singularity.",
+        },
+    ),
+    (
+        "north_jet_lat",
+        ["time"],
+        {
+            "units": "m",
+            "long_name": "northern hemisphere subtropical jet latitude",
+            "description": "Latitude of maximum zonal wind in northern hemisphere (y > 0)",
+        },
+    ),
+    (
+        "north_jet_magnitude",
+        ["time"],
+        {
+            "units": "m/s",
+            "long_name": "northern hemisphere subtropical jet magnitude",
+            "description": "Maximum zonal wind speed in northern hemisphere",
+        },
+    ),
+    (
+        "south_jet_lat",
+        ["time"],
+        {
+            "units": "m",
+            "long_name": "southern hemisphere subtropical jet latitude",
+            "description": "Latitude of maximum zonal wind in southern hemisphere (y < 0)",
+        },
+    ),
+    (
+        "south_jet_magnitude",
+        ["time"],
+        {
+            "units": "m/s",
+            "long_name": "southern hemisphere subtropical jet magnitude",
+            "description": "Maximum zonal wind speed in southern hemisphere",
+        },
+    ),
+    (
+        "ascending_edge_lat",
+        ["time"],
+        {
+            "units": "m",
+            "long_name": "ascending branch edge latitude",
+            "description": "Latitude where v=0 between the two descending edges (ITCZ/ascending branch)",
+        },
+    ),
+    (
+        "north_descending_edge_lat",
+        ["time"],
+        {
+            "units": "m",
+            "long_name": "northern descending branch edge latitude",
+            "description": "Latitude where v=0 closest to northern subtropical jet (descending branch)",
+        },
+    ),
+    (
+        "south_descending_edge_lat",
+        ["time"],
+        {
+            "units": "m",
+            "long_name": "southern descending branch edge latitude",
+            "description": "Latitude where v=0 closest to southern subtropical jet (descending branch)",
+        },
+    ),
+    (
+        "north_cell_center_lat",
+        ["time"],
+        {
+            "units": "m",
+            "long_name": "northern Hadley cell center latitude",
+            "description": "Latitude where poleward meridional wind (v) is maximum in northern hemisphere",
+        },
+    ),
+    (
+        "north_cell_strength",
+        ["time"],
+        {
+            "units": "m/s",
+            "long_name": "northern Hadley cell strength",
+            "description": "Maximum poleward meridional wind (v) in northern hemisphere",
+        },
+    ),
+    (
+        "south_cell_center_lat",
+        ["time"],
+        {
+            "units": "m",
+            "long_name": "southern Hadley cell center latitude",
+            "description": "Latitude where poleward meridional wind (v) is minimum in southern hemisphere",
+        },
+    ),
+    (
+        "south_cell_strength",
+        ["time"],
+        {
+            "units": "m/s",
+            "long_name": "southern Hadley cell strength",
+            "description": "Minimum meridional wind (v) in southern hemisphere (most negative = strongest poleward)",
+        },
+    ),
+    (
+        "north_hadley_width",
+        ["time"],
+        {
+            "units": "km",
+            "long_name": "northern Hadley cell width",
+            "description": "Meridional extent from ascending edge to northern descending edge",
+        },
+    ),
+    (
+        "south_hadley_width",
+        ["time"],
+        {
+            "units": "km",
+            "long_name": "southern Hadley cell width",
+            "description": "Meridional extent from ascending edge to southern descending edge",
+        },
+    ),
+]
+
+
 class DailyResults:
     """Handler for daily-averaged model output."""
 
@@ -87,186 +259,26 @@ class DailyResults:
         if steady_state_detector is not None and steady_state_detector.enabled:
             conv_history = steady_state_detector.get_history_dict()
             if conv_history:  # Only add if we have data
-                data_vars['steady_state_kinetic_energy'] = xr.DataArray(
-                    data=conv_history['kinetic_energy'],
-                    dims=['time'],
-                    attrs={
-                        'units': '(m/s)^2',
-                        'long_name': 'domain-averaged kinetic energy for steady-state detection'
-                    }
-                )
-                data_vars['steady_state_temp_variance'] = xr.DataArray(
-                    data=conv_history['temp_variance'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'K',
-                        'long_name': 'temperature standard deviation for steady-state detection'
-                    }
-                )
-
+                for name, key, attrs in _STEADY_STATE_VARS:
+                    data_vars[name] = xr.DataArray(
+                        data=conv_history[key], dims=["time"], attrs=attrs
+                    )
                 # Add v field smoothness history if available
-                if 'v_smoothness' in conv_history:
-                    data_vars['v_neighbor_correlation'] = xr.DataArray(
-                        data=conv_history['v_smoothness'],
-                        dims=['time'],
-                        attrs={
-                            'units': 'dimensionless',
-                            'long_name': 'v field neighbor correlation (smoothness indicator)',
-                            'description': 'Correlation between adjacent grid points. Values > 0.5 indicate smooth field, < 0.5 indicates grid-scale oscillations.'
-                        }
-                    )
-                    data_vars['v_grid_variance'] = xr.DataArray(
-                        data=conv_history['v_grid_variance'],
-                        dims=['time'],
-                        attrs={
-                            'units': 'm^-2 s^-2',
-                            'long_name': 'v field grid-scale variance',
-                            'description': 'Variance of second spatial derivative (d²v/dy²). High values indicate grid-scale noise.'
-                        }
-                    )
+                if "v_smoothness" in conv_history:
+                    for name, key, attrs in _V_SMOOTHNESS_VARS:
+                        data_vars[name] = xr.DataArray(
+                            data=conv_history[key], dims=["time"], attrs=attrs
+                        )
 
         # Add Hadley cell diagnostics if available
         if hadley_diagnostics is not None:
             hadley_diags = hadley_diagnostics.get_diagnostics_dict()
             if hadley_diags:  # Only add if we have data
                 # Note: hadley_diags are already filtered to recorded days, don't apply mask
-                # 2D: Rossby number
-                data_vars['rossby_number'] = xr.DataArray(
-                    data=hadley_diags['rossby_number'],
-                    dims=['time', 'y'],
-                    attrs={
-                        'units': 'dimensionless',
-                        'long_name': 'local Rossby number',
-                        'description': 'Ratio of relative vorticity (du/dy) to planetary vorticity (beta*y). NaN near equator to avoid singularity.'
-                    }
-                )
-
-                # 1D: Northern hemisphere jet
-                data_vars['north_jet_lat'] = xr.DataArray(
-                    data=hadley_diags['north_jet_lat'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm',
-                        'long_name': 'northern hemisphere subtropical jet latitude',
-                        'description': 'Latitude of maximum zonal wind in northern hemisphere (y > 0)'
-                    }
-                )
-                data_vars['north_jet_magnitude'] = xr.DataArray(
-                    data=hadley_diags['north_jet_magnitude'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm/s',
-                        'long_name': 'northern hemisphere subtropical jet magnitude',
-                        'description': 'Maximum zonal wind speed in northern hemisphere'
-                    }
-                )
-
-                # 1D: Southern hemisphere jet
-                data_vars['south_jet_lat'] = xr.DataArray(
-                    data=hadley_diags['south_jet_lat'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm',
-                        'long_name': 'southern hemisphere subtropical jet latitude',
-                        'description': 'Latitude of maximum zonal wind in southern hemisphere (y < 0)'
-                    }
-                )
-                data_vars['south_jet_magnitude'] = xr.DataArray(
-                    data=hadley_diags['south_jet_magnitude'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm/s',
-                        'long_name': 'southern hemisphere subtropical jet magnitude',
-                        'description': 'Maximum zonal wind speed in southern hemisphere'
-                    }
-                )
-
-                # Hadley cell edge latitudes
-                data_vars['ascending_edge_lat'] = xr.DataArray(
-                    data=hadley_diags['ascending_edge_lat'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm',
-                        'long_name': 'ascending branch edge latitude',
-                        'description': 'Latitude where v=0 between the two descending edges (ITCZ/ascending branch)'
-                    }
-                )
-                data_vars['north_descending_edge_lat'] = xr.DataArray(
-                    data=hadley_diags['north_descending_edge_lat'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm',
-                        'long_name': 'northern descending branch edge latitude',
-                        'description': 'Latitude where v=0 closest to northern subtropical jet (descending branch)'
-                    }
-                )
-                data_vars['south_descending_edge_lat'] = xr.DataArray(
-                    data=hadley_diags['south_descending_edge_lat'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm',
-                        'long_name': 'southern descending branch edge latitude',
-                        'description': 'Latitude where v=0 closest to southern subtropical jet (descending branch)'
-                    }
-                )
-
-                # Hadley cell center (v extremum) latitudes and strengths
-                data_vars['north_cell_center_lat'] = xr.DataArray(
-                    data=hadley_diags['north_cell_center_lat'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm',
-                        'long_name': 'northern Hadley cell center latitude',
-                        'description': 'Latitude where poleward meridional wind (v) is maximum in northern hemisphere'
-                    }
-                )
-                data_vars['north_cell_strength'] = xr.DataArray(
-                    data=hadley_diags['north_cell_strength'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm/s',
-                        'long_name': 'northern Hadley cell strength',
-                        'description': 'Maximum poleward meridional wind (v) in northern hemisphere'
-                    }
-                )
-                data_vars['south_cell_center_lat'] = xr.DataArray(
-                    data=hadley_diags['south_cell_center_lat'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm',
-                        'long_name': 'southern Hadley cell center latitude',
-                        'description': 'Latitude where poleward meridional wind (v) is minimum in southern hemisphere'
-                    }
-                )
-                data_vars['south_cell_strength'] = xr.DataArray(
-                    data=hadley_diags['south_cell_strength'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'm/s',
-                        'long_name': 'southern Hadley cell strength',
-                        'description': 'Minimum meridional wind (v) in southern hemisphere (most negative = strongest poleward)'
-                    }
-                )
-
-                # Hadley cell widths
-                data_vars['north_hadley_width'] = xr.DataArray(
-                    data=hadley_diags['north_hadley_width'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'km',
-                        'long_name': 'northern Hadley cell width',
-                        'description': 'Meridional extent from ascending edge to northern descending edge'
-                    }
-                )
-                data_vars['south_hadley_width'] = xr.DataArray(
-                    data=hadley_diags['south_hadley_width'],
-                    dims=['time'],
-                    attrs={
-                        'units': 'km',
-                        'long_name': 'southern Hadley cell width',
-                        'description': 'Meridional extent from ascending edge to southern descending edge'
-                    }
-                )
+                for name, dims, attrs in _HADLEY_VARS:
+                    data_vars[name] = xr.DataArray(
+                        data=hadley_diags[name], dims=dims, attrs=attrs
+                    )
 
         # Time coordinate without CF conventions - stored as plain numeric values (days)
         time_coord = xr.DataArray(
