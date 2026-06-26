@@ -348,8 +348,8 @@ def test_has_seasonal_forcing_detection(sw_config, theta_e_config):
 def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
     """Test that EMFD only acts where u > 0 (westerlies), per SCIENCE.md eq 3.1.
 
-    The Heaviside function H(u) = 1 if u > 0, else 0 ensures that eddies
-    only extract momentum from westerly flow.
+    The Heaviside function H(u) (=0 for u < 0, 0.5 at u = 0, 1 for u > 0)
+    ensures that eddies only extract momentum from westerly flow.
     """
     model = SWModel(sw_config, SS09Profile(theta_e_config))
 
@@ -365,8 +365,8 @@ def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
     model.state = model.state._replace(u=u_profile)
     emfd = model.edd_mom_flux_div_u()
 
-    # EMFD must be exactly zero where u <= 0 (binary Heaviside)
-    easterly_mask = u_profile <= 0
+    # EMFD must be exactly zero where u < 0 (easterlies)
+    easterly_mask = u_profile < 0
     assert np.all(emfd[easterly_mask] == 0.0), \
         f"EMFD must be exactly zero in easterly regions, got: {emfd[easterly_mask]}"
 
@@ -376,6 +376,29 @@ def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
     active_mask = westerly_mask & (np.abs(du_dy) > 1e-10)
     assert not np.allclose(emfd[active_mask], 0.0), \
         "EMFD should be non-zero in westerly regions with shear"
+
+
+def test_emfd_heaviside_half_at_zero_u(sw_config, theta_e_config):
+    """At exactly u = 0, EMFD uses H(0) = 0.5, matching the vertical-advection
+    convention (implicit smoothing at the Heaviside boundary) rather than 0.
+    """
+    model = SWModel(sw_config, SS09Profile(theta_e_config))
+    ny = model.config.ny
+    y = model.config.y
+
+    # Build u that passes through exactly 0 at a non-equatorial NH grid point
+    # k (so sign(y[k]) != 0) with uniform, nonzero shear.
+    k = ny // 2 + 5
+    u_profile = (np.arange(ny) - k) * 1.0
+    assert u_profile[k] == 0.0
+    model.state = model.state._replace(u=u_profile)
+
+    emfd = model.edd_mom_flux_div_u()
+    du_dy = np.gradient(u_profile, model.config.dy)
+    expected = model.config.v_d * 0.5 * np.sign(y[k]) * du_dy[k]
+
+    assert np.isclose(emfd[k], expected)
+    assert not np.isclose(emfd[k], 0.0)  # would be 0 under the old H(0)=0 convention
 
 
 def test_vert_advec_u_heaviside_at_equilibrium(sw_config, theta_e_config):
