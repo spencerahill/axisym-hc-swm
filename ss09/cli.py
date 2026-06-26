@@ -318,53 +318,7 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
     user_provided_output = args.output_path != "./model_output/output.nc"
     user_provided_restart_dir = args.restart_output_dir != "./model_output"
 
-    # Generate descriptive paths if using defaults
-    if not user_provided_output or not user_provided_restart_dir:
-        # Create a temporary SWConfig to get ny and total_integration_days
-        # (we need these for path generation)
-        temp_config = SWConfig(
-            total_integration_days=args.total_integration_days,
-            ny=args.ny,
-            gravity=args.gravity,
-            height=args.height,
-            beta=args.beta,
-            t_ref=args.t_ref,
-            output_path="",  # placeholder
-            dt=args.dt,
-            coeff_eddy_heat_diff=args.coeff_eddy_heat_diff,
-            k_v=args.k_v,
-            epsilon_u=args.epsilon_u,
-            delta_z=args.delta_z,
-            delta=args.delta,
-            tau=args.tau,
-            v_d=args.v_d,
-            domain_size=args.domain_size,
-            asselin_filt_coef=args.asselin_filt_coef,
-            include_vert_advec_u=args.include_vert_advec_u,
-            include_merid_advec_u=args.include_merid_advec_u,
-            enable_steady_state=args.enable_steady_state,
-            steady_state_window_size=args.steady_state_window_size,
-            steady_state_threshold=args.steady_state_threshold,
-            steady_state_check_both=args.steady_state_check_both,
-            smoothness_threshold=args.smoothness_threshold,
-            seasonal_convergence_enabled=getattr(args, 'seasonal_convergence_enabled', False),
-            seasonal_convergence_window=getattr(args, 'seasonal_convergence_window', 30),
-            seasonal_convergence_threshold=getattr(args, 'seasonal_convergence_threshold', 0.01),
-            save_restart_every=getattr(args, 'save_restart_every', 0),
-            restart_output_dir="",  # placeholder
-        )
-
-        output_path, restart_dir = generate_descriptive_path(
-            temp_config, theta_e_config, base_dir="./model_output"
-        )
-
-        # Use generated paths unless user overrode them
-        if not user_provided_output:
-            args.output_path = output_path
-        if not user_provided_restart_dir:
-            args.restart_output_dir = restart_dir
-
-    return SWConfig(
+    config = SWConfig(
         total_integration_days=args.total_integration_days,
         gravity=args.gravity,
         height=args.height,
@@ -397,6 +351,21 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         save_restart_every=getattr(args, 'save_restart_every', 0),
         restart_output_dir=args.restart_output_dir,
     )
+
+    # Fill in descriptive paths for any field the user left at its default.
+    # generate_descriptive_path only reads ny/total_integration_days from
+    # config; output_path/restart_output_dir derive nothing in __post_init__,
+    # so mutating them here is safe.
+    if not user_provided_output or not user_provided_restart_dir:
+        output_path, restart_dir = generate_descriptive_path(
+            config, theta_e_config, base_dir="./model_output"
+        )
+        if not user_provided_output:
+            config.output_path = output_path
+        if not user_provided_restart_dir:
+            config.restart_output_dir = restart_dir
+
+    return config
 
 
 def setup_theta_e_config(args) -> ThetaEConfig:
