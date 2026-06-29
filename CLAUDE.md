@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a Python implementation of the Sobel-Schneider single-layer shallow water model for simulating Hadley circulation with parameterized eddy momentum forcing, based on Sobel and Schneider (2009, 2013). The model integrates momentum and thermodynamic equations on an equatorial beta plane using a leapfrog time-stepping scheme with Asselin filtering.
+This is a Python implementation of the Sobel-Schneider single-layer shallow water model for simulating Hadley circulation with parameterized eddy momentum forcing, based on Sobel and Schneider (2009, 2013). The model integrates momentum and thermodynamic equations on an equatorial beta plane using a staggered Arakawa C-grid and a fixed-step RK4 method-of-lines scheme.
 
 See **SCIENCE.md** for detailed physics background (governing equations, parameterizations, dynamical regimes).
 
@@ -285,22 +285,24 @@ The model execution follows this sequence:
    - `Sin2Profile`: sin²(πy/2y₁) profile (default)
    - `SB08Profile`: Schneider & Bordoni (2008) formula
 4. **SWModel** is instantiated with config and theta_e profile
-5. **run_sim()** executes the leapfrog integration loop
+5. **run_sim()** executes the RK4 method-of-lines integration loop
 6. **save_results()** writes daily-averaged output to NetCDF
 
 ### Key Components
 
 **SWModel (`sw_model.py`)**: Main simulation class
-- Integrates u (zonal wind), v (meridional wind), theta (potential temperature)
-- Uses leapfrog time-stepping with Asselin filtering for temporal stability
-- Enforces boundary conditions (u=0, v=0 at domain edges)
-- Stores daily averages during integration
+- Integrates u, theta (cell centers) and v (cell faces) on a staggered Arakawa C-grid
+- Self-starting fixed-step RK4 time integration (`integrators.py`); the physics RHS lives in `rhs.py`
+- `v=0` on the wall faces by construction; `u=0` at the wall centers (Dirichlet, applied by zeroing their RHS)
+- Stores daily averages during integration (daily-mean v is interpolated from faces to centers)
 
-**ModelState (`model_state.py`)**: NamedTuple containing instantaneous state variables (t, u, v, theta, y)
+**grid.py / rhs.py / integrators.py**: staggered C-grid geometry and flux-form spatial operators; the assembled physics RHS (`rhs_ex` + `rhs_im` split, IMEX-ready); the RK4 integrator.
+
+**ModelState (`model_state.py`)**: NamedTuple of instantaneous state (t, u, v, theta, y). u/theta have length N (centers); v has length N+1 (faces).
 
 **SWConfig (`sw_config.py`)**: Dataclass with model configuration
-- Automatically computes `dy` (grid spacing) and `y` (grid points) from `domain_size` and `ny` in `__post_init__`
-- Key numerical parameters: `dt`, `asselin_filt_coef`, `include_vert_advec_u`
+- Builds the staggered grid in `__post_init__`: `ny` = number of cell centers N, with `dy`, `y` (centers), and `yf` (faces)
+- Key numerical parameters: `dt`, `ny` (even recommended), `k_u`, `k_v`, `include_vert_advec_u`
 
 **ThetaEProfile (`theta_e.py`)**: Abstract base class with three implementations
 - Defines equilibrium potential temperature profile
@@ -318,9 +320,10 @@ The model solves prognostic equations for:
 - **theta (potential temperature)**: Newtonian cooling to theta_e, vertical advection, eddy heat flux (optional)
 
 Numerical scheme:
-- Leapfrog time-stepping for temporal integration
-- Asselin filter to suppress computational mode
-- Upwind differencing for meridional advection of u
+- Staggered Arakawa C-grid (u, theta on centers; v on faces) so the v-theta gravity-wave couple has no 2Δy computational mode
+- Self-starting fixed-step RK4 time integration (no leapfrog, no Asselin filter)
+- Upwind differencing for meridional advection of u (the original SS09 discretization; flux-form was tried but is unstable here)
+- Explicit eddy viscosity `k_u` on u (replaces the implicit Asselin damping; suppresses the EMFD-driven equatorial superrotation). See SCIENCE.md §3.4 and §8.
 - Centered differences for spatial derivatives elsewhere
 
 ### Nonlinear Advection Terms
@@ -498,8 +501,8 @@ Jet positions (`north_jet_lat`, `south_jet_lat`) and magnitudes are tracked usin
 
 ## Important Implementation Notes
 
-- The factor of 2 in `dv_dt()` is intentional per the physics formulation
-- `THETA_TO_TEMP = 1/1.6` converts potential temperature to temperature assuming (p_s/p_t)^(R/c_p) = 1.6
+- The factor of 2 on the v tendency (in `rhs.rhs_ex`) is intentional per the physics formulation
+- `THETA_TO_TEMP = 1/1.6` (in `rhs.py`) converts potential temperature to temperature assuming (p_s/p_t)^(R/c_p) = 1.6
 - Vertical advection of zonal momentum can be toggled via `include_vert_advec_u` (enabled by default)
 - Eddy heat diffusion is disabled by default (`coeff_eddy_heat_diff=0.0`); values <1e4 have minimal effect
 - NaN detection breaks the integration loop early with a warning

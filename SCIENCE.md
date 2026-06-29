@@ -18,7 +18,7 @@ The model solves three prognostic equations for zonal wind $u$, meridional wind 
 
 ### 2.1 Zonal Momentum Equation
 
-$$\frac{\partial u}{\partial t} - v(\beta y - \frac{\partial u}{\partial y}) = -\mathcal{H}(\theta_E - \theta) \cdot (\frac{\partial v}{\partial y}) \cdot u - \mathcal{F} - \mathcal{S}$$
+$$\frac{\partial u}{\partial t} - v(\beta y - \frac{\partial u}{\partial y}) = -\mathcal{H}(\theta_E - \theta) \cdot (\frac{\partial v}{\partial y}) \cdot u - \mathcal{F} - \mathcal{S} + k_u \frac{\partial^2 u}{\partial y^2}$$
 
 | Term | Expression | Physical Meaning |
 |------|------------|------------------|
@@ -27,6 +27,7 @@ $$\frac{\partial u}{\partial t} - v(\beta y - \frac{\partial u}{\partial y}) = -
 | Vertical advection | $-\mathcal{H}(\theta_E - \theta)(\partial_y v) u$ | Momentum exchange with lower layer; only active where atmosphere is cooler than equilibrium ($\theta_E > \theta$). Assumes ascending air carries **zero zonal momentum**. |
 | Rayleigh drag | $\mathcal{F} = \epsilon_u u$ | Linear damping; ensures numerical stability, no direct atmospheric analog |
 | EMFD | $\mathcal{S}$ | Eddy momentum flux divergence (see §3.1) |
+| Momentum diffusion | $k_u \partial^2 u / \partial y^2$ | Eddy viscosity on $u$ (analog of $k_v$ on $v$); damps the EMFD-driven equatorial superrotation. See §3.4 and the numerics note in §8. |
 
 ### 2.2 Meridional Momentum Equation
 
@@ -83,6 +84,8 @@ $$\mathcal{S} = v_d \cdot \mathcal{H}(u) \cdot \text{sgn}(y) \cdot \frac{\partia
 
 The total EMFD integrated over a Hadley cell is proportional to the subtropical jet strength, which by thermal wind balance scales with the meridional temperature gradient.
 
+**Equatorial superrotation.** Because $\mathcal{S} \propto \text{sgn}(y)\,\partial_y u$, the EMFD is an *up-gradient* (anti-diffusive) momentum flux near a westerly maximum: once a small westerly forms at the equator ($u>0$ so $\mathcal{H}(u)=1$), the EMFD reinforces it. Left unchecked this drives a slow equatorial superrotation. The original leapfrog/Asselin scheme suppressed it through implicit numerical damping; the steady-state version of this growth is the long-documented "spurious momentum source." The current scheme controls it with the explicit momentum diffusion $k_u$ (§3.4).
+
 ### 3.2 Rayleigh Drag
 
 $$\mathcal{F} = \epsilon_u u$$
@@ -98,6 +101,12 @@ The term $-\mathcal{H}(\theta_E - \theta)(\partial_y v) u$ represents exchange b
 The model uses assumption (1). Sensitivity to this choice is modest compared to EMFD effects.
 
 **Activation condition**: The Heaviside function $\mathcal{H}(\theta_E - \theta)$ uses a thermodynamic criterion rather than a kinematic one. Vertical momentum exchange is active where the atmosphere is cooler than radiative-convective equilibrium ($\theta_E > \theta$), which indicates a convective tendency. When the atmosphere is at or above equilibrium ($\theta \geq \theta_E$), no convective mixing occurs and the term is inactive.
+
+### 3.4 Momentum Diffusion
+
+$$k_u \frac{\partial^2 u}{\partial y^2}$$
+
+An eddy viscosity on $u$, the direct analog of $k_v$ on $v$. It supplies the only scale-selective dissipation acting on the zonal wind and so sets the steady-state momentum balance against the up-gradient EMFD (§3.1). The original model had no explicit $\partial^2 u$ term; its zonal-wind dissipation came entirely from the implicit damping of the leapfrog/Asselin time scheme. The current self-starting RK4 scheme has no such implicit damping, so $k_u$ makes that dissipation explicit and tunable. The default $k_u = 10^5$ m²/s is calibrated to reproduce the original steady climate (symmetric subtropical jet ≈ 28 m/s; off-equatorial $y_0 = 1000$ km winter jet ≈ 41 m/s). Setting $k_u = 0$ recovers the undamped equations, in which the EMFD superrotation grows.
 
 ## 4. Equilibrium Temperature Profiles ($\theta_E$)
 
@@ -177,6 +186,7 @@ $$\text{Ro} = \frac{-\zeta}{\beta y} = \frac{\partial u / \partial y}{\beta y}$$
 | $\beta$ | 2×10⁻¹¹ m⁻¹s⁻¹ | Meridional gradient of Coriolis parameter |
 | $v_d$ | 2.5 m/s | EMFD coefficient |
 | $k_v$ | 7786 m²/s | Eddy viscosity on $v$ |
+| $k_u$ | 10⁵ m²/s | Eddy viscosity on $u$ (momentum diffusion, §3.4) |
 | $\epsilon_u$ | 10⁻⁸ s⁻¹ | Rayleigh drag coefficient |
 | $y_1$ | 9439 km | Half-width of RCE profile (~85° latitude equivalent) |
 
@@ -184,7 +194,17 @@ $$\text{Ro} = \frac{-\zeta}{\beta y} = \frac{\partial u / \partial y}{\beta y}$$
 - $\theta$ to $T$: $T = \theta (p_t / p_s)^{R/c_p}$ with $(p_s/p_t)^{R/c_p} \approx 1.6$
 - Model uses meters for $y$; 1° latitude ≈ 111 km
 
-## 8. References
+## 8. Numerical Methods
+
+The model integrates on a one-dimensional **staggered Arakawa C-grid** with a self-starting **fixed-step RK4** time integrator.
+
+- **Grid**: $N$ cell centers carry $u$ and $\theta$; $N+1$ cell faces carry $v$, with $v = 0$ on the two wall faces. $N$ even places a face at the equator (so an odd $v$ vanishes there exactly) and no center on it. Default $N = 50$, $dy = $ domain $/ N$.
+- **Spatial operators**: single adjacent differences (centers→faces for $\partial_y\theta$; faces→centers for $\partial_y v$), so the $v$-$\theta$ gravity-wave couple has no $2\,dy$ null space. The meridional advection $-v\,\partial_y u$ uses upwind differencing for stability; $u$ at the walls is held at zero (Dirichlet).
+- **Time stepping**: RK4 needs no Asselin filter and no leapfrog $n{-}1$ level, so a restart stores a single instantaneous state.
+
+This replaces the earlier collocated grid with leapfrog/Asselin time stepping, which supported an undamped $2\,dy$ computational mode and went unstable off the equator (constant $y_0 > 0$ from rest reached NaN within a few steps at $dt = 3600$ s). The staggered/RK4 scheme runs that regime stably at $dt = 3600$ s. The Asselin filter had also been the only damping on $u$; the explicit $k_u$ (§3.4) now provides it.
+
+## 9. References
 
 **Primary**:
 - Sobel, A. H. & Schneider, T. (2009). Single-layer axisymmetric model for a Hadley circulation with parameterized eddy momentum forcing. *J. Adv. Model. Earth Syst.*, 1, 10. doi:10.3894/JAMES.2009.1.10
