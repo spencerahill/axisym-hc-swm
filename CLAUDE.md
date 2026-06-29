@@ -8,6 +8,34 @@ This is a Python implementation of the Sobel-Schneider single-layer shallow wate
 
 See **SCIENCE.md** for detailed physics background (governing equations, parameterizations, dynamical regimes).
 
+## Reporting analysis claims (verification discipline)
+
+When discussing model behavior, diagnostics, or numerics in this repo, Claude has a
+recurring failure mode: asserting a conclusion and only verifying it after Spencer
+pushes back. These conventions exist to flip that to verify-then-assert. They are
+deliberately *visible* so a missing or weak basis is obvious at a glance.
+
+**Basis tags.** Every causal, comparative-magnitude, or completeness claim carries an
+inline tag naming its basis: `[computed]`, `[from data]`, `[derived]`, or
+`[UNVERIFIED: pending <check>]`. If the tag can't be filled, the claim isn't ready to
+state as settled. Spencer may reply `basis?` to any untagged claim; that must be
+answered before continuing.
+
+**No bare magnitude adjectives.** Do not write a magnitude or comparison word
+(strongly, much, negligible, dominant, far, barely, "N×", "an order of magnitude")
+without an accompanying number or an explicit `[magnitude unestimated]`. Trigger words
+to self-catch: strongly, much more, negligible, dominant, far, barely, ×.
+
+**Quantify field comparisons.** Never claim two fields "agree" / "match" / "are on top
+of each other" from eyeballing an overlay plot. Compute and report `max|Δ|` and its
+location (interpolate to a common grid first); downgrade any verbal agreement claim to
+the scope actually measured. A reusable helper for this lives in the scratchpad
+(`report_diff`); promote it to `scripts/` if it proves useful across sessions.
+
+**Justify proposed experiments.** Before proposing a simulation/sweep, state in one
+line what result would confirm or refute the hypothesis, and why it isn't already
+answerable from data in hand. If that line can't be written, don't propose the run.
+
 ## Git Workflow
 
 ### Branch Workflow
