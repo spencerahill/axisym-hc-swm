@@ -30,7 +30,6 @@ class TestDailyResults:
             tau=37.0 * 86400,
             v_d=2.5,
             domain_size=31502000.0,
-            asselin_filt_coef=0.04,
             include_vert_advec_u=True,
             include_merid_advec_u=True,
             enable_steady_state=False,

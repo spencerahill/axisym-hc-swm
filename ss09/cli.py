@@ -50,8 +50,8 @@ def parse_arguments():
     parser.add_argument(
         "--ny",
         type=int,
-        default=51,
-        help="Number of grid points in the y-direction (default: 51)",
+        default=50,
+        help="Number of cell centers N (even recommended for exact symmetry; default: 50)",
     )
     parser.add_argument(
         "--dt",
@@ -144,7 +144,14 @@ def parse_arguments():
         type=float,
         default=7786 * 100,
         dest="k_v",
-        help="Vertical eddy viscosity (default: 778600)",
+        help="Vertical eddy viscosity on v (default: 778600)",
+    )
+    parser.add_argument(
+        "--ku",
+        type=float,
+        default=1e5,
+        dest="k_u",
+        help="Eddy viscosity on u / momentum diffusion (default: 1e5; 0 disables)",
     )
     parser.add_argument(
         "--eps-u",
@@ -185,13 +192,6 @@ def parse_arguments():
         default=15751e3 * 2,
         dest="domain_size",
         help="Size of the domain (default: 31502000 m)",
-    )
-    parser.add_argument(
-        "--asselin-coef",
-        type=float,
-        default=0.04,
-        dest="asselin_filt_coef",
-        help="Asselin filter coefficient (default: 0.04)",
     )
     parser.add_argument(
         "--no-vert-advec-u",
@@ -329,13 +329,13 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         dt=args.dt,
         coeff_eddy_heat_diff=args.coeff_eddy_heat_diff,
         k_v=args.k_v,
+        k_u=args.k_u,
         epsilon_u=args.epsilon_u,
         delta_z=args.delta_z,
         delta=args.delta,
         tau=args.tau,
         v_d=args.v_d,
         domain_size=args.domain_size,
-        asselin_filt_coef=args.asselin_filt_coef,
         include_vert_advec_u=args.include_vert_advec_u,
         include_merid_advec_u=args.include_merid_advec_u,
         enable_steady_state=args.enable_steady_state,

@@ -1,11 +1,16 @@
 """
-This file shows the python code for S-S model.
+The Sobel-Schneider single-layer shallow-water model.
+
+Integrates u (zonal wind) and theta (potential temperature) on cell centers and
+v (meridional wind) on cell faces using a staggered Arakawa C-grid (ss09.grid),
+flux-form spatial operators (ss09.rhs), and a self-starting fixed-step RK4
+method-of-lines time integrator (ss09.integrators).
 """
 
 import os
 import logging
 import numpy as np
-from typing import Tuple, NamedTuple
+from typing import NamedTuple
 from dataclasses import asdict
 from .model_state import ModelState
 from .theta_e import ThetaEProfile
@@ -15,6 +20,8 @@ from .steady_state import SteadyStateDetector
 from .hadley_diagnostics import HadleyDiagnostics
 from .restart_state import RestartState
 from .output_path_utils import generate_restart_filename
+from .integrators import RK4Integrator
+from . import rhs as rhs_module
 
 # Configure logging
 logging.basicConfig(
@@ -23,21 +30,14 @@ logging.basicConfig(
 
 # Constants
 SECONDS_PER_DAY = 86400  # Number of seconds in a day
-THETA_TO_TEMP = 1 / 1.6  # Inverse of (p_s/p_t)^(R/c_p)
-
-
-class AuxiliaryVars(NamedTuple):
-    """
-    Values of u, v, and theta for the previous or future step.
-    """
-    u: np.ndarray
-    v: np.ndarray
-    theta: np.ndarray
+THETA_TO_TEMP = rhs_module.THETA_TO_TEMP  # Inverse of (p_s/p_t)^(R/c_p)
 
 
 class TempVars(NamedTuple):
     """
     Temporary storage of model variables for daily averages.
+
+    u, theta, theta_e are on cell centers (ny); v is on cell faces (ny+1).
     """
     u: np.ndarray
     v: np.ndarray
@@ -48,35 +48,31 @@ class TempVars(NamedTuple):
 
 class SWModel:
     """
-    The shallow water model on an equatorial beta plane.
+    The shallow water model on an equatorial beta plane (staggered C-grid, RK4).
     """
     def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
         self.config = config
         self.theta_e_profile = theta_e_profile
+        ny = config.ny
         self.state = ModelState(
             t=0.0,
-            u=np.zeros(config.ny),
-            v=np.zeros(config.ny),
-            theta=np.zeros(config.ny),
-            y=config.y,
+            u=np.zeros(ny),          # cell centers
+            v=np.zeros(ny + 1),      # cell faces (v=0 at the two walls)
+            theta=np.zeros(ny),      # cell centers
+            y=config.y,              # cell-center coordinate
         )
         self.state = self.state._replace(theta=self.theta_e_profile(self.state))
+        self.integrator = RK4Integrator()
         self.results = DailyResults(
-            config.total_integration_days, config.ny,
+            config.total_integration_days, ny,
             store_theta_e=self.has_seasonal_forcing()
         )
         self.temp_vars = TempVars(
-            u=np.zeros((0, config.ny)),
-            v=np.zeros((0, config.ny)),
-            theta=np.zeros((0, config.ny)),
-            theta_e=np.zeros((0, config.ny)),
+            u=np.zeros((0, ny)),
+            v=np.zeros((0, ny + 1)),
+            theta=np.zeros((0, ny)),
+            theta_e=np.zeros((0, ny)),
             time=np.zeros(0),
-        )
-        self.vars_prev_step = AuxiliaryVars(
-            u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
-        )
-        self.vars_next_step = AuxiliaryVars(
-            u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
         )
         self.steady_state_detector = SteadyStateDetector(
             enabled=config.enable_steady_state,
@@ -86,7 +82,7 @@ class SWModel:
             smoothness_threshold=config.smoothness_threshold,
         )
         self.hadley_diagnostics = HadleyDiagnostics(
-            ny=config.ny,
+            ny=ny,
             total_days=config.total_integration_days
         )
 
@@ -102,143 +98,21 @@ class SWModel:
             return getattr(config, 'y_0_seasonal_amp', 0.0) > 0
         return False
 
-    def init_prev_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Initialize variables for the previous step."""
-        u_prev = self.state.u - self.config.dt * self.du_dt()
-        v_prev = self.state.v - self.config.dt * self.dv_dt()
-        theta_prev = self.state.theta - self.config.dt * self.dtheta_dt()
-        return u_prev, v_prev, theta_prev
+    def rhs(self, state: ModelState):
+        """Full explicit tendency (du, dv, dtheta) for the current forcing."""
+        return rhs_module.rhs(state, self.config, self.theta_e_profile)
 
     def init_temp_storage(self):
         """Initialize temporary storage for daily averages."""
         steps_per_day = int(SECONDS_PER_DAY / self.config.dt)
+        ny = self.config.ny
         self.temp_vars = TempVars(
-            u=np.zeros([steps_per_day, self.config.ny]),
-            v=np.zeros([steps_per_day, self.config.ny]),
-            theta=np.zeros([steps_per_day, self.config.ny]),
-            theta_e=np.zeros([steps_per_day, self.config.ny]),
+            u=np.zeros([steps_per_day, ny]),
+            v=np.zeros([steps_per_day, ny + 1]),
+            theta=np.zeros([steps_per_day, ny]),
+            theta_e=np.zeros([steps_per_day, ny]),
             time=np.zeros(steps_per_day),
         )
-
-    def du_dy_upwind(self) -> np.ndarray:
-        """Calculate the upwind gradient of u with respect to y based on velocity v."""
-        grad_u_upwind = np.zeros_like(self.state.u)
-        # For positive velocity (backward difference)
-        mask_pos = self.state.v > 0
-        grad_u_upwind[1:][mask_pos[1:]] = (
-            self.state.u[1:][mask_pos[1:]] - self.state.u[:-1][mask_pos[1:]]
-        ) / self.config.dy
-        # For negative velocity (forward difference)
-        mask_neg = self.state.v < 0
-        grad_u_upwind[:-1][mask_neg[:-1]] = (
-            self.state.u[1:][mask_neg[:-1]] - self.state.u[:-1][mask_neg[:-1]]
-        ) / self.config.dy
-        return grad_u_upwind
-
-    def edd_mom_flux_div_u(self) -> np.ndarray:
-        """Calculate the eddy momentum flux divergence."""
-        return (
-            self.config.v_d
-            * np.heaviside(self.state.u, 0.5)  # H(u)=1 if u>0, 0 if u<0, 0.5 at u=0
-            * np.sign(self.config.y)
-            * np.gradient(self.state.u, self.config.dy)
-        )
-
-    def rayleigh_drag_u(self) -> np.ndarray:
-        """Calculate the Rayleigh drag for u."""
-        return self.state.u * self.config.epsilon_u
-
-    def vert_advec_u(self) -> np.ndarray:
-        """Calculate the vertical momentum advection."""
-        return (
-            self.state.u
-            * self.dv_dy()
-            * np.heaviside(self.theta_e_profile(self.state) - self.state.theta, 0.5)
-        )
-
-    def coriolis_term(self, u_or_v: np.ndarray) -> np.ndarray:
-        """Calculate the Coriolis term for the u or v equation."""
-        return self.config.beta * self.config.y * u_or_v
-
-    def merid_advec_u(self) -> np.ndarray:
-        """Calculate the meridional advection term for u."""
-        return self.state.v * self.du_dy_upwind()
-
-    def du_dt(self) -> np.ndarray:
-        """Calculate the time derivative of u."""
-        vert_advec_u_term = (
-            self.vert_advec_u() if self.config.include_vert_advec_u else 0
-        )
-        merid_advec_u_term = (
-            self.merid_advec_u() if self.config.include_merid_advec_u else 0
-        )
-        return (
-            self.coriolis_term(self.state.v)
-            - merid_advec_u_term
-            - vert_advec_u_term
-            - self.rayleigh_drag_u()
-            - self.edd_mom_flux_div_u()
-        )
-
-    def dv_dy(self) -> np.ndarray:
-        """Calculate the gradient of v with respect to y."""
-        return np.gradient(self.state.v, self.config.dy)
-
-    def diffusion_v(self) -> np.ndarray:
-        """Calculate the diffusion term for v."""
-        return np.gradient(self.dv_dy(), self.config.dy) * self.config.k_v
-
-    def dp_dy_term(self) -> np.ndarray:
-        """Calculate the pressure gradient term."""
-        dtemp_dy = np.gradient(self.state.theta * THETA_TO_TEMP, self.config.dy)
-        return self.config.gravity * self.config.height * dtemp_dy / self.config.t_ref
-
-    def dv_dt(self) -> np.ndarray:
-        """Calculate the time derivative of v."""
-        return (
-            -self.coriolis_term(self.state.u) - self.dp_dy_term() + self.diffusion_v()
-        ) / 2
-
-    def newt_cool_term(self) -> np.ndarray:
-        """Newtonian cooling term."""
-        return (self.theta_e_profile(self.state) - self.state.theta) / self.config.tau
-
-    def vert_advec_theta(self) -> np.ndarray:
-        """Calculate the vertical advection term for theta."""
-        return (
-            -self.config.delta
-            * self.config.delta_z
-            * self.dv_dy()
-            / self.config.height
-        )
-
-    def eddy_heat_flux(self) -> np.ndarray:
-        """Calculate the eddy heat flux divergence."""
-        if self.config.coeff_eddy_heat_diff == 0.0:
-            return np.zeros_like(self.state.theta)
-        dtheta_dy = np.gradient(self.state.theta, self.config.dy)
-        return self.config.coeff_eddy_heat_diff * np.gradient(dtheta_dy, self.config.dy)
-
-    def dtheta_dt(self) -> np.ndarray:
-        """Calculate the time derivative of theta."""
-        return self.newt_cool_term() + self.vert_advec_theta() + self.eddy_heat_flux()
-
-    def leapfrog_step(self, prev: np.ndarray, time_deriv_func) -> np.ndarray:
-        """Perform a leapfrog step for a single variable."""
-        return prev + 2 * self.config.dt * time_deriv_func()
-
-    def asselin_filt(
-        self, prev: np.ndarray, after: np.ndarray, now: np.ndarray
-    ) -> np.ndarray:
-        """Apply the Asselin filter to a single variable."""
-        return now + self.config.asselin_filt_coef * (after + prev - 2 * now)
-
-    def enforce_boundary_conditions(self):
-        """Enforce boundary conditions."""
-        self.state.u[0] = 0
-        self.state.u[-1] = 0
-        self.state.v[0] = 0
-        self.state.v[-1] = 0
 
     def store_temp_results(self, timestamp: float, j: int):
         """Store temporary results for daily averaging."""
@@ -249,16 +123,23 @@ class SWModel:
         self.temp_vars.time[j - 1] = timestamp / SECONDS_PER_DAY
 
     def store_daily_avgs(self, day: int):
-        """Store daily averages."""
+        """Store daily averages.
+
+        v is averaged on faces, then interpolated to cell centers so that the
+        output, Hadley diagnostics, and steady-state detector all see one
+        (cell-center) y-grid.
+        """
         theta_e_avg = (
             np.mean(self.temp_vars.theta_e, axis=0)
             if self.has_seasonal_forcing() else None
         )
+        v_face_mean = np.mean(self.temp_vars.v, axis=0)
+        v_center_mean = 0.5 * (v_face_mean[:-1] + v_face_mean[1:])
         self.results.store_day(
             day,
             np.mean(self.temp_vars.time),
             np.mean(self.temp_vars.u, axis=0),
-            np.mean(self.temp_vars.v, axis=0),
+            v_center_mean,
             np.mean(self.temp_vars.theta, axis=0),
             theta_e_avg,
         )
@@ -288,47 +169,15 @@ class SWModel:
             day = self.restart_day
             starting_step = int(day * SECONDS_PER_DAY / self.config.dt)
             logging.info(f"Restarting from day {day}, step {starting_step}")
-            # vars_prev_step (the filtered n-1 state) was restored from the
-            # restart file by load_from_restart; reconstructing it here would
-            # discard it and break exact continuation, so leave it untouched.
         else:
             day = 0
             starting_step = 0
-            # Fresh start: seed the leapfrog scheme with a one-off backward step.
-            self.vars_prev_step = AuxiliaryVars(*self.init_prev_step_vars())
 
         self.init_temp_storage()
 
         for i in range(starting_step, total_time_steps):
-            self.state = self.state._replace(t=i * self.config.dt)
-
-            self.vars_next_step = self.vars_next_step._replace(
-                u=self.leapfrog_step(self.vars_prev_step.u, self.du_dt),
-                v=self.leapfrog_step(self.vars_prev_step.v, self.dv_dt),
-                theta=self.leapfrog_step(self.vars_prev_step.theta, self.dtheta_dt),
-            )
-
-            self.vars_prev_step = self.vars_prev_step._replace(
-                u=self.asselin_filt(
-                    self.vars_prev_step.u, self.vars_next_step.u, self.state.u
-                ),
-                v=self.asselin_filt(
-                    self.vars_prev_step.v, self.vars_next_step.v, self.state.v
-                ),
-                theta=self.asselin_filt(
-                    self.vars_prev_step.theta,
-                    self.vars_next_step.theta,
-                    self.state.theta,
-                ),
-            )
-
-            self.state = self.state._replace(
-                u=self.vars_next_step.u,
-                v=self.vars_next_step.v,
-                theta=self.vars_next_step.theta,
-            )
-
-            self.enforce_boundary_conditions()
+            # Self-starting RK4 advance; state.t becomes (i+1)*dt.
+            self.state = self.integrator.step(self.state, self.config.dt, self.rhs)
 
             ind_within_day = self.calc_ind_within_day(i)
             self.store_temp_results(self.state.t, ind_within_day)
@@ -410,38 +259,27 @@ class SWModel:
 
     def save_restart_file(self, day: int) -> None:
         """
-        Save restart state to NetCDF file.
+        Save the instantaneous staggered state to a NetCDF restart file.
 
-        CRITICAL: Saves INSTANTANEOUS state variables, NOT daily averages.
-        - self.state.u/v/theta: instantaneous values at current timestep (n)
-        - self.vars_prev_step.u/v/theta: instantaneous filtered values at previous timestep (n-1)
-
-        These are the live state variables used by the leapfrog integrator,
-        completely independent from the daily averages stored in self.results.
+        Saves the INSTANTANEOUS state (u, theta on centers; v on faces) at the
+        current day boundary, NOT daily averages. RK4 is self-starting, so no
+        n-1 level is needed (unlike the old leapfrog scheme).
 
         Args:
             day: Current day number for filename
-
-        Filename: Matches output file naming scheme with _restart_day{day:04d}.nc suffix
-        (e.g., run_20260111_134530_seas_y0p0000_ny051_3600days_restart_day0100.nc)
         """
-        # Create restart directory if it doesn't exist
         os.makedirs(self.config.restart_output_dir, exist_ok=True)
 
-        # Build RestartState with all necessary information
         restart_state = RestartState(
             current_time=self.state.t,
-            current_step=int(self.state.t / self.config.dt),
+            current_step=int(round(self.state.t / self.config.dt)),
             current_day=day,
-            # INSTANTANEOUS current state (n) - NOT daily averaged
+            # INSTANTANEOUS current state - NOT daily averaged
             u=self.state.u.copy(),
             v=self.state.v.copy(),
             theta=self.state.theta.copy(),
-            # INSTANTANEOUS previous filtered state (n-1) - NOT daily averaged
-            u_prev=self.vars_prev_step.u.copy(),
-            v_prev=self.vars_prev_step.v.copy(),
-            theta_prev=self.vars_prev_step.theta.copy(),
             y=self.state.y.copy(),
+            yf=self.config.yf.copy(),
             # Steady-state detector state
             steady_state_enabled=self.config.enable_steady_state,
             kinetic_energy_history=self.steady_state_detector.kinetic_energy_history.copy(),
@@ -457,7 +295,6 @@ class SWModel:
             theta_e_config_snapshot=asdict(self.theta_e_profile.config),
         )
 
-        # Generate filepath using descriptive naming scheme (matches output file)
         filepath = generate_restart_filename(self.config.output_path, day)
         restart_state.to_netcdf(filepath)
 
@@ -471,23 +308,15 @@ class SWModel:
         Returns:
             starting_day: The day number to resume from
         """
-        # Load restart state
         restart_state = RestartState.from_netcdf(restart_file)
-
-        # Validate compatibility with current configuration
         restart_state.validate_compatibility(self.config, self.theta_e_profile.config)
 
-        # Restore current state
+        # Restore the instantaneous staggered state
         self.state = self.state._replace(
             t=restart_state.current_time,
             u=restart_state.u,
             v=restart_state.v,
             theta=restart_state.theta,
-        )
-
-        # Restore previous step
-        self.vars_prev_step = self.vars_prev_step._replace(
-            u=restart_state.u_prev, v=restart_state.v_prev, theta=restart_state.theta_prev
         )
 
         # Restore steady-state detector state if enabled

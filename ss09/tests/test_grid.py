@@ -13,10 +13,10 @@ from ss09.grid import (
     div_f2c,
     avg_f2c,
     avg_c2f,
-    flux_div_vu,
     lap_face_dirichlet,
     lap_center_neumann,
     ddy_center,
+    ddy_upwind,
 )
 
 
@@ -105,38 +105,6 @@ def test_avg_c2f_interior_is_midpoint():
 
 
 # --------------------------------------------------------------------------
-# Flux-form momentum advection: conservation
-# --------------------------------------------------------------------------
-def test_flux_div_vu_integrates_to_boundary_flux():
-    g = StaggeredGrid(n=50, domain_size=DOMAIN)
-    rng = np.random.default_rng(0)
-    u = rng.standard_normal(g.n)
-    v = rng.standard_normal(g.n + 1)
-    v[0] = 0.0
-    v[-1] = 0.0  # no-flux walls
-    div = flux_div_vu(v, u, g.dy)
-    assert div.shape == (g.n,)
-    # domain integral of a flux divergence = boundary flux = 0 to roundoff
-    integral = np.sum(div) * g.dy
-    assert abs(integral) < 1e-9 * np.sum(np.abs(div) * g.dy + 1e-30)
-
-
-def test_flux_div_vu_matches_hand_value():
-    # Constant v=V (ignore the wall BC for this pure-operator check), u linear
-    # -> d/dy(vu) = V*a in the interior. The two boundary centers differ because
-    # avg_c2f fills wall faces with the edge value; in real runs v=0 at the
-    # walls makes those fluxes vanish (see the conservation test), so this only
-    # exercises interior correctness.
-    g = StaggeredGrid(n=10, domain_size=DOMAIN)
-    V = 2.0
-    a, b = 1e-6, 3.0
-    v = np.full(g.n + 1, V)
-    u = a * g.yc + b
-    div = flux_div_vu(v, u, g.dy)
-    np.testing.assert_allclose(div[1:-1], V * a, rtol=1e-9)
-
-
-# --------------------------------------------------------------------------
 # Laplacians
 # --------------------------------------------------------------------------
 def test_lap_face_dirichlet_quadratic_interior():
@@ -196,3 +164,29 @@ def test_ddy_center_of_even_is_odd():
     c = _even_center(g)
     d = ddy_center(c, g.dy)
     np.testing.assert_allclose(d, -d[::-1], atol=1e-12)
+
+
+# --------------------------------------------------------------------------
+# Upwind advective gradient (original SS09 v du/dy discretization)
+# --------------------------------------------------------------------------
+def test_ddy_upwind_picks_upwind_side():
+    g = StaggeredGrid(n=6, domain_size=DOMAIN)
+    c = np.array([0.0, 1.0, 3.0, 6.0, 10.0, 15.0])  # forward gaps: 1,2,3,4,5
+    # positive velocity -> backward difference; the first point has no upwind
+    # neighbor, so it stays 0
+    gp = ddy_upwind(c, np.ones(6), g.dy)
+    np.testing.assert_allclose(gp * g.dy, [0, 1, 2, 3, 4, 5])
+    # negative velocity -> forward difference; the last point stays 0
+    gn = ddy_upwind(c, -np.ones(6), g.dy)
+    np.testing.assert_allclose(gn * g.dy, [1, 2, 3, 4, 5, 0])
+    # zero velocity -> no advection
+    np.testing.assert_allclose(ddy_upwind(c, np.zeros(6), g.dy), 0.0)
+
+
+def test_ddy_upwind_advective_term_preserves_parity():
+    g = StaggeredGrid(n=50, domain_size=DOMAIN)
+    c = _even_center(g)                                   # even
+    vel = np.sin(2 * np.pi * g.yc / g.domain_size)        # odd velocity
+    # the momentum tendency -vel * du/dy must be even from symmetric data
+    term = vel * ddy_upwind(c, vel, g.dy)
+    np.testing.assert_allclose(term, term[::-1], atol=1e-12)

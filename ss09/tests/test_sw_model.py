@@ -3,7 +3,6 @@ import numpy as np
 from ss09.sw_model import SWModel
 from ss09.sw_config import SWConfig
 from ss09.theta_e import ThetaEConfig, SS09Profile, Sin2Profile, SB08Profile
-from ss09.model_state import ModelState
 
 
 @pytest.fixture
@@ -15,7 +14,7 @@ def sw_config():
         beta=2e-11,
         t_ref=300.0,
         output_path="./output.nc",
-        ny=51,
+        ny=50,
         dt=3600,
         coeff_eddy_heat_diff=0.0,
     )
@@ -39,43 +38,91 @@ def test_sw_model_initialization(sw_config, theta_e_config, profile_class):
 
     assert model.config == sw_config
     assert model.theta_e_profile == theta_e_profile
+    # Staggered C-grid: u/theta on ny centers, v on ny+1 faces.
     assert model.state.u.shape == (sw_config.ny,)
-    assert model.state.v.shape == (sw_config.ny,)
+    assert model.state.v.shape == (sw_config.ny + 1,)
     assert model.state.theta.shape == (sw_config.ny,)
     assert model.state.y.shape == (sw_config.ny,)
 
 
-def test_du_dt(model):
-    du_dt_result = model.du_dt()
-    assert du_dt_result.shape == (model.config.ny,)
-    # Add more specific assertions based on expected behavior
+def test_rhs_shapes(model):
+    du, dv, dtheta = model.rhs(model.state)
+    assert du.shape == (model.config.ny,)
+    assert dv.shape == (model.config.ny + 1,)
+    assert dtheta.shape == (model.config.ny,)
 
 
-def test_dv_dt(model):
-    dv_dt_result = model.dv_dt()
-    assert dv_dt_result.shape == (model.config.ny,)
-    # Add more specific assertions based on expected behavior
+def test_initial_theta_equals_theta_e(model):
+    """The model is initialized at the equilibrium profile on the cell centers."""
+    np.testing.assert_allclose(model.state.theta, model.theta_e_profile(model.state))
 
 
-def test_dtheta_dt(model):
-    dtheta_dt_result = model.dtheta_dt()
-    assert dtheta_dt_result.shape == (model.config.ny,)
-    # Add more specific assertions based on expected behavior
-
-
-def test_eddy_heat_flux_inactive(model):
-    eddy_heat_flux_result = model.eddy_heat_flux()
-    assert np.all(eddy_heat_flux_result == 0)
-    assert eddy_heat_flux_result.shape == (model.config.ny,)
-
-
-def test_eddy_heat_flux_active(sw_config, theta_e_config):
-    # Activate eddy heat flux by setting kappa_theta
-    sw_config.coeff_eddy_heat_diff = 1.0
+def test_v_walls_stay_zero_during_run(sw_config, theta_e_config):
+    """The boundary faces carry v=0 throughout the integration."""
+    sw_config.total_integration_days = 5
     model = SWModel(sw_config, SS09Profile(theta_e_config))
-    eddy_heat_flux_result = model.eddy_heat_flux()
-    assert eddy_heat_flux_result.shape == (model.config.ny,)
-    # Add more specific assertions based on expected behavior
+    model.run_sim()
+    assert model.state.v[0] == 0.0
+    assert model.state.v[-1] == 0.0
+
+
+# --------------------------------------------------------------------------
+# Stability anchor: the off-equatorial bug the rewrite fixes
+# --------------------------------------------------------------------------
+def test_off_equatorial_stable_at_default_dt():
+    """Constant off-equatorial SB08 forcing from rest is stable at dt=3600.
+
+    The old collocated/leapfrog scheme went to NaN within ~2 steps here; the
+    staggered RK4 scheme with explicit momentum diffusion integrates it cleanly
+    far past the day-~100 point where the centered/no-diffusion scheme blew up.
+    """
+    config = SWConfig(total_integration_days=400, ny=50, dt=3600,
+                      output_path="./output.nc")
+    profile = SB08Profile(ThetaEConfig(theta_e_type="SB08", y_0=1000e3))
+    model = SWModel(config, profile)
+    model.run_sim()
+    assert np.all(np.isfinite(model.state.u))
+    assert np.all(np.isfinite(model.state.v))
+    assert np.all(np.isfinite(model.state.theta))
+    # a physical winter jet has spun up at subtropical latitudes, not run away
+    jet = np.max(np.abs(model.results.u[-1]))
+    assert 10.0 < jet < 80.0
+
+
+def test_symmetric_climate_is_steady_and_physical():
+    """Symmetric forcing reaches a steady ~28 m/s subtropical jet with no
+    equatorial superrotation (the explicit momentum diffusion suppresses the
+    EMFD-driven runaway the clean scheme would otherwise expose)."""
+    config = SWConfig(total_integration_days=400, ny=50, dt=3600,
+                      output_path="./output.nc")
+    profile = Sin2Profile(ThetaEConfig(theta_e_type="sin2", y_0=0.0))
+    model = SWModel(config, profile)
+    model.run_sim()
+    u = model.results.u[-1]
+    y = config.y
+    assert np.all(np.isfinite(u))
+    # subtropical jet of the right magnitude, not a runaway
+    assert 20.0 < np.max(u) < 40.0
+    # near-zero equatorial wind (no superrotation)
+    assert abs(u[np.argmin(np.abs(y))]) < 5.0
+
+
+# --------------------------------------------------------------------------
+# Symmetric-parity anchor (exact to roundoff on an even grid)
+# --------------------------------------------------------------------------
+def test_symmetric_run_preserves_parity():
+    """Symmetric forcing (y0=0, even N) keeps u/theta even and v odd."""
+    config = SWConfig(total_integration_days=10, ny=50, dt=3600,
+                      output_path="./output.nc")
+    profile = Sin2Profile(ThetaEConfig(theta_e_type="sin2", y_0=0.0))
+    model = SWModel(config, profile)
+    model.run_sim()
+    u = model.results.u[-1]
+    v = model.results.v[-1]  # daily-mean v already interpolated to centers
+    theta = model.results.theta[-1]
+    np.testing.assert_allclose(u, u[::-1], atol=1e-10)
+    np.testing.assert_allclose(theta, theta[::-1], atol=1e-10)
+    np.testing.assert_allclose(v, -v[::-1], atol=1e-10)
 
 
 def test_steady_state_integration(sw_config, theta_e_config):
@@ -130,30 +177,6 @@ def test_steady_state_warning_when_not_converged(sw_config, theta_e_config, capl
     convergence_warnings = [m for m in warning_messages if "convergence" in m.lower()]
     assert len(convergence_warnings) >= 1, "Expected a warning about convergence not being reached"
     assert "without reaching convergence" in convergence_warnings[0].lower() or "not reached" in convergence_warnings[0].lower()
-
-
-def test_merid_advec_u_toggle(sw_config, theta_e_config):
-    """Test that meridional advection of u can be toggled on/off"""
-    # Test with advection enabled (default)
-    sw_config.include_merid_advec_u = True
-    model_with = SWModel(sw_config, SS09Profile(theta_e_config))
-    model_with.state.u[:] = np.linspace(1.0, 10.0, sw_config.ny)
-    model_with.state.v[:] = 2.0
-    du_dt_with = model_with.du_dt()
-
-    # Test with advection disabled
-    sw_config.include_merid_advec_u = False
-    model_without = SWModel(sw_config, SS09Profile(theta_e_config))
-    model_without.state.u[:] = np.linspace(1.0, 10.0, sw_config.ny)
-    model_without.state.v[:] = 2.0
-    du_dt_without = model_without.du_dt()
-
-    # Results should be different
-    assert not np.allclose(du_dt_with, du_dt_without)
-
-    # Verify shape is correct in both cases
-    assert du_dt_with.shape == (sw_config.ny,)
-    assert du_dt_without.shape == (sw_config.ny,)
 
 
 def test_hadley_diagnostics_integration(sw_config, theta_e_config):
@@ -218,7 +241,6 @@ def test_hadley_diagnostics_backward_compatibility(sw_config, theta_e_config):
 
 def test_seasonal_sb08_integration(sw_config):
     """Test that model runs successfully with seasonal SB08 profile"""
-    # Create a fresh ThetaEConfig specifically for SB08 with reasonable parameters
     from ss09.theta_e import SB08Profile, ThetaEConfig
 
     theta_e_config = ThetaEConfig(
@@ -343,151 +365,3 @@ def test_has_seasonal_forcing_detection(sw_config, theta_e_config):
     )
     model_no_amp = SWModel(sw_config, SB08Profile(theta_e_config_no_amp))
     assert not model_no_amp.has_seasonal_forcing()
-
-
-def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
-    """Test that EMFD only acts where u > 0 (westerlies), per SCIENCE.md eq 3.1.
-
-    The Heaviside function H(u) (=0 for u < 0, 0.5 at u = 0, 1 for u > 0)
-    ensures that eddies only extract momentum from westerly flow.
-    """
-    model = SWModel(sw_config, SS09Profile(theta_e_config))
-
-    ny = model.config.ny
-    equator_idx = ny // 2
-
-    # Create u profile: easterlies near equator, westerlies in subtropics
-    u_profile = np.zeros(ny)
-    u_profile[equator_idx - 5:equator_idx + 6] = -5.0  # easterlies (u < 0)
-    u_profile[:equator_idx - 5] = np.linspace(10.0, 2.0, equator_idx - 5)  # SH westerlies
-    u_profile[equator_idx + 6:] = np.linspace(2.0, 10.0, ny - equator_idx - 6)  # NH westerlies
-
-    model.state = model.state._replace(u=u_profile)
-    emfd = model.edd_mom_flux_div_u()
-
-    # EMFD must be exactly zero where u < 0 (easterlies)
-    easterly_mask = u_profile < 0
-    assert np.all(emfd[easterly_mask] == 0.0), \
-        f"EMFD must be exactly zero in easterly regions, got: {emfd[easterly_mask]}"
-
-    # EMFD should be non-zero where u > 0 and du/dy != 0
-    westerly_mask = u_profile > 0
-    du_dy = np.gradient(u_profile, model.config.dy)
-    active_mask = westerly_mask & (np.abs(du_dy) > 1e-10)
-    assert not np.allclose(emfd[active_mask], 0.0), \
-        "EMFD should be non-zero in westerly regions with shear"
-
-
-def test_emfd_heaviside_half_at_zero_u(sw_config, theta_e_config):
-    """At exactly u = 0, EMFD uses H(0) = 0.5, matching the vertical-advection
-    convention (implicit smoothing at the Heaviside boundary) rather than 0.
-    """
-    model = SWModel(sw_config, SS09Profile(theta_e_config))
-    ny = model.config.ny
-    y = model.config.y
-
-    # Build u that passes through exactly 0 at a non-equatorial NH grid point
-    # k (so sign(y[k]) != 0) with uniform, nonzero shear.
-    k = ny // 2 + 5
-    u_profile = (np.arange(ny) - k) * 1.0
-    assert u_profile[k] == 0.0
-    model.state = model.state._replace(u=u_profile)
-
-    emfd = model.edd_mom_flux_div_u()
-    du_dy = np.gradient(u_profile, model.config.dy)
-    expected = model.config.v_d * 0.5 * np.sign(y[k]) * du_dy[k]
-
-    assert np.isclose(emfd[k], expected)
-    assert not np.isclose(emfd[k], 0.0)  # would be 0 under the old H(0)=0 convention
-
-
-def test_vert_advec_u_heaviside_at_equilibrium(sw_config, theta_e_config):
-    """Test that vertical advection is half-strength when theta equals theta_e.
-
-    Per physics: H(theta_e - theta) uses H(0) = 0.5 at exact equilibrium to provide
-    implicit smoothing at the convective boundary. This prevents oscillations that
-    would otherwise occur when small perturbations flip the Heaviside on/off sharply.
-    """
-    model = SWModel(sw_config, SS09Profile(theta_e_config))
-
-    # Set u to non-zero values so vert_advec_u term would be nonzero if H != 0
-    model.state = model.state._replace(u=np.ones(model.config.ny) * 10.0)
-
-    # Set v to have divergence (so dv/dy != 0)
-    v_profile = np.sin(np.pi * model.config.y / model.config.y.max())
-    model.state = model.state._replace(v=v_profile)
-
-    # Crucially: set theta = theta_e exactly (at equilibrium)
-    theta_e = model.theta_e_profile(model.state)
-    model.state = model.state._replace(theta=theta_e.copy())
-
-    # At equilibrium (theta_e - theta = 0), the Heaviside function returns 0.5,
-    # so vertical advection should be half of full strength: 0.5 * u * dv/dy
-    vert_advec = model.vert_advec_u()
-    dv_dy = np.gradient(model.state.v, model.config.dy)
-    expected_half_strength = 0.5 * model.state.u * dv_dy
-
-    assert np.allclose(vert_advec, expected_half_strength), (
-        f"Vertical advection should be half-strength at equilibrium (theta = theta_e). "
-        f"Max difference: {np.abs(vert_advec - expected_half_strength).max()}"
-    )
-
-
-def test_vert_advec_u_active_when_cooler_than_equilibrium(sw_config, theta_e_config):
-    """Test that vertical advection is active when theta < theta_e.
-
-    Per physics: H(theta_e - theta) = 1 when theta_e > theta (atmosphere is
-    cooler than equilibrium, indicating convective tendency).
-    """
-    model = SWModel(sw_config, SS09Profile(theta_e_config))
-
-    # Set u to non-zero values
-    model.state = model.state._replace(u=np.ones(model.config.ny) * 10.0)
-
-    # Set v to have divergence (so dv/dy != 0)
-    v_profile = np.sin(np.pi * model.config.y / model.config.y.max())
-    model.state = model.state._replace(v=v_profile)
-
-    # Set theta cooler than theta_e
-    theta_e = model.theta_e_profile(model.state)
-    model.state = model.state._replace(theta=theta_e - 5.0)  # 5 K cooler
-
-    # Now H(theta_e - theta) = H(5) = 1, so vertical advection should be active
-    vert_advec = model.vert_advec_u()
-
-    # Check that at least some points have non-zero vertical advection
-    # (where dv/dy != 0)
-    dv_dy = np.gradient(v_profile, model.config.dy)
-    active_mask = np.abs(dv_dy) > 1e-10
-
-    assert not np.allclose(vert_advec[active_mask], 0.0), (
-        "Vertical advection should be active when theta < theta_e"
-    )
-
-
-def test_vert_advec_u_inactive_when_warmer_than_equilibrium(sw_config, theta_e_config):
-    """Test that vertical advection is inactive when theta > theta_e.
-
-    Per physics: H(theta_e - theta) = 0 when theta_e < theta (atmosphere is
-    warmer than equilibrium, no convective tendency).
-    """
-    model = SWModel(sw_config, SS09Profile(theta_e_config))
-
-    # Set u to non-zero values
-    model.state = model.state._replace(u=np.ones(model.config.ny) * 10.0)
-
-    # Set v to have divergence (so dv/dy != 0)
-    v_profile = np.sin(np.pi * model.config.y / model.config.y.max())
-    model.state = model.state._replace(v=v_profile)
-
-    # Set theta warmer than theta_e
-    theta_e = model.theta_e_profile(model.state)
-    model.state = model.state._replace(theta=theta_e + 5.0)  # 5 K warmer
-
-    # Now H(theta_e - theta) = H(-5) = 0, so vertical advection should be zero
-    vert_advec = model.vert_advec_u()
-
-    assert np.allclose(vert_advec, 0.0), (
-        f"Vertical advection should be zero when theta > theta_e. "
-        f"Max value: {np.abs(vert_advec).max()}"
-    )

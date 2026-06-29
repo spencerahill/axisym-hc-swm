@@ -22,18 +22,15 @@ class RestartState:
     current_step: int  # absolute timestep number
     current_day: int  # day index
 
-    # Current INSTANTANEOUS state (timestep n)
-    u: np.ndarray  # shape (ny,) - zonal wind
-    v: np.ndarray  # shape (ny,) - meridional wind
-    theta: np.ndarray  # shape (ny,) - potential temperature
-
-    # Previous INSTANTANEOUS filtered state (timestep n-1) for leapfrog
-    u_prev: np.ndarray  # shape (ny,)
-    v_prev: np.ndarray  # shape (ny,)
-    theta_prev: np.ndarray  # shape (ny,)
+    # Current INSTANTANEOUS staggered state. RK4 is self-starting, so no n-1
+    # level is stored (unlike the old leapfrog scheme).
+    u: np.ndarray  # shape (ny,) - zonal wind on cell centers
+    v: np.ndarray  # shape (ny+1,) - meridional wind on cell faces
+    theta: np.ndarray  # shape (ny,) - potential temperature on cell centers
 
     # Grid
-    y: np.ndarray  # shape (ny,) - meridional coordinate
+    y: np.ndarray  # shape (ny,) - cell-center coordinate
+    yf: np.ndarray  # shape (ny+1,) - cell-face coordinate
 
     # Steady-state detector state (if enabled)
     steady_state_enabled: bool
@@ -67,14 +64,10 @@ class RestartState:
                 "current_time": ([], self.current_time, {"units": "seconds", "long_name": "Current simulation time"}),
                 "current_step": ([], self.current_step, {"long_name": "Current timestep number"}),
                 "current_day": ([], self.current_day, {"long_name": "Current day index"}),
-                # Current instantaneous state
-                "u": (["y"], self.u, {"units": "m/s", "long_name": "Instantaneous zonal wind (timestep n)"}),
-                "v": (["y"], self.v, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n)"}),
-                "theta": (["y"], self.theta, {"units": "K", "long_name": "Instantaneous potential temperature (timestep n)"}),
-                # Previous instantaneous filtered state
-                "u_prev": (["y"], self.u_prev, {"units": "m/s", "long_name": "Instantaneous zonal wind (timestep n-1, filtered)"}),
-                "v_prev": (["y"], self.v_prev, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n-1, filtered)"}),
-                "theta_prev": (["y"], self.theta_prev, {"units": "K", "long_name": "Instantaneous potential temperature (timestep n-1, filtered)"}),
+                # Current instantaneous staggered state (u, theta on centers; v on faces)
+                "u": (["y"], self.u, {"units": "m/s", "long_name": "Instantaneous zonal wind (cell centers)"}),
+                "v": (["yf"], self.v, {"units": "m/s", "long_name": "Instantaneous meridional wind (cell faces)"}),
+                "theta": (["y"], self.theta, {"units": "K", "long_name": "Instantaneous potential temperature (cell centers)"}),
                 # Steady-state detector history
                 "kinetic_energy_history": (
                     ["history_length"],
@@ -105,7 +98,8 @@ class RestartState:
                 "smoothness_warning_issued": ([], int(self.smoothness_warning_issued), {"long_name": "v-field smoothness warning issued flag"}),
             },
             coords={
-                "y": (["y"], self.y, {"units": "m", "long_name": "Meridional distance"}),
+                "y": (["y"], self.y, {"units": "m", "long_name": "Cell-center meridional distance"}),
+                "yf": (["yf"], self.yf, {"units": "m", "long_name": "Cell-face meridional distance"}),
                 "history_length": np.arange(history_length),
             },
         )
@@ -165,14 +159,12 @@ class RestartState:
         current_step = int(ds["current_step"].values)
         current_day = int(ds["current_day"].values)
 
-        # Extract instantaneous state arrays
+        # Extract instantaneous staggered state arrays
         u = ds["u"].values
         v = ds["v"].values
         theta = ds["theta"].values
-        u_prev = ds["u_prev"].values
-        v_prev = ds["v_prev"].values
-        theta_prev = ds["theta_prev"].values
         y = ds["y"].values
+        yf = ds["yf"].values
 
         # Extract steady-state detector history
         kinetic_energy_history = ds["kinetic_energy_history"].values.tolist()
@@ -212,10 +204,8 @@ class RestartState:
             u=u,
             v=v,
             theta=theta,
-            u_prev=u_prev,
-            v_prev=v_prev,
-            theta_prev=theta_prev,
             y=y,
+            yf=yf,
             steady_state_enabled=steady_state_enabled,
             kinetic_energy_history=kinetic_energy_history,
             temp_variance_history=temp_variance_history,

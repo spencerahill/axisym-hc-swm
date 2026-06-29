@@ -97,18 +97,6 @@ def avg_c2f(c: np.ndarray) -> np.ndarray:
     return out
 
 
-def flux_div_vu(v_face: np.ndarray, u_center: np.ndarray, dy: float) -> np.ndarray:
-    """Conservative momentum-flux divergence ``d_y(v u)`` on centers.
-
-    The flux ``F = v * u_hat`` is formed on faces (``u_hat`` interpolated from
-    centers), then differenced back to centers. Because ``v = 0`` on the wall
-    faces, the boundary fluxes vanish and the domain integral of the result is
-    exactly zero (discrete conservation of ``integral u dy`` from advection).
-    """
-    flux = v_face * avg_c2f(u_center)
-    return div_f2c(flux, dy)
-
-
 def lap_face_dirichlet(f: np.ndarray, dy: float) -> np.ndarray:
     """3-point Laplacian on faces with Dirichlet ``v = 0`` walls (length ``n+1``).
 
@@ -133,6 +121,24 @@ def lap_center_neumann(c: np.ndarray, dy: float) -> np.ndarray:
     out[0] = (c[1] - c[0]) / dy ** 2
     out[-1] = (c[-2] - c[-1]) / dy ** 2
     return out
+
+
+def ddy_upwind(c: np.ndarray, vel_c: np.ndarray, dy: float) -> np.ndarray:
+    """Upwind ``d/dy`` of a center field, biased by the sign of ``vel_c`` (centers).
+
+    Backward difference where ``vel_c > 0``, forward where ``vel_c < 0``, zero
+    where ``vel_c == 0`` or where the upwind neighbor would fall outside the
+    domain (the two end points). This is the original SS09 ``v du/dy`` upwinding,
+    which adds the numerical diffusion that keeps the advection stable; the
+    accompanying ``v`` is the meridional velocity averaged to centers.
+    """
+    grad = np.zeros_like(c)
+    diff = (c[1:] - c[:-1]) / dy  # forward difference at each interior gap
+    mask_pos = vel_c > 0
+    grad[1:][mask_pos[1:]] = diff[mask_pos[1:]]
+    mask_neg = vel_c < 0
+    grad[:-1][mask_neg[:-1]] = diff[mask_neg[:-1]]
+    return grad
 
 
 def ddy_center(c: np.ndarray, dy: float) -> np.ndarray:
