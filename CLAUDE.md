@@ -437,7 +437,7 @@ When enabled, the NetCDF output includes:
 
 ### v Field Smoothness Monitoring
 
-When steady-state detection is enabled, the model automatically monitors the smoothness of the meridional wind (v) field to detect grid-scale oscillations from the leapfrog time-stepping scheme.
+When steady-state detection is enabled, the model automatically monitors the smoothness of the meridional wind (v) field to detect grid-scale (2Δy) oscillations. Note: the numerics overhaul (staggered C-grid + RK4) removed the gravity-wave 2Δy computational mode this monitor was built to catch, so it is now largely vestigial; it is retained for diagnostic coverage.
 
 **Smoothness Metric**: Correlation between neighboring grid points. Values close to 1.0 indicate smooth fields, while values below 0.5 indicate grid-scale (2Δy) computational mode oscillations.
 
@@ -453,7 +453,7 @@ When steady-state detection is enabled, the model automatically monitors the smo
 run-sw-model --stop-at-steady-state --v-smooth-thresh 0.7
 ```
 
-**Physical Interpretation**: Grid-scale oscillations typically occur when friction (especially `--kv`) is too weak to damp the 2Δy computational mode inherent to leapfrog schemes. Increasing `--kv` suppresses these oscillations. See the `analyze_v_smoothness.py` script for detailed smoothness analysis.
+**Physical Interpretation**: Grid-scale oscillations historically arose when friction (especially `--kv`) was too weak to damp the 2Δy computational mode of the old leapfrog scheme. The staggered C-grid + RK4 scheme no longer supports that mode; increasing `--kv` still smooths the v field. See the `analyze_v_smoothness.py` script for detailed smoothness analysis.
 
 ## Hadley Cell Diagnostics
 
