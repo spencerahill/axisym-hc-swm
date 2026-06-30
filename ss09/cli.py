@@ -154,6 +154,20 @@ def parse_arguments():
         help="Eddy viscosity on u / momentum diffusion (default: 1e5; 0 disables)",
     )
     parser.add_argument(
+        "--emfd-gate-width",
+        type=float,
+        default=0.0,
+        dest="emfd_gate_width",
+        help="Tanh smoothing width [m/s] for the EMFD H(u) gate (default: 0 = hard Heaviside)",
+    )
+    parser.add_argument(
+        "--ku4",
+        type=float,
+        default=0.0,
+        dest="k_u4",
+        help="Biharmonic hyperdiffusion on u, -k_u4 d4u/dy4 [m^4/s] (default: 0 = off)",
+    )
+    parser.add_argument(
         "--eps-u",
         type=float,
         default=1e-8,
@@ -330,6 +344,8 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         coeff_eddy_heat_diff=args.coeff_eddy_heat_diff,
         k_v=args.k_v,
         k_u=args.k_u,
+        emfd_gate_width=getattr(args, "emfd_gate_width", 0.0),
+        k_u4=getattr(args, "k_u4", 0.0),
         epsilon_u=args.epsilon_u,
         delta_z=args.delta_z,
         delta=args.delta,

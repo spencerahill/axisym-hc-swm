@@ -172,6 +172,89 @@ def test_emfd_heaviside_half_at_zero_u():
 
 
 # --------------------------------------------------------------------------
+# Tanh-smoothed EMFD gate (lever A): g(u) = 0.5(1 + tanh(u/u_w)); u_w=0 -> hard H(u)
+# --------------------------------------------------------------------------
+def test_emfd_gate_width_zero_matches_hard_heaviside():
+    """emfd_gate_width=0 (default) reproduces the hard-Heaviside gate exactly."""
+    config = SWConfig(ny=50, total_integration_days=1)  # emfd_gate_width defaults to 0
+    assert config.emfd_gate_width == 0.0
+    rng = np.random.default_rng(21)
+    u = rng.standard_normal(config.ny) * 10.0
+    expected = (
+        config.v_d * rhs._heaviside(u) * np.sign(config.y)
+        * ops.ddy_center(u, config.dy)
+    )
+    np.testing.assert_allclose(rhs.emfd_u(u, config), expected, atol=1e-15)
+
+
+def test_emfd_tanh_gate_smooths_around_u_zero():
+    """width>0 applies g(u)=0.5(1+tanh(u/width)); differs from hard near u=0."""
+    width = 5.0
+    cfg = SWConfig(ny=50, total_integration_days=1, emfd_gate_width=width)
+    y = cfg.y
+    u = 1e-5 * y  # linear, crosses zero at the equator, constant slope
+    dudy = ops.ddy_center(u, cfg.dy)
+    gate = rhs.emfd_u(u, cfg) / (cfg.v_d * np.sign(y) * dudy)
+    np.testing.assert_allclose(gate, 0.5 * (1 + np.tanh(u / width)), atol=1e-12)
+    # saturating limits: strongly westerly -> 1, strongly easterly -> 0
+    assert gate[-1] > 0.99 and gate[0] < 0.01
+    # differs from the hard gate only near u=0
+    emfd_hard = rhs.emfd_u(u, SWConfig(ny=50, total_integration_days=1))
+    near = np.abs(u) < width
+    far = np.abs(u) > 10 * width
+    assert np.any(np.abs(rhs.emfd_u(u, cfg) - emfd_hard)[near] > 1e-9)
+    np.testing.assert_allclose(rhs.emfd_u(u, cfg)[far], emfd_hard[far], atol=1e-9)
+
+
+def test_emfd_tanh_gate_keyed_on_u_not_theta():
+    """The smoothed gate responds to the sign/value of u (not theta): an
+    all-westerly column gets near-full strength, an all-easterly column ~none."""
+    width = 5.0
+    cfg = SWConfig(ny=50, total_integration_days=1, emfd_gate_width=width)
+    shape = np.abs(cfg.y) / np.abs(cfg.y).max() * 20.0
+    e_west = rhs.emfd_u(shape + 10.0, cfg)   # u in [10, 30] -> gate ~1
+    e_east = rhs.emfd_u(-(shape + 10.0), cfg)  # u in [-30, -10] -> gate ~0
+    assert np.max(np.abs(e_east)) < 0.05 * np.max(np.abs(e_west))
+
+
+# --------------------------------------------------------------------------
+# Biharmonic hyperdiffusion on u (lever B): -k_u4 d^4u/dy^4
+# --------------------------------------------------------------------------
+def test_hyperdiffusion_zero_when_k_u4_zero():
+    cfg = SWConfig(ny=50, total_integration_days=1)  # k_u4 defaults to 0
+    assert cfg.k_u4 == 0.0
+    rng = np.random.default_rng(31)
+    u = rng.standard_normal(cfg.ny)
+    assert np.all(rhs.momentum_hyperdiffusion_u(u, cfg) == 0.0)
+
+
+def test_hyperdiffusion_linear_in_k_u4():
+    n = 50
+    rng = np.random.default_rng(32)
+    u = rng.standard_normal(n)
+    h1 = rhs.momentum_hyperdiffusion_u(u, SWConfig(ny=n, total_integration_days=1, k_u4=1e17))
+    assert np.any(h1 != 0.0)
+    np.testing.assert_allclose(
+        rhs.momentum_hyperdiffusion_u(u, SWConfig(ny=n, total_integration_days=1, k_u4=2e17)),
+        2.0 * h1,
+    )
+
+
+def test_hyperdiffusion_damps_2dy_mode():
+    """-k_u4 d^4u restores a 2Δy mode (tendency opposes u) and barely touches a
+    smooth (quadratic) field."""
+    n = 50
+    cfg = SWConfig(ny=n, total_integration_days=1, k_u4=1e17)
+    interior = slice(2, n - 2)  # away from the Neumann walls
+    u_mode = (-1.0) ** np.arange(n)
+    h_mode = rhs.momentum_hyperdiffusion_u(u_mode, cfg)
+    assert np.all(h_mode[interior] * u_mode[interior] < 0)  # restoring
+    u_smooth = (cfg.y / (cfg.domain_size / 2)) ** 2  # quadratic -> d^4 = 0
+    h_smooth = rhs.momentum_hyperdiffusion_u(u_smooth, cfg)
+    assert np.max(np.abs(h_smooth[interior])) < 1e-3 * np.max(np.abs(h_mode[interior]))
+
+
+# --------------------------------------------------------------------------
 # Optional eddy heat diffusion (rhs_im)
 # --------------------------------------------------------------------------
 def _state_with_theta_curvature(config, profile):

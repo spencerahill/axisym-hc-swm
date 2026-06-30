@@ -18,6 +18,8 @@ class SWConfig:
     output_path: str = "./model_output/output.nc"
     k_v: float = 7786 * 100
     k_u: float = 1e5  # eddy viscosity on u (momentum diffusion); replaces the old Asselin damping
+    emfd_gate_width: float = 0.0  # tanh smoothing width [m/s] for the EMFD H(u) gate; 0 = hard Heaviside
+    k_u4: float = 0.0  # biharmonic hyperdiffusion on u (-k_u4 d^4u/dy^4) [m^4/s]; 0 = off
     epsilon_u: float = 1e-8
     delta_z: float = 60
     delta: float = 4e3

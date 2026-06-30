@@ -71,13 +71,18 @@ def u_advection(u, v_face, theta, theta_e, config) -> np.ndarray:
 
 
 def emfd_u(u, config) -> np.ndarray:
-    """Eddy-momentum flux divergence S = v_d H(u) sgn(y) du/dy on centers."""
-    return (
-        config.v_d
-        * _heaviside(u)
-        * np.sign(config.y)
-        * ops.ddy_center(u, config.dy)
-    )
+    """Eddy-momentum flux divergence S = v_d g(u) sgn(y) du/dy on centers.
+
+    The westerly gate ``g(u)`` is the hard Heaviside ``H(u)`` by default
+    (``emfd_gate_width == 0``). With ``emfd_gate_width = u_w > 0`` it is the
+    tanh-smoothed gate ``g(u) = 0.5 (1 + tanh(u / u_w))``, which removes the step
+    in the forcing at the flank ``u = 0`` crossing (and so the grid-scale mode it
+    excites). ``u_w -> 0`` recovers the hard gate, and ``g(0) = 0.5`` matches
+    ``H(0)`` either way. The gate keys on ``u``, not theta.
+    """
+    width = config.emfd_gate_width
+    gate = _heaviside(u) if width == 0.0 else 0.5 * (1.0 + np.tanh(u / width))
+    return config.v_d * gate * np.sign(config.y) * ops.ddy_center(u, config.dy)
 
 
 def rayleigh_drag_u(u, config) -> np.ndarray:
@@ -95,6 +100,21 @@ def momentum_diffusion_u(u, config) -> np.ndarray:
     if config.k_u == 0.0:
         return np.zeros_like(u)
     return config.k_u * ops.lap_center_neumann(u, config.dy)
+
+
+def momentum_hyperdiffusion_u(u, config) -> np.ndarray:
+    """Biharmonic hyperdiffusion on u: -k_u4 d^4u/dy^4 (Neumann walls).
+
+    A scale-selective damping built by iterating the Neumann Laplacian. For a 2Δy
+    mode the double-Laplacian eigenvalue is +(4/Δy^2)^2, so the minus sign makes
+    the term restoring; the k^4 rolloff leaves the resolved jet (~1850-day
+    timescale at default k_u4) essentially untouched. Off by default (k_u4=0); an
+    alternative to the tanh gate for removing the EMFD jet-flank mode.
+    """
+    if config.k_u4 == 0.0:
+        return np.zeros_like(u)
+    lap = ops.lap_center_neumann(u, config.dy)
+    return -config.k_u4 * ops.lap_center_neumann(lap, config.dy)
 
 
 # --------------------------------------------------------------------------
@@ -152,7 +172,7 @@ def rhs_im(state: ModelState, config):
     """Stiff-capable linear diffusion tendencies."""
     u, v, theta = state.u, state.v, state.theta
 
-    du = momentum_diffusion_u(u, config)
+    du = momentum_diffusion_u(u, config) + momentum_hyperdiffusion_u(u, config)
     # k_v d^2v/dy^2, carrying the same factor of 1/2 as the rest of the v eqn.
     dv = ops.lap_face_dirichlet(v, config.dy) * config.k_v / 2.0
     if config.coeff_eddy_heat_diff != 0.0:
@@ -192,6 +212,7 @@ def momentum_budget_terms(state: ModelState, config, theta_e_profile) -> dict:
         "rayleigh (-eps u)": -rayleigh_drag_u(u, config),
         "emfd (-S)": -emfd_u(u, config),
         "u diffusion (k_u d2u)": momentum_diffusion_u(u, config),
+        "u hyperdiff (-k_u4 d4u)": momentum_hyperdiffusion_u(u, config),
     }
 
 
