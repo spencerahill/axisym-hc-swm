@@ -387,12 +387,78 @@ def _plot_sweep(data, values, vary_name, fname, logx=True):
     print(f"saved {fname} -> {SCRATCH}/{fname}.png")
 
 
+def _profiles_figure(configs, vary_name, fname):
+    """Plot full-domain u, v, theta for every value in a 1-D sweep, both cases.
+
+    configs: list of (label, gate_width, k_u4). Each value gets one color; the 6
+    values overlay in each (case x field) panel. NO zero line on theta (it lives
+    at 250-330 K; a y=0 reference squishes it); u and v keep the zero line.
+    Reports per-value diagnostics across the whole domain before returning.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    cmap = [plt.cm.viridis(t) for t in np.linspace(0, 0.92, len(configs))]
+
+    data = {}
+    for case, profile, y_0 in CASES:
+        for label, gw, k4 in configs:
+            y, u, m, blew = run(profile, y_0, gw, k4)
+            v, th = field_means(m)
+            data[(case, label)] = dict(y=y, u=u, v=v, theta=th, blew=blew)
+
+    # ---- inspect the whole domain and report ----
+    print(f"=== full-domain profiles vs {vary_name} (ny=50, dt=900, 1000 d) ===")
+    hdr = (f"{vary_name:>12s} {'case':6s} | {'max u':>6s} {'min u':>6s} {'u_eq':>6s} "
+           f"{'uSAW':>6s} | {'max|v|':>6s} | {'minT':>6s} {'maxT':>6s} {'':4s}")
+    print(hdr); print("-" * len(hdr))
+    for label, gw, k4 in configs:
+        for case, profile, y_0 in CASES:
+            r = data[(case, label)]
+            y, u, v, th = r["y"], r["u"], r["v"], r["theta"]
+            sw = cu.flank_mode(y, u, flank_min_m=FLANK_MIN)["sawtooth_max"]
+            print(f"{label:>12s} {case:6s} | {np.max(u):6.2f} {np.min(u):6.2f} "
+                  f"{u[np.argmin(np.abs(y))]:6.2f} {sw:6.2f} | {np.max(np.abs(v)):6.3f} | "
+                  f"{np.min(th):6.1f} {np.max(th):6.1f} {'BLEW' if r['blew'] else '':4s}")
+        print()
+
+    # ---- plot ----
+    fields = [("u", "m/s", True), ("v", "m/s", True), ("theta", "K", False)]
+    fig, axes = plt.subplots(2, 3, figsize=(17, 9))
+    for r_i, (case, profile, y_0) in enumerate(CASES):
+        for c_i, (fld, unit, zline) in enumerate(fields):
+            ax = axes[r_i, c_i]
+            for i, (label, gw, k4) in enumerate(configs):
+                ax.plot(data[(case, label)]["y"] / 1e6, data[(case, label)][fld],
+                        "-", lw=1.2, color=cmap[i], label=label)
+            if zline:
+                ax.axhline(0, color="grey", lw=0.5)
+            ax.set_xlabel("y [Mm]")
+            ax.set_ylabel(f"{fld} [{unit}]")
+            ax.set_title(f"{case}: {fld}")
+            if c_i == 0:
+                ax.legend(fontsize=7, title=vary_name)
+    fig.suptitle(f"Full solutions (u, v, theta) across the {vary_name} sweep "
+                 f"(ny=50, 1000 d mean)")
+    fig.tight_layout()
+    fig.savefig(f"{SCRATCH}/{fname}.png", dpi=130)
+    plt.close(fig)
+    print(f"saved {fname} -> {SCRATCH}/{fname}.png")
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "matrix"
     if mode == "matrix":
         run_matrix()
     elif mode == "vtheta":
         run_field_matrix()
+    elif mode == "prof_uw":
+        cfgs = [(f"u_w={v:g}", float(v), 0.0) for v in [0, 2, 5, 10, 20, 40]]
+        _profiles_figure(cfgs, "u_w [m/s]", "fig9_prof_uw")
+    elif mode == "prof_ku4":
+        cfgs = [(f"k4={v:.0e}", 0.0, float(v))
+                for v in [0, 1e16, 3e16, 1e17, 3e17, 1e18]]
+        _profiles_figure(cfgs, "k_u4 [m^4/s]", "fig10_prof_ku4")
     elif mode == "sweep_uw":
         vals = [0.0, 2.0, 5.0, 10.0, 20.0, 40.0]  # u_w [m/s]; 0 = hard gate
         data = _sweep(vals, gate_of=lambda v: v, k4_of=lambda v: 0.0,
