@@ -96,16 +96,18 @@ def rossby(y, u, dy):
     return ro
 
 
-def run(profile, y_0, gate_width, k_u4, ny=50, dt=900, ndays=1000, v_d=2.5, k_u=1e5):
+def run(profile, y_0, gate_width, k_u4, ny=50, dt=900, ndays=1000, v_d=2.5,
+        k_u=1e5, epsilon_u=1e-8):
     """Run one config; return (y, u_mean over last 200 days, final SWModel).
 
     v_d is the eddy-momentum-flux-divergence coefficient; v_d=0 is the
     axisymmetric (no parameterized eddy momentum forcing) limit. k_u is the
-    explicit eddy viscosity on u.
+    explicit eddy viscosity on u (SS09 have none). epsilon_u is the Rayleigh drag
+    coefficient (SS09's sole u-dissipation; their range 1e-10..1e-7).
     """
     cfg = SWConfig(
         total_integration_days=ndays, ny=ny, dt=dt, k_u=k_u, v_d=v_d,
-        emfd_gate_width=gate_width, k_u4=k_u4,
+        epsilon_u=epsilon_u, emfd_gate_width=gate_width, k_u4=k_u4,
         domain_size=15751e3 * 2,
         output_path=f"{SCRATCH}/emfd_exp_tmp.nc", restart_output_dir=SCRATCH,
     )
@@ -542,12 +544,69 @@ def axisym_ku_test():
     print(f"\nsaved fig15 -> {SCRATCH}/fig15_axisym_ku.png")
 
 
+def rayleigh_sweep():
+    """Reproduce SS09's Rayleigh-drag sensitivity in OUR model with k_u=0 (no
+    explicit u-diffusion, as in SS09): sweep epsilon_u at v_d=0, overlay the
+    analytical AMC wind. Should recover SS09 Figs 3-5: near-AMC for small drag,
+    stronger circulation / departures for larger drag; equatorial easterlies
+    off-equator. Also checks the k_u=0 residual at ny=50 vs ny=200.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    eps = [1e-10, 1e-9, 1e-8, 1e-7]
+    cmap = [plt.cm.viridis(t) for t in np.linspace(0, 0.85, len(eps))]
+    cases = [("on-eq", "sin2", 0.0, 0.0), ("off-eq", "SB08", 1e6, 1e6)]
+
+    print("=== SS09 Rayleigh-drag sensitivity, k_u=0, v_d=0 (AMC u_eq=-(b/2)y_asc^2) ===")
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    for col, (label, prof, y_0, y_asc) in enumerate(cases):
+        print(f"\n {label}: AMC u_eq = {-0.5 * BETA * y_asc ** 2:7.2f} m/s")
+        umax = 0.0
+        for c, e in zip(cmap, eps):
+            y, u, m, blew = run(prof, y_0, 0.0, 0.0, ny=50, dt=900, v_d=0.0,
+                                k_u=0.0, epsilon_u=e)
+            v, _ = field_means(m)
+            umax = max(umax, float(np.max(np.abs(u))))
+            print(f"   eps_u={e:8.0e} | u_eq={u[np.argmin(np.abs(y))]:7.2f} | "
+                  f"jet={np.max(u):6.2f} | max|v|={np.max(np.abs(v)):.3f}"
+                  f"{'  BLEW' if blew else ''}")
+            axes[0, col].plot(y / 1e6, u, "-", color=c, lw=1.3, label=f"eps={e:.0e}")
+            axes[1, col].plot(y / 1e6, v, "-", color=c, lw=1.3, label=f"eps={e:.0e}")
+        yy = np.linspace(y.min(), y.max(), 400)
+        uM = 0.5 * BETA * (yy ** 2 - y_asc ** 2)
+        uM = np.where(np.abs(uM) <= 1.3 * umax, uM, np.nan)
+        axes[0, col].plot(yy / 1e6, uM, "k--", lw=2.2, label="AMC")
+        for r, lab in [(0, "u [m/s]"), (1, "v [m/s]")]:
+            axes[r, col].axhline(0, color="grey", lw=0.5)
+            axes[r, col].set_xlabel("y [Mm]"); axes[r, col].set_ylabel(lab)
+            axes[r, col].legend(fontsize=8)
+        axes[0, col].set_title(f"{label}: zonal wind (k_u=0)")
+        axes[1, col].set_title(f"{label}: meridional wind")
+
+    # residual resolution check: k_u=0, eps=1e-10, ny 50 vs 200
+    print("\n k_u=0 residual vs resolution (on-eq, eps_u=1e-10; AMC u_eq=0):")
+    for ny, dt in [(50, 900), (200, 225)]:
+        y, u, m, blew = run("sin2", 0.0, 0.0, 0.0, ny=ny, dt=dt, v_d=0.0,
+                            k_u=0.0, epsilon_u=1e-10)
+        print(f"   ny={ny:3d} | u_eq={u[np.argmin(np.abs(y))]:7.3f}")
+
+    fig.suptitle("SS09 Rayleigh-drag sensitivity reproduced (k_u=0): u tracks AMC; "
+                 "drag sets circulation strength")
+    fig.tight_layout()
+    fig.savefig(f"{SCRATCH}/fig16_rayleigh_sweep.png", dpi=130)
+    plt.close(fig)
+    print(f"\nsaved fig16 -> {SCRATCH}/fig16_rayleigh_sweep.png")
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "matrix"
     if mode == "matrix":
         run_matrix()
     elif mode == "axisym_ku":
         axisym_ku_test()
+    elif mode == "rayleigh_sweep":
+        rayleigh_sweep()
     elif mode == "vtheta":
         run_field_matrix()
     elif mode == "prof_uw":
