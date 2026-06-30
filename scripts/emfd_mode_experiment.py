@@ -82,6 +82,13 @@ def run(profile, y_0, gate_width, k_u4, ny=50, dt=900, ndays=1000):
     return cfg.y, u_mean, model, blew
 
 
+def field_means(model):
+    """Daily-mean v and theta over the last 200 days (both on centers)."""
+    v = model.results.v[-200:].mean(axis=0)
+    th = model.results.theta[-200:].mean(axis=0)
+    return v, th
+
+
 def diag(y, u, u_base):
     """Per-config diagnostics dict."""
     fm = cu.flank_mode(y, u, flank_min_m=FLANK_MIN)
@@ -288,10 +295,114 @@ def run_subset(winners):
     print(f"saved fig4 -> {SCRATCH}/fig4_ny200_flank.png")
 
 
+def run_field_matrix():
+    """Re-run the 8 ny=50 configs and plot the daily-mean v and theta fields,
+    the companions to the u plots (fig1/fig2)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    colors = {CONFIGS[0][0]: "k", CONFIGS[1][0]: "C0",
+              CONFIGS[2][0]: "C1", CONFIGS[3][0]: "C3"}
+
+    F = {}
+    for case, profile, y_0 in CASES:
+        for label, gw, k4 in CONFIGS:
+            y, u, m, blew = run(profile, y_0, gw, k4)
+            v, th = field_means(m)
+            F[(case, label)] = dict(y=y, v=v, theta=th)
+            sw_v = np.nanmax(cu.sawtooth(v)[np.abs(y) >= FLANK_MIN])
+            sw_t = np.nanmax(cu.sawtooth(th)[np.abs(y) >= FLANK_MIN])
+            print(f"{case:6s} {label:19s} | flank sawtooth: v={sw_v:7.4f} m/s  "
+                  f"theta={sw_t:8.5f} K{'  BLEW' if blew else ''}")
+        print()
+
+    for fld, fname, unit in [("v", "fig5_v", "m/s"), ("theta", "fig6_theta", "K")]:
+        fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+        for c_i, (case, profile, y_0) in enumerate(CASES):
+            # top: full domain; bottom: worst flank (SH for off-eq), vs |y|
+            hemi = -1.0 if case == "off-eq" else 1.0
+            for label, gw, k4 in CONFIGS:
+                r = F[(case, label)]
+                axes[0, c_i].plot(r["y"] / 1e6, r[fld], "-", lw=1.1,
+                                  color=colors[label], label=label.strip())
+                sel = (np.sign(r["y"]) == hemi) & (np.abs(r["y"]) > 6.5e6)
+                o = np.argsort(np.abs(r["y"][sel]))
+                axes[1, c_i].plot(np.abs(r["y"][sel])[o] / 1e6, r[fld][sel][o],
+                                  "-o", ms=3, color=colors[label], label=label.strip())
+            axes[0, c_i].set_title(f"{case}  full domain"); axes[0, c_i].set_xlabel("y [Mm]")
+            axes[1, c_i].set_title(f"{case}  worst flank zoom"); axes[1, c_i].set_xlabel("|y| [Mm]")
+            for rr in (0, 1):
+                axes[rr, c_i].set_ylabel(f"{fld} [{unit}]")
+                axes[rr, c_i].axhline(0, color="grey", lw=0.5)
+            axes[0, c_i].legend(fontsize=7)
+        fig.suptitle(f"daily-mean {fld} field (ny=50, 1000 d): "
+                     f"companion to the u plots")
+        fig.tight_layout()
+        fig.savefig(f"{SCRATCH}/{fname}_ny50.png", dpi=130)
+        plt.close(fig)
+    print(f"saved fig5_v / fig6_theta -> {SCRATCH}/")
+
+
+def _sweep(values, gate_of, k4_of, vary_name):
+    """Run a 1-D parameter sweep for both cases; print table, return data."""
+    print(f"=== sensitivity to {vary_name} (ny=50, dt=900, 1000 days) ===")
+    hdr = f"{vary_name:>12s} | {'case':6s} | {'jet':>6s} {'u_eq':>6s} {'flank saw':>9s} {'mode?':>5s}"
+    print(hdr); print("-" * len(hdr))
+    data = {case: {"x": [], "saw": [], "jet": [], "u_eq": []} for case, _, _ in CASES}
+    for val in values:
+        for case, profile, y_0 in CASES:
+            y, u, m, blew = run(profile, y_0, gate_of(val), k4_of(val))
+            fm = cu.flank_mode(y, u, flank_min_m=FLANK_MIN)
+            jet = float(np.max(u)); ueq = float(u[np.argmin(np.abs(y))])
+            data[case]["x"].append(val); data[case]["saw"].append(fm["sawtooth_max"])
+            data[case]["jet"].append(jet); data[case]["u_eq"].append(ueq)
+            print(f"{val:12.4g} | {case:6s} | {jet:6.2f} {ueq:6.2f} {fm['sawtooth_max']:9.3f} "
+                  f"{str(fm['alternating']):>5s}{'  BLEW' if blew else ''}")
+        print()
+    return data
+
+
+def _plot_sweep(data, values, vary_name, fname, logx=True):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(1, 2, figsize=(13, 4.6))
+    for case in data:
+        m = "o-" if case == "on-eq" else "s-"
+        ax[0].plot(data[case]["x"], data[case]["saw"], m, label=case)
+        ax[1].plot(data[case]["x"], data[case]["jet"], m, label=case)
+    ax[0].set_ylabel("flank sawtooth [m/s]  (mode amplitude)")
+    ax[1].set_ylabel("jet strength max(u) [m/s]")
+    for a in ax:
+        a.set_xlabel(vary_name)
+        if logx:
+            a.set_xscale("symlog" if 0 in values else "log")
+        a.legend(fontsize=8); a.grid(alpha=0.3)
+    ax[0].set_title("mode amplitude vs " + vary_name)
+    ax[1].set_title("resolved climate (jet) vs " + vary_name)
+    fig.suptitle(f"Sensitivity to {vary_name} (ny=50, hard/hyper as labeled)")
+    fig.tight_layout()
+    fig.savefig(f"{SCRATCH}/{fname}.png", dpi=130)
+    plt.close(fig)
+    print(f"saved {fname} -> {SCRATCH}/{fname}.png")
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "matrix"
     if mode == "matrix":
         run_matrix()
+    elif mode == "vtheta":
+        run_field_matrix()
+    elif mode == "sweep_uw":
+        vals = [0.0, 2.0, 5.0, 10.0, 20.0, 40.0]  # u_w [m/s]; 0 = hard gate
+        data = _sweep(vals, gate_of=lambda v: v, k4_of=lambda v: 0.0,
+                      vary_name="u_w [m/s]")
+        _plot_sweep(data, vals, "u_w [m/s]", "fig7_sweep_uw", logx=False)
+    elif mode == "sweep_ku4":
+        vals = [0.0, 1e16, 3e16, 1e17, 3e17, 1e18]  # k_u4 [m^4/s]; 0 = off
+        data = _sweep(vals, gate_of=lambda v: 0.0, k4_of=lambda v: v,
+                      vary_name="k_u4 [m^4/s]")
+        _plot_sweep(data, vals, "k_u4 [m^4/s]", "fig8_sweep_ku4", logx=True)
     elif mode == "plots":
         _make_plots(_load_npz())  # regenerate figures from the saved ny=50 npz
         print(f"regenerated figures -> {SCRATCH}/")
