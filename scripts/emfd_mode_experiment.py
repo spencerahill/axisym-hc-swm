@@ -96,10 +96,14 @@ def rossby(y, u, dy):
     return ro
 
 
-def run(profile, y_0, gate_width, k_u4, ny=50, dt=900, ndays=1000):
-    """Run one config; return (y, u_mean over last 200 days, final SWModel)."""
+def run(profile, y_0, gate_width, k_u4, ny=50, dt=900, ndays=1000, v_d=2.5):
+    """Run one config; return (y, u_mean over last 200 days, final SWModel).
+
+    v_d is the eddy-momentum-flux-divergence coefficient; v_d=0 is the
+    axisymmetric (no parameterized eddy momentum forcing) limit.
+    """
     cfg = SWConfig(
-        total_integration_days=ndays, ny=ny, dt=dt, k_u=1e5,
+        total_integration_days=ndays, ny=ny, dt=dt, k_u=1e5, v_d=v_d,
         emfd_gate_width=gate_width, k_u4=k_u4,
         domain_size=15751e3 * 2,
         output_path=f"{SCRATCH}/emfd_exp_tmp.nc", restart_output_dir=SCRATCH,
@@ -420,7 +424,7 @@ def _plot_sweep(data, values, vary_name, fname, logx=True):
     print(f"saved {fname} -> {SCRATCH}/{fname}.png")
 
 
-def _profiles_figure(configs, vary_name, fname, ny=50, base_dt=900):
+def _profiles_figure(configs, vary_name, fname, ny=50, base_dt=900, v_d=2.5):
     """Plot full-domain u, v, theta, Ro for every value in a 1-D sweep, both cases.
 
     configs: list of (label, gate_width, k_u4). Each value gets one color; the
@@ -428,8 +432,9 @@ def _profiles_figure(configs, vary_name, fname, ny=50, base_dt=900):
     at 250-330 K; a y=0 reference squishes it); u, v, Ro keep the zero line. Ro =
     (du/dy)/(beta y) follows the model's convention; it is autoscaled (the
     centered-difference Ro is smooth, O(0.1-0.5), since the 2Δy mode cancels).
-    Per-config dt is auto-reduced for biharmonic stability at high ny. Reports
-    whole-domain diagnostics before returning.
+    Per-config dt is auto-reduced for biharmonic stability at high ny. v_d is the
+    EMFD coefficient (v_d=0 is the axisymmetric limit). Reports whole-domain
+    diagnostics before returning.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -440,8 +445,9 @@ def _profiles_figure(configs, vary_name, fname, ny=50, base_dt=900):
     for case, profile, y_0 in CASES:
         for label, gw, k4 in configs:
             dt = stable_dt(k4, ny, base_dt)
-            print(f"  running {case} {label.strip()} (ny={ny}, dt={dt}) ...", flush=True)
-            y, u, m, blew = run(profile, y_0, gw, k4, ny=ny, dt=dt)
+            print(f"  running {case} {label.strip()} (ny={ny}, dt={dt}, v_d={v_d}) ...",
+                  flush=True)
+            y, u, m, blew = run(profile, y_0, gw, k4, ny=ny, dt=dt, v_d=v_d)
             v, th = field_means(m)
             dy = (15751e3 * 2) / ny
             data[(case, label)] = dict(y=y, u=u, v=v, theta=th, ro=rossby(y, u, dy),
@@ -482,7 +488,7 @@ def _profiles_figure(configs, vary_name, fname, ny=50, base_dt=900):
             if c_i == 0:
                 ax.legend(fontsize=7, title=vary_name)
     fig.suptitle(f"Full solutions (u, v, theta, Ro) across the {vary_name} sweep "
-                 f"(ny={ny}, 1000 d mean)")
+                 f"(ny={ny}, v_d={v_d}, 1000 d mean)")
     fig.tight_layout()
     fig.savefig(f"{SCRATCH}/{fname}.png", dpi=130)
     plt.close(fig)
@@ -510,6 +516,12 @@ def main():
         cfgs = [(f"k4={v:.0e}", 0.0, float(v)) for v in [0, 1e17, 1e18]]
         _profiles_figure(cfgs, "k_u4 [m^4/s]", "fig12_prof_ku4_ny200",
                          ny=200, base_dt=225)
+    elif mode == "axisym_uw":  # tanh sweep in the v_d=0 axisymmetric limit
+        cfgs = [(f"u_w={v:g}", float(v), 0.0) for v in [0, 5, 10, 20, 40]]
+        _profiles_figure(cfgs, "u_w [m/s]", "fig13_axisym_uw", v_d=0.0)
+    elif mode == "axisym_ku4":  # hyperdiff sweep in the v_d=0 axisymmetric limit
+        cfgs = [(f"k4={v:.0e}", 0.0, float(v)) for v in [0, 1e16, 1e17, 1e18]]
+        _profiles_figure(cfgs, "k_u4 [m^4/s]", "fig14_axisym_ku4", v_d=0.0)
     elif mode == "sweep_uw":
         vals = [0.0, 2.0, 5.0, 10.0, 20.0, 40.0]  # u_w [m/s]; 0 = hard gate
         data = _sweep(vals, gate_of=lambda v: v, k4_of=lambda v: 0.0,
