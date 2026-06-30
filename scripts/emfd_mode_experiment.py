@@ -36,6 +36,8 @@ from ss09.theta_e import ThetaEConfig, Sin2Profile, SB08Profile
 from ss09.sw_model import SWModel
 from ss09 import rhs as rhs_module
 
+BETA = 2e-11  # config default; none of these runs change it
+
 sys.path.insert(0, os.path.dirname(__file__))
 import cmp_utils as cu  # noqa: E402
 
@@ -61,6 +63,37 @@ CONFIGS = [
     ("tanh(uw=5),k4=1e17", U_W, K_U4),
 ]
 _PROFILES = {"sin2": Sin2Profile, "SB08": SB08Profile}
+
+# divisors of 86400 (SECONDS_PER_DAY), descending, for clean daily averaging.
+# Spans down from 900 so base_dt (900 at ny=50, 225 at ny=200) is reachable.
+_DT_DIVISORS = [900, 800, 720, 675, 640, 600, 576, 540, 480, 450, 432, 400,
+                384, 360, 320, 300, 288, 270, 240, 225, 192, 180, 160, 144, 120,
+                108, 100, 96, 90, 80, 72, 60, 48, 45, 40, 36, 32, 30, 25, 24,
+                20, 18, 16, 15, 12, 10, 9, 8]
+
+
+def stable_dt(k_u4, ny, base_dt, safety=2.0):
+    """Largest dt (<= base_dt, divisor of 86400) that keeps explicit biharmonic
+    hyperdiffusion stable: dt * k_u4 * 16/dy^4 <= safety (< RK4 limit 2.79)."""
+    if k_u4 == 0.0:
+        return base_dt
+    dy = (15751e3 * 2) / ny
+    dt_lim = min(base_dt, safety / (k_u4 * 16.0 / dy ** 4))
+    for d in _DT_DIVISORS:
+        if d <= dt_lim:
+            return d
+    return _DT_DIVISORS[-1]
+
+
+def rossby(y, u, dy):
+    """Local Rossby number Ro = (du/dy)/(beta y), matching the model's
+    hadley_diagnostics convention exactly (np.gradient, no sign flip). NaN within
+    dy of the equator to avoid the 1/y singularity. Centered differences do not
+    see the 2Δy mode (it cancels), so this is a smooth diagnostic of the resolved
+    shear, not of the grid mode."""
+    ro = np.gradient(u, dy) / (BETA * y)
+    ro[np.abs(y) < dy] = np.nan
+    return ro
 
 
 def run(profile, y_0, gate_width, k_u4, ny=50, dt=900, ndays=1000):
@@ -387,13 +420,16 @@ def _plot_sweep(data, values, vary_name, fname, logx=True):
     print(f"saved {fname} -> {SCRATCH}/{fname}.png")
 
 
-def _profiles_figure(configs, vary_name, fname):
-    """Plot full-domain u, v, theta for every value in a 1-D sweep, both cases.
+def _profiles_figure(configs, vary_name, fname, ny=50, base_dt=900):
+    """Plot full-domain u, v, theta, Ro for every value in a 1-D sweep, both cases.
 
-    configs: list of (label, gate_width, k_u4). Each value gets one color; the 6
+    configs: list of (label, gate_width, k_u4). Each value gets one color; the
     values overlay in each (case x field) panel. NO zero line on theta (it lives
-    at 250-330 K; a y=0 reference squishes it); u and v keep the zero line.
-    Reports per-value diagnostics across the whole domain before returning.
+    at 250-330 K; a y=0 reference squishes it); u, v, Ro keep the zero line. Ro =
+    (du/dy)/(beta y) follows the model's convention; it is autoscaled (the
+    centered-difference Ro is smooth, O(0.1-0.5), since the 2Δy mode cancels).
+    Per-config dt is auto-reduced for biharmonic stability at high ny. Reports
+    whole-domain diagnostics before returning.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -403,28 +439,35 @@ def _profiles_figure(configs, vary_name, fname):
     data = {}
     for case, profile, y_0 in CASES:
         for label, gw, k4 in configs:
-            y, u, m, blew = run(profile, y_0, gw, k4)
+            dt = stable_dt(k4, ny, base_dt)
+            print(f"  running {case} {label.strip()} (ny={ny}, dt={dt}) ...", flush=True)
+            y, u, m, blew = run(profile, y_0, gw, k4, ny=ny, dt=dt)
             v, th = field_means(m)
-            data[(case, label)] = dict(y=y, u=u, v=v, theta=th, blew=blew)
+            dy = (15751e3 * 2) / ny
+            data[(case, label)] = dict(y=y, u=u, v=v, theta=th, ro=rossby(y, u, dy),
+                                       blew=blew, dt=dt)
 
     # ---- inspect the whole domain and report ----
-    print(f"=== full-domain profiles vs {vary_name} (ny=50, dt=900, 1000 d) ===")
-    hdr = (f"{vary_name:>12s} {'case':6s} | {'max u':>6s} {'min u':>6s} {'u_eq':>6s} "
-           f"{'uSAW':>6s} | {'max|v|':>6s} | {'minT':>6s} {'maxT':>6s} {'':4s}")
+    print(f"=== full-domain profiles vs {vary_name} (ny={ny}, 1000 d) ===")
+    hdr = (f"{vary_name:>12s} {'case':6s} {'dt':>4s} | {'max u':>6s} {'min u':>6s} "
+           f"{'u_eq':>6s} {'uSAW':>6s} | {'max|v|':>6s} | {'minT':>6s} {'maxT':>6s} "
+           f"| {'max|Ro|':>7s} {'':4s}")
     print(hdr); print("-" * len(hdr))
     for label, gw, k4 in configs:
         for case, profile, y_0 in CASES:
             r = data[(case, label)]
-            y, u, v, th = r["y"], r["u"], r["v"], r["theta"]
+            y, u, v, th, ro = r["y"], r["u"], r["v"], r["theta"], r["ro"]
             sw = cu.flank_mode(y, u, flank_min_m=FLANK_MIN)["sawtooth_max"]
-            print(f"{label:>12s} {case:6s} | {np.max(u):6.2f} {np.min(u):6.2f} "
+            print(f"{label:>12s} {case:6s} {r['dt']:4d} | {np.max(u):6.2f} {np.min(u):6.2f} "
                   f"{u[np.argmin(np.abs(y))]:6.2f} {sw:6.2f} | {np.max(np.abs(v)):6.3f} | "
-                  f"{np.min(th):6.1f} {np.max(th):6.1f} {'BLEW' if r['blew'] else '':4s}")
+                  f"{np.min(th):6.1f} {np.max(th):6.1f} | {np.nanmax(np.abs(ro)):7.2f} "
+                  f"{'BLEW' if r['blew'] else '':4s}")
         print()
 
     # ---- plot ----
-    fields = [("u", "m/s", True), ("v", "m/s", True), ("theta", "K", False)]
-    fig, axes = plt.subplots(2, 3, figsize=(17, 9))
+    fields = [("u", "m/s", True), ("v", "m/s", True),
+              ("theta", "K", False), ("ro", "Ro = du/dy /(beta y)", True)]
+    fig, axes = plt.subplots(2, 4, figsize=(21, 9))
     for r_i, (case, profile, y_0) in enumerate(CASES):
         for c_i, (fld, unit, zline) in enumerate(fields):
             ax = axes[r_i, c_i]
@@ -434,12 +477,12 @@ def _profiles_figure(configs, vary_name, fname):
             if zline:
                 ax.axhline(0, color="grey", lw=0.5)
             ax.set_xlabel("y [Mm]")
-            ax.set_ylabel(f"{fld} [{unit}]")
+            ax.set_ylabel(unit if fld == "ro" else f"{fld} [{unit}]")
             ax.set_title(f"{case}: {fld}")
             if c_i == 0:
                 ax.legend(fontsize=7, title=vary_name)
-    fig.suptitle(f"Full solutions (u, v, theta) across the {vary_name} sweep "
-                 f"(ny=50, 1000 d mean)")
+    fig.suptitle(f"Full solutions (u, v, theta, Ro) across the {vary_name} sweep "
+                 f"(ny={ny}, 1000 d mean)")
     fig.tight_layout()
     fig.savefig(f"{SCRATCH}/{fname}.png", dpi=130)
     plt.close(fig)
@@ -459,6 +502,14 @@ def main():
         cfgs = [(f"k4={v:.0e}", 0.0, float(v))
                 for v in [0, 1e16, 3e16, 1e17, 3e17, 1e18]]
         _profiles_figure(cfgs, "k_u4 [m^4/s]", "fig10_prof_ku4")
+    elif mode == "prof_uw_ny200":
+        cfgs = [(f"u_w={v:g}", float(v), 0.0) for v in [0, 10, 40]]
+        _profiles_figure(cfgs, "u_w [m/s]", "fig11_prof_uw_ny200",
+                         ny=200, base_dt=225)
+    elif mode == "prof_ku4_ny200":
+        cfgs = [(f"k4={v:.0e}", 0.0, float(v)) for v in [0, 1e17, 1e18]]
+        _profiles_figure(cfgs, "k_u4 [m^4/s]", "fig12_prof_ku4_ny200",
+                         ny=200, base_dt=225)
     elif mode == "sweep_uw":
         vals = [0.0, 2.0, 5.0, 10.0, 20.0, 40.0]  # u_w [m/s]; 0 = hard gate
         data = _sweep(vals, gate_of=lambda v: v, k4_of=lambda v: 0.0,
