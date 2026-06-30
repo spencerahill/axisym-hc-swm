@@ -96,14 +96,15 @@ def rossby(y, u, dy):
     return ro
 
 
-def run(profile, y_0, gate_width, k_u4, ny=50, dt=900, ndays=1000, v_d=2.5):
+def run(profile, y_0, gate_width, k_u4, ny=50, dt=900, ndays=1000, v_d=2.5, k_u=1e5):
     """Run one config; return (y, u_mean over last 200 days, final SWModel).
 
     v_d is the eddy-momentum-flux-divergence coefficient; v_d=0 is the
-    axisymmetric (no parameterized eddy momentum forcing) limit.
+    axisymmetric (no parameterized eddy momentum forcing) limit. k_u is the
+    explicit eddy viscosity on u.
     """
     cfg = SWConfig(
-        total_integration_days=ndays, ny=ny, dt=dt, k_u=1e5, v_d=v_d,
+        total_integration_days=ndays, ny=ny, dt=dt, k_u=k_u, v_d=v_d,
         emfd_gate_width=gate_width, k_u4=k_u4,
         domain_size=15751e3 * 2,
         output_path=f"{SCRATCH}/emfd_exp_tmp.nc", restart_output_dir=SCRATCH,
@@ -495,10 +496,58 @@ def _profiles_figure(configs, vary_name, fname, ny=50, base_dt=900, v_d=2.5):
     print(f"saved {fname} -> {SCRATCH}/{fname}.png")
 
 
+def axisym_ku_test():
+    """Confirm the v_d=0 superrotation source: sweep k_u (explicit eddy
+    viscosity) and compare to the analytical AMC wind u_M=(beta/2)(y^2-y_asc^2).
+
+    Hypothesis [derived]: k_u's down-gradient diffusion fills the AMC equatorial
+    minimum, so u_eq grows with k_u. As k_u->0 the model should recover AMC
+    (u_eq=0 on-eq; easterly off-eq). The original SS09 (Asselin time-filter, no
+    spatial u-diffusion) follows AMC.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    k_us = [0.0, 1e3, 1e4, 3e4, 1e5]
+    cmap = [plt.cm.plasma(t) for t in np.linspace(0, 0.85, len(k_us))]
+    # (label, profile, y_0, y_asc): y_asc = AMC ascent latitude (u_M=0 there)
+    cases = [("on-eq", "sin2", 0.0, 0.0), ("off-eq", "SB08", 1e6, 1e6)]
+
+    print("=== v_d=0 axisymmetric: u_eq vs k_u  (AMC u_eq = -(beta/2) y_asc^2) ===")
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5.5))
+    for ax, (label, prof, y_0, y_asc) in zip(axes, cases):
+        print(f"\n {label}: AMC u_eq = {-0.5 * BETA * y_asc ** 2:7.2f} m/s "
+              f"(y_asc={y_asc / 1e6:.1f} Mm)")
+        umax = 0.0
+        for c, ku in zip(cmap, k_us):
+            y, u, m, blew = run(prof, y_0, 0.0, 0.0, ny=50, dt=900, v_d=0.0, k_u=ku)
+            umax = max(umax, float(np.max(np.abs(u))))
+            print(f"   k_u={ku:8.0e} | u_eq={u[np.argmin(np.abs(y))]:7.2f} | "
+                  f"jet={np.max(u):6.2f} | min u={np.min(u):6.2f}"
+                  f"{'  BLEW' if blew else ''}")
+            ax.plot(y / 1e6, u, "-", color=c, lw=1.3, label=f"k_u={ku:.0e}")
+        # analytical AMC overlay, clipped to the model's u-range
+        yy = np.linspace(y.min(), y.max(), 400)
+        uM = 0.5 * BETA * (yy ** 2 - y_asc ** 2)
+        uM = np.where(np.abs(uM) <= 1.3 * umax, uM, np.nan)
+        ax.plot(yy / 1e6, uM, "k--", lw=2.2, label="AMC (beta/2)(y^2 - y_asc^2)")
+        ax.axhline(0, color="grey", lw=0.5)
+        ax.set_title(f"{label}  (v_d=0, ny=50)")
+        ax.set_xlabel("y [Mm]"); ax.set_ylabel("u [m/s]"); ax.legend(fontsize=8)
+    fig.suptitle("Axisymmetric limit: explicit k_u down-gradient diffusion fills "
+                 "the AMC equatorial minimum -> spurious superrotation")
+    fig.tight_layout()
+    fig.savefig(f"{SCRATCH}/fig15_axisym_ku.png", dpi=130)
+    plt.close(fig)
+    print(f"\nsaved fig15 -> {SCRATCH}/fig15_axisym_ku.png")
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "matrix"
     if mode == "matrix":
         run_matrix()
+    elif mode == "axisym_ku":
+        axisym_ku_test()
     elif mode == "vtheta":
         run_field_matrix()
     elif mode == "prof_uw":
