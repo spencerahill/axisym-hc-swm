@@ -36,6 +36,20 @@ the scope actually measured. A reusable helper for this lives in the scratchpad
 line what result would confirm or refute the hypothesis, and why it isn't already
 answerable from data in hand. If that line can't be written, don't propose the run.
 
+**Present analyses visually, not just in prose.** Any non-trivial data analysis (from a
+simulation or otherwise) must be presented to Spencer in a form that lets him
+*independently assess the claim*, not just take the claim's word: a table when the data
+is small enough, otherwise a plot whose form is chosen to make the specific claim
+checkable at a glance. Default to also opening the plot for him to inspect. A verbal
+conclusion with no table/figure behind it is not a finished analysis.
+
+**Inspect the whole domain, not just the item of interest.** When you generate any
+diagnostic or field, scan the *entire* domain at the "is anything obviously wrong or
+spurious?" level before drawing conclusions — not only the feature you went looking
+for. The jet-flank 2Δy mode sat in plain view in the first overlay for several turns
+because the inspection was narrow. This pairs with the quantified-comparison rule:
+report where the largest discrepancy/anomaly is, wherever it falls.
+
 ## Git Workflow
 
 ### Branch Workflow
