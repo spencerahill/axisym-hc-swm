@@ -14,6 +14,32 @@ The verify-then-assert conventions (basis tags, no bare magnitude adjectives, qu
 comparisons, justify experiments, present analyses visually, inspect the whole domain)
 now live in global `~/.claude/CLAUDE.md` and the `/double-check` skill. They apply here.
 
+## Validating numerical and physical changes
+
+Two disciplines specific to this SS09 reimplementation. Both come from the 2026-07-01
+finding that the explicit `k_u` eddy viscosity (validated only against a tuned v_d≠0
+climate) broke the axisymmetric AMC limit (spurious equatorial superrotation), a
+regression that went undetected across two sessions.
+
+**Consult SS09 for the regime before diagnosing divergence.** When diagnosing why the
+model diverges from SS09 in a named regime (axisymmetric/`v_d=0`, near-inviscid, off-
+equatorial forcing, etc.), read SS09's section on that regime in `papers/` first, and
+check which terms and parameter values they use there, before proposing a cause. SS09
+treats these limits explicitly (e.g. §3b, sensitivity to Rayleigh drag in the
+axisymmetric limit); the reference framing often reshapes the diagnosis. Derive against
+our equations and ground it in the primary source.
+
+**Validate against the axisymmetric AMC limit, not just a tuned climate.** Before adopting
+any new or changed dissipation or forcing term (eddy viscosity, hyperdiffusion, drag,
+gate smoothing, etc.), test it against the axisymmetric limit `v_d=0`, where the
+analytical angular-momentum-conserving wind `u_M = (β/2)(y² − y_asc²)` is the benchmark
+(on-eq `u_eq=0`; off-eq easterly). A term tuned only to reproduce a `v_d≠0` climate can
+break this fundamental reference: down-gradient spatial diffusion of u, in particular,
+fills the AMC equatorial minimum and manufactures superrotation. The harness modes
+`axisym_ku` / `rayleigh_sweep` in `scripts/emfd_mode_experiment.py` do exactly this check.
+Extends the [[plan-claims-need-validation]] lesson: confirm by simulation against every
+available analytical limit, not just the one case a term was tuned to.
+
 ## Git Workflow
 
 ### Branch Workflow
