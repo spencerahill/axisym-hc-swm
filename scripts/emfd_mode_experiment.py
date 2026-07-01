@@ -498,7 +498,7 @@ def _profiles_figure(configs, vary_name, fname, ny=50, base_dt=900, v_d=2.5):
     print(f"saved {fname} -> {SCRATCH}/{fname}.png")
 
 
-def axisym_ku_test():
+def axisym_ku_test(ny=50, dt=900):
     """Confirm the v_d=0 superrotation source: sweep k_u (explicit eddy
     viscosity) and compare to the analytical AMC wind u_M=(beta/2)(y^2-y_asc^2).
 
@@ -515,14 +515,15 @@ def axisym_ku_test():
     # (label, profile, y_0, y_asc): y_asc = AMC ascent latitude (u_M=0 there)
     cases = [("on-eq", "sin2", 0.0, 0.0), ("off-eq", "SB08", 1e6, 1e6)]
 
-    print("=== v_d=0 axisymmetric: u_eq vs k_u  (AMC u_eq = -(beta/2) y_asc^2) ===")
+    print(f"=== v_d=0 axisymmetric: u_eq vs k_u (ny={ny}, dt={dt}; "
+          f"AMC u_eq=-(beta/2)y_asc^2) ===")
     fig, axes = plt.subplots(1, 2, figsize=(15, 5.5))
     for ax, (label, prof, y_0, y_asc) in zip(axes, cases):
         print(f"\n {label}: AMC u_eq = {-0.5 * BETA * y_asc ** 2:7.2f} m/s "
               f"(y_asc={y_asc / 1e6:.1f} Mm)")
         umax = 0.0
         for c, ku in zip(cmap, k_us):
-            y, u, m, blew = run(prof, y_0, 0.0, 0.0, ny=50, dt=900, v_d=0.0, k_u=ku)
+            y, u, m, blew = run(prof, y_0, 0.0, 0.0, ny=ny, dt=dt, v_d=0.0, k_u=ku)
             umax = max(umax, float(np.max(np.abs(u))))
             print(f"   k_u={ku:8.0e} | u_eq={u[np.argmin(np.abs(y))]:7.2f} | "
                   f"jet={np.max(u):6.2f} | min u={np.min(u):6.2f}"
@@ -534,22 +535,23 @@ def axisym_ku_test():
         uM = np.where(np.abs(uM) <= 1.3 * umax, uM, np.nan)
         ax.plot(yy / 1e6, uM, "k--", lw=2.2, label="AMC (beta/2)(y^2 - y_asc^2)")
         ax.axhline(0, color="grey", lw=0.5)
-        ax.set_title(f"{label}  (v_d=0, ny=50)")
+        ax.set_title(f"{label}  (v_d=0, ny={ny})")
         ax.set_xlabel("y [Mm]"); ax.set_ylabel("u [m/s]"); ax.legend(fontsize=8)
-    fig.suptitle("Axisymmetric limit: explicit k_u down-gradient diffusion fills "
-                 "the AMC equatorial minimum -> spurious superrotation")
+    fig.suptitle(f"Axisymmetric limit (ny={ny}): explicit k_u down-gradient "
+                 "diffusion fills the AMC equatorial minimum -> superrotation")
     fig.tight_layout()
-    fig.savefig(f"{SCRATCH}/fig15_axisym_ku.png", dpi=130)
+    fname = f"{SCRATCH}/fig15_axisym_ku_ny{ny}.png"
+    fig.savefig(fname, dpi=130)
     plt.close(fig)
-    print(f"\nsaved fig15 -> {SCRATCH}/fig15_axisym_ku.png")
+    print(f"\nsaved -> {fname}")
 
 
-def rayleigh_sweep():
+def rayleigh_sweep(ny=50, dt=900):
     """Reproduce SS09's Rayleigh-drag sensitivity in OUR model with k_u=0 (no
     explicit u-diffusion, as in SS09): sweep epsilon_u at v_d=0, overlay the
     analytical AMC wind. Should recover SS09 Figs 3-5: near-AMC for small drag,
     stronger circulation / departures for larger drag; equatorial easterlies
-    off-equator. Also checks the k_u=0 residual at ny=50 vs ny=200.
+    off-equator.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -558,13 +560,14 @@ def rayleigh_sweep():
     cmap = [plt.cm.viridis(t) for t in np.linspace(0, 0.85, len(eps))]
     cases = [("on-eq", "sin2", 0.0, 0.0), ("off-eq", "SB08", 1e6, 1e6)]
 
-    print("=== SS09 Rayleigh-drag sensitivity, k_u=0, v_d=0 (AMC u_eq=-(b/2)y_asc^2) ===")
+    print(f"=== SS09 Rayleigh-drag sensitivity, k_u=0, v_d=0 (ny={ny}, dt={dt}; "
+          f"AMC u_eq=-(b/2)y_asc^2) ===")
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
     for col, (label, prof, y_0, y_asc) in enumerate(cases):
         print(f"\n {label}: AMC u_eq = {-0.5 * BETA * y_asc ** 2:7.2f} m/s")
         umax = 0.0
         for c, e in zip(cmap, eps):
-            y, u, m, blew = run(prof, y_0, 0.0, 0.0, ny=50, dt=900, v_d=0.0,
+            y, u, m, blew = run(prof, y_0, 0.0, 0.0, ny=ny, dt=dt, v_d=0.0,
                                 k_u=0.0, epsilon_u=e)
             v, _ = field_means(m)
             umax = max(umax, float(np.max(np.abs(u))))
@@ -581,22 +584,16 @@ def rayleigh_sweep():
             axes[r, col].axhline(0, color="grey", lw=0.5)
             axes[r, col].set_xlabel("y [Mm]"); axes[r, col].set_ylabel(lab)
             axes[r, col].legend(fontsize=8)
-        axes[0, col].set_title(f"{label}: zonal wind (k_u=0)")
+        axes[0, col].set_title(f"{label}: zonal wind (k_u=0, ny={ny})")
         axes[1, col].set_title(f"{label}: meridional wind")
 
-    # residual resolution check: k_u=0, eps=1e-10, ny 50 vs 200
-    print("\n k_u=0 residual vs resolution (on-eq, eps_u=1e-10; AMC u_eq=0):")
-    for ny, dt in [(50, 900), (200, 225)]:
-        y, u, m, blew = run("sin2", 0.0, 0.0, 0.0, ny=ny, dt=dt, v_d=0.0,
-                            k_u=0.0, epsilon_u=1e-10)
-        print(f"   ny={ny:3d} | u_eq={u[np.argmin(np.abs(y))]:7.3f}")
-
-    fig.suptitle("SS09 Rayleigh-drag sensitivity reproduced (k_u=0): u tracks AMC; "
-                 "drag sets circulation strength")
+    fig.suptitle(f"SS09 Rayleigh-drag sensitivity reproduced (k_u=0, ny={ny}): "
+                 "u tracks AMC; drag sets circulation strength")
     fig.tight_layout()
-    fig.savefig(f"{SCRATCH}/fig16_rayleigh_sweep.png", dpi=130)
+    fname = f"{SCRATCH}/fig16_rayleigh_sweep_ny{ny}.png"
+    fig.savefig(fname, dpi=130)
     plt.close(fig)
-    print(f"\nsaved fig16 -> {SCRATCH}/fig16_rayleigh_sweep.png")
+    print(f"\nsaved -> {fname}")
 
 
 def main():
@@ -605,8 +602,12 @@ def main():
         run_matrix()
     elif mode == "axisym_ku":
         axisym_ku_test()
+    elif mode == "axisym_ku_ny200":
+        axisym_ku_test(ny=200, dt=225)
     elif mode == "rayleigh_sweep":
         rayleigh_sweep()
+    elif mode == "rayleigh_sweep_ny200":
+        rayleigh_sweep(ny=200, dt=225)
     elif mode == "vtheta":
         run_field_matrix()
     elif mode == "prof_uw":
