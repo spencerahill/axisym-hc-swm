@@ -596,6 +596,182 @@ def rayleigh_sweep(ny=50, dt=900):
     print(f"\nsaved -> {fname}")
 
 
+def production_ku(ny=200, dt=225, ndays=3000, v_d=2.5):
+    """DECISIVE test: does the EMFD-driven equatorial superrotation / jet-creep
+    that motivated the explicit k_u actually appear at k_u=0?
+
+    Runs the production forcing (v_d=2.5, EMFD active) for on-eq (sin2, y_0=0)
+    and off-eq (SB08, y_0=1e6) at k_u=0 vs k_u=1e5, tracking the equatorial u
+    *time series* (the creep detector) and the final u(y) profile. Unlike the
+    axisymmetric v_d=0 case there is no analytical AMC benchmark here (EMFD is
+    on), so the decision criteria are behavioural:
+
+      (a) k_u=0 is STEADY and non-superrotating (u_eq stays small, flat time
+          series, no secular climb) -> clean rollback of k_u; align with SS09's
+          drag-only scheme; the flank-mode (tanh/hyperdiff) work is moot.
+      (b) k_u=0 SUPERROTATES or CREEPS (u_eq grows large-westerly and/or keeps
+          climbing at end of run) -> the EMFD source is real and needs an
+          AMC-preserving, non-diffusive stabilizer (Asselin-style *time*
+          damping), NOT the spatial-diffusion k_u.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    K_US = [0.0, 1e5]  # test (drag-only, SS09-like) vs current default
+    colors = {0.0: "C3", 1e5: "k"}
+    cases = [("on-eq", "sin2", 0.0), ("off-eq", "SB08", 1e6)]
+
+    print(f"=== PRODUCTION v_d={v_d}: k_u=0 (SS09 drag-only) vs k_u=1e5 "
+          f"(ny={ny}, dt={dt}, {ndays} d) ===")
+    print("  creep slope = OLS d(u_eq)/dt over the last half of the run "
+          "[m/s per 1000 d]\n")
+    hdr = (f"{'case':6s} {'k_u':>6s} | {'u_eq':>7s} {'jet':>6s} {'min u':>6s} "
+           f"{'flankSAW':>8s} | {'creep/1kd':>9s} {'':4s}")
+    print(hdr); print("-" * len(hdr))
+
+    data = {}
+    for case, profile, y_0 in cases:
+        for ku in K_US:
+            y, u_mean, m, blew = run(profile, y_0, 0.0, 0.0, ny=ny, dt=dt,
+                                     ndays=ndays, v_d=v_d, k_u=ku)
+            eqidx = int(np.argmin(np.abs(y)))
+            u_eq_t = m.results.u[:, eqidx]          # daily-mean equatorial u(t)
+            days = np.arange(u_eq_t.size)
+            half = u_eq_t.size // 2
+            slope = np.polyfit(days[half:], u_eq_t[half:], 1)[0] * 1000.0
+            saw = cu.flank_mode(y, u_mean, flank_min_m=FLANK_MIN)["sawtooth_max"]
+            data[(case, ku)] = dict(y=y, u=u_mean, u_eq_t=u_eq_t, slope=slope,
+                                    blew=blew)
+            print(f"{case:6s} {ku:6.0e} | {u_eq_t[-1]:7.2f} {np.max(u_mean):6.2f} "
+                  f"{np.min(u_mean):6.2f} {saw:8.3f} | {slope:9.3f} "
+                  f"{'BLEW' if blew else '':4s}")
+        print()
+
+    # top: equatorial u(t) creep detector; bottom: final u(y) profile
+    fig, axes = plt.subplots(2, 2, figsize=(15, 9))
+    for c_i, (case, profile, y_0) in enumerate(cases):
+        for ku in K_US:
+            r = data[(case, ku)]
+            axes[0, c_i].plot(np.arange(r["u_eq_t"].size), r["u_eq_t"], "-",
+                              color=colors[ku], lw=1.3, label=f"k_u={ku:.0e}")
+            axes[1, c_i].plot(r["y"] / 1e6, r["u"], "-", color=colors[ku],
+                              lw=1.3, label=f"k_u={ku:.0e}")
+        axes[0, c_i].axhline(0, color="grey", lw=0.5)
+        axes[0, c_i].set_title(f"{case}: equatorial u(t)  (creep detector)")
+        axes[0, c_i].set_xlabel("day"); axes[0, c_i].set_ylabel("u_eq [m/s]")
+        axes[0, c_i].legend(fontsize=8)
+        axes[1, c_i].axhline(0, color="grey", lw=0.5)
+        axes[1, c_i].set_title(f"{case}: final u(y)  ({ndays} d, last-200-d mean)")
+        axes[1, c_i].set_xlabel("y [Mm]"); axes[1, c_i].set_ylabel("u [m/s]")
+        axes[1, c_i].legend(fontsize=8)
+    fig.suptitle(f"Production v_d={v_d}, ny={ny}: does k_u=0 superrotate / creep "
+                 "at the equator?  (k_u=1e5 = current default)")
+    fig.tight_layout()
+    fname = f"{SCRATCH}/fig17_production_ku_ny{ny}.png"
+    fig.savefig(fname, dpi=130)
+    plt.close(fig)
+    print(f"saved -> {fname}")
+
+
+def axisym_ku4_clean(ny=200, dt=225, ndays=500):
+    """AMC-safety of biharmonic hyperdiffusion, ISOLATED (k_u=0).
+
+    The earlier axisym_ku4 sweep left k_u=1e5 on as backdrop, so it never tested
+    k_u4 alone. Here k_u=0, v_d=0: sweep k_u4 and overlay the analytical AMC wind
+    u_M=(beta/2)(y^2-y_asc^2). Prediction [derived]: biharmonic diffusion vanishes
+    on the AMC parabola (d^4/dy^4 of a quadratic = 0), so every k_u4 should track
+    AMC (u_eq=0 on-eq), UNLIKE k_u (Laplacian d^2u=beta != 0 fills the minimum).
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    k_u4s = [0.0, 1e16, 1e17]  # all dt=225-stable at ny=200 (1e18 needs dt=72)
+    cmap = [plt.cm.plasma(t) for t in np.linspace(0, 0.85, len(k_u4s))]
+    cases = [("on-eq", "sin2", 0.0, 0.0), ("off-eq", "SB08", 1e6, 1e6)]
+
+    print(f"=== v_d=0 axisymmetric, k_u=0: u_eq vs k_u4 (ny={ny}); "
+          f"AMC u_eq=-(beta/2)y_asc^2 ===")
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5.5))
+    for ax, (label, prof, y_0, y_asc) in zip(axes, cases):
+        print(f"\n {label}: AMC u_eq = {-0.5 * BETA * y_asc ** 2:7.2f} m/s "
+              f"(y_asc={y_asc / 1e6:.1f} Mm)")
+        umax = 0.0
+        for c, k4 in zip(cmap, k_u4s):
+            d = stable_dt(k4, ny, dt)
+            y, u, m, blew = run(prof, y_0, 0.0, k4, ny=ny, dt=d, ndays=ndays,
+                                v_d=0.0, k_u=0.0)
+            umax = max(umax, float(np.max(np.abs(u))))
+            saw = cu.flank_mode(y, u, flank_min_m=FLANK_MIN)["sawtooth_max"]
+            print(f"   k_u4={k4:8.0e} dt={d:4d} | u_eq={u[np.argmin(np.abs(y))]:7.2f} | "
+                  f"jet={np.max(u):6.2f} | flankSAW={saw:7.3f}"
+                  f"{'  BLEW' if blew else ''}")
+            ax.plot(y / 1e6, u, "-", color=c, lw=1.3, label=f"k_u4={k4:.0e}")
+        yy = np.linspace(y.min(), y.max(), 400)
+        uM = 0.5 * BETA * (yy ** 2 - y_asc ** 2)
+        uM = np.where(np.abs(uM) <= 1.3 * umax, uM, np.nan)
+        ax.plot(yy / 1e6, uM, "k--", lw=2.2, label="AMC")
+        ax.axhline(0, color="grey", lw=0.5)
+        ax.set_title(f"{label}  (v_d=0, k_u=0, ny={ny})")
+        ax.set_xlabel("y [Mm]"); ax.set_ylabel("u [m/s]"); ax.legend(fontsize=8)
+    fig.suptitle(f"Does biharmonic hyperdiffusion preserve AMC? (k_u=0, ny={ny}): "
+                 "d^4/dy^4 of the AMC parabola = 0 -> should track AMC")
+    fig.tight_layout()
+    fname = f"{SCRATCH}/fig18_axisym_ku4_clean_ny{ny}.png"
+    fig.savefig(fname, dpi=130)
+    plt.close(fig)
+    print(f"\nsaved -> {fname}")
+
+
+def production_ku4(ny=200, dt=225, ndays=500, v_d=2.5):
+    """Does biharmonic hyperdiffusion tame the k_u=0 EMFD flank mode while
+    preserving the core climate? Production v_d=2.5, k_u=0, sweep k_u4. Companion
+    to axisym_ku4_clean (the AMC side). k_u4=0 is the ~345 m/s flank catastrophe.
+    Plot y-limited to the climate range so the mitigated curves are legible.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    k_u4s = [0.0, 1e16, 1e17]  # all dt=225-stable at ny=200 (1e18 needs dt=72)
+    cmap = [plt.cm.viridis(t) for t in np.linspace(0, 0.85, len(k_u4s))]
+    cases = [("on-eq", "sin2", 0.0), ("off-eq", "SB08", 1e6)]
+
+    print(f"=== production v_d={v_d}, k_u=0: flank mode vs k_u4 "
+          f"(ny={ny}, {ndays} d) ===")
+    hdr = (f"{'k_u4':>8s} {'case':6s} {'dt':>4s} | {'u_eq':>7s} {'core jet':>8s} "
+           f"{'flankSAW':>8s} {'':4s}")
+    print(hdr); print("-" * len(hdr))
+    data = {}
+    for k4 in k_u4s:
+        for case, profile, y_0 in cases:
+            d = stable_dt(k4, ny, dt)
+            y, u, m, blew = run(profile, y_0, 0.0, k4, ny=ny, dt=d, ndays=ndays,
+                                v_d=v_d, k_u=0.0)
+            core = np.abs(y) < FLANK_MIN
+            saw = cu.flank_mode(y, u, flank_min_m=FLANK_MIN)["sawtooth_max"]
+            data[(k4, case)] = dict(y=y, u=u)
+            print(f"{k4:8.0e} {case:6s} {d:4d} | {u[np.argmin(np.abs(y))]:7.2f} "
+                  f"{np.max(u[core]):8.2f} {saw:8.3f} {'BLEW' if blew else '':4s}")
+        print()
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5.5))
+    for ax, (case, profile, y_0) in zip(axes, cases):
+        for c, k4 in zip(cmap, k_u4s):
+            r = data[(k4, case)]
+            ax.plot(r["y"] / 1e6, r["u"], "-", color=c, lw=1.3,
+                    label=f"k_u4={k4:.0e}")
+        ax.axhline(0, color="grey", lw=0.5)
+        ax.set_ylim(-80, 90)  # k_u4=0 spikes to ~320 clip off-scale (intended)
+        ax.set_title(f"{case}  (v_d={v_d}, k_u=0, ny={ny})")
+        ax.set_xlabel("y [Mm]"); ax.set_ylabel("u [m/s]"); ax.legend(fontsize=8)
+    fig.suptitle(f"Biharmonic hyperdiffusion vs the k_u=0 EMFD flank mode "
+                 f"(v_d={v_d}, ny={ny}): k_u4=0 spikes to ~320 m/s (off-scale)")
+    fig.tight_layout()
+    fname = f"{SCRATCH}/fig19_production_ku4_ny{ny}.png"
+    fig.savefig(fname, dpi=130)
+    plt.close(fig)
+    print(f"\nsaved -> {fname}")
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "matrix"
     if mode == "matrix":
@@ -608,6 +784,14 @@ def main():
         rayleigh_sweep()
     elif mode == "rayleigh_sweep_ny200":
         rayleigh_sweep(ny=200, dt=225)
+    elif mode == "production_ku":  # DECISIVE: v_d=2.5, k_u=0 vs 1e5, creep check
+        production_ku()
+    elif mode == "production_ku_short":  # quick timing/smoke check (500 d)
+        production_ku(ndays=500)
+    elif mode == "axisym_ku4_clean":  # AMC-safety of hyperdiff, ISOLATED (k_u=0)
+        axisym_ku4_clean()
+    elif mode == "production_ku4":  # does hyperdiff tame the k_u=0 flank mode?
+        production_ku4()
     elif mode == "vtheta":
         run_field_matrix()
     elif mode == "prof_uw":
