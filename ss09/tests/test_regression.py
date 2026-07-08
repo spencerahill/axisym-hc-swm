@@ -25,7 +25,7 @@ def run_model(output_path):
                 "--ndays",
                 "5",
                 "--ny",
-                "801",
+                "800",
                 "--dt",
                 "30",
                 "--output-path",

@@ -73,7 +73,7 @@ class TestDailyResults:
         for day in range(recorded_days):
             time = float(day + 1)
             u = np.random.randn(ny) * 10.0 + 20.0
-            v = np.random.randn(ny) * 2.0
+            v = np.random.randn(ny + 1) * 2.0  # v on ny+1 cell faces
             theta = np.random.randn(ny) * 5.0 + 300.0
             results.store_day(day, time, u, v, theta)
 
@@ -114,7 +114,7 @@ class TestDailyResults:
         for day in range(recorded_days):
             time = float(day + 1)
             u = np.random.randn(ny) * 10.0 + 20.0
-            v = np.random.randn(ny) * 2.0
+            v = np.random.randn(ny + 1) * 2.0  # v on ny+1 cell faces
             theta = np.random.randn(ny) * 5.0 + 300.0
             results.store_day(day, time, u, v, theta)
 
@@ -162,7 +162,7 @@ class TestDailyResults:
         for day in range(recorded_days):
             time = float(day + 1)
             u = np.random.randn(ny) * 10.0 + 20.0
-            v = np.random.randn(ny) * 2.0
+            v = np.random.randn(ny + 1) * 2.0  # v on ny+1 cell faces
             theta = np.random.randn(ny) * 5.0 + 300.0
             results.store_day(day, time, u, v, theta)
 
@@ -196,7 +196,7 @@ class TestDailyResults:
         for day in range(recorded_days):
             time = float(day + 1)
             u = np.random.randn(ny) * 10.0 + 20.0
-            v = np.random.randn(ny) * 2.0
+            v = np.random.randn(ny + 1) * 2.0  # v on ny+1 cell faces
             theta = np.random.randn(ny) * 5.0 + 300.0
             results.store_day(day, time, u, v, theta)
 
@@ -239,7 +239,7 @@ class TestDailyResults:
         for day in range(recorded_days):
             time = float(day + 1)  # Start from 1, not 0
             u = np.random.randn(ny) * 10.0 + 20.0
-            v = np.random.randn(ny) * 2.0
+            v = np.random.randn(ny + 1) * 2.0  # v on ny+1 cell faces
             theta = np.random.randn(ny) * 5.0 + 300.0
             results.store_day(day, time, u, v, theta)
 
@@ -266,7 +266,7 @@ class TestDailyResults:
         for day in range(total_days):
             time = float(day + 1)
             u = np.random.randn(ny) * 10.0 + 20.0
-            v = np.random.randn(ny) * 2.0
+            v = np.random.randn(ny + 1) * 2.0  # v on ny+1 cell faces
             theta = np.random.randn(ny) * 5.0 + 300.0
             results.store_day(day, time, u, v, theta)
 
@@ -303,7 +303,7 @@ class TestDailyResults:
         for day in range(total_days):
             time = float(day + 1)
             u = np.random.randn(ny) * 10.0 + 20.0
-            v = np.random.randn(ny) * 2.0
+            v = np.random.randn(ny + 1) * 2.0  # v on ny+1 cell faces
             theta = np.random.randn(ny) * 5.0 + 300.0
             # Compute theta_e for this day
             from ss09.model_state import ModelState
@@ -349,7 +349,7 @@ class TestDailyResults:
         for day in range(total_days):
             time = float(day + 1)
             u = np.zeros(ny)
-            v = np.zeros(ny)
+            v = np.zeros(ny + 1)  # v on ny+1 cell faces
             theta = np.zeros(ny) + 300.0
             state = ModelState(
                 t=day * 86400,

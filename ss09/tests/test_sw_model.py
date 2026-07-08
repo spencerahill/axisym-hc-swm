@@ -40,7 +40,7 @@ def test_sw_model_initialization(sw_config, theta_e_config, profile_class):
     assert model.config == sw_config
     assert model.theta_e_profile == theta_e_profile
     assert model.state.u.shape == (sw_config.ny,)
-    assert model.state.v.shape == (sw_config.ny,)
+    assert model.state.v.shape == (sw_config.ny + 1,)  # v on ny+1 cell faces
     assert model.state.theta.shape == (sw_config.ny,)
     assert model.state.y.shape == (sw_config.ny,)
 
@@ -53,7 +53,7 @@ def test_du_dt(model):
 
 def test_dv_dt(model):
     dv_dt_result = model.dv_dt()
-    assert dv_dt_result.shape == (model.config.ny,)
+    assert dv_dt_result.shape == (model.config.ny + 1,)  # v on cell faces
     # Add more specific assertions based on expected behavior
 
 
@@ -233,6 +233,10 @@ def test_seasonal_sb08_integration(sw_config):
     )
 
     sw_config.total_integration_days = 20  # Shorter test run
+    # Staggered grid resolves the grid-scale gravity-inertia wave, so the
+    # leapfrog CFL is tighter than on the old collocated grid; dt=3600 is
+    # marginal under continuous seasonal forcing (omega*dt ~ 1.05), dt=1800 safe.
+    sw_config.dt = 1800
 
     # Create model with seasonal SB08 profile
     model = SWModel(sw_config, SB08Profile(theta_e_config))
@@ -266,6 +270,7 @@ def test_seasonal_convergence_enabled(sw_config):
 
     # Enable seasonal convergence
     sw_config.total_integration_days = 1000  # Long run
+    sw_config.dt = 1800  # staggered-grid CFL under seasonal forcing (see above)
     sw_config.seasonal_convergence_enabled = True
     sw_config.seasonal_convergence_window = 30
     sw_config.seasonal_convergence_threshold = 0.01
@@ -297,6 +302,7 @@ def test_seasonal_convergence_disabled_runs_full_duration(sw_config):
 
     # Disable seasonal convergence (default behavior)
     sw_config.total_integration_days = 100
+    sw_config.dt = 1800  # staggered-grid CFL under seasonal forcing (see above)
     sw_config.seasonal_convergence_enabled = False  # Explicit disable
 
     model = SWModel(sw_config, SB08Profile(theta_e_config))
@@ -413,8 +419,8 @@ def test_vert_advec_u_heaviside_at_equilibrium(sw_config, theta_e_config):
     # Set u to non-zero values so vert_advec_u term would be nonzero if H != 0
     model.state = model.state._replace(u=np.ones(model.config.ny) * 10.0)
 
-    # Set v to have divergence (so dv/dy != 0)
-    v_profile = np.sin(np.pi * model.config.y / model.config.y.max())
+    # Set v to have divergence (so dv/dy != 0); v lives on cell faces (ny+1)
+    v_profile = np.sin(np.pi * model.config.yf / model.config.yf.max())
     model.state = model.state._replace(v=v_profile)
 
     # Crucially: set theta = theta_e exactly (at equilibrium)
@@ -424,8 +430,7 @@ def test_vert_advec_u_heaviside_at_equilibrium(sw_config, theta_e_config):
     # At equilibrium (theta_e - theta = 0), the Heaviside function returns 0.5,
     # so vertical advection should be half of full strength: 0.5 * u * dv/dy
     vert_advec = model.vert_advec_u()
-    dv_dy = np.gradient(model.state.v, model.config.dy)
-    expected_half_strength = 0.5 * model.state.u * dv_dy
+    expected_half_strength = 0.5 * model.state.u * model.dv_dy()
 
     assert np.allclose(vert_advec, expected_half_strength), (
         f"Vertical advection should be half-strength at equilibrium (theta = theta_e). "
@@ -444,8 +449,8 @@ def test_vert_advec_u_active_when_cooler_than_equilibrium(sw_config, theta_e_con
     # Set u to non-zero values
     model.state = model.state._replace(u=np.ones(model.config.ny) * 10.0)
 
-    # Set v to have divergence (so dv/dy != 0)
-    v_profile = np.sin(np.pi * model.config.y / model.config.y.max())
+    # Set v to have divergence (so dv/dy != 0); v lives on cell faces (ny+1)
+    v_profile = np.sin(np.pi * model.config.yf / model.config.yf.max())
     model.state = model.state._replace(v=v_profile)
 
     # Set theta cooler than theta_e
@@ -457,7 +462,7 @@ def test_vert_advec_u_active_when_cooler_than_equilibrium(sw_config, theta_e_con
 
     # Check that at least some points have non-zero vertical advection
     # (where dv/dy != 0)
-    dv_dy = np.gradient(v_profile, model.config.dy)
+    dv_dy = model.dv_dy()
     active_mask = np.abs(dv_dy) > 1e-10
 
     assert not np.allclose(vert_advec[active_mask], 0.0), (
@@ -476,8 +481,8 @@ def test_vert_advec_u_inactive_when_warmer_than_equilibrium(sw_config, theta_e_c
     # Set u to non-zero values
     model.state = model.state._replace(u=np.ones(model.config.ny) * 10.0)
 
-    # Set v to have divergence (so dv/dy != 0)
-    v_profile = np.sin(np.pi * model.config.y / model.config.y.max())
+    # Set v to have divergence (so dv/dy != 0); v lives on cell faces (ny+1)
+    v_profile = np.sin(np.pi * model.config.yf / model.config.yf.max())
     model.state = model.state._replace(v=v_profile)
 
     # Set theta warmer than theta_e
