@@ -50,8 +50,9 @@ def parse_arguments():
     parser.add_argument(
         "--ny",
         type=int,
-        default=51,
-        help="Number of grid points in the y-direction (default: 51)",
+        default=50,
+        help="Number of cell centers for u/theta (v uses ny+1 faces); "
+        "even values put a face at the equator (default: 50)",
     )
     parser.add_argument(
         "--dt",

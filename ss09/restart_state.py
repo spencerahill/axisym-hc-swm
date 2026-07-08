@@ -24,16 +24,17 @@ class RestartState:
 
     # Current INSTANTANEOUS state (timestep n)
     u: np.ndarray  # shape (ny,) - zonal wind
-    v: np.ndarray  # shape (ny,) - meridional wind
+    v: np.ndarray  # shape (ny+1,) - meridional wind (cell faces)
     theta: np.ndarray  # shape (ny,) - potential temperature
 
     # Previous INSTANTANEOUS filtered state (timestep n-1) for leapfrog
     u_prev: np.ndarray  # shape (ny,)
-    v_prev: np.ndarray  # shape (ny,)
+    v_prev: np.ndarray  # shape (ny+1,)
     theta_prev: np.ndarray  # shape (ny,)
 
     # Grid
-    y: np.ndarray  # shape (ny,) - meridional coordinate
+    y: np.ndarray  # shape (ny,) - cell centers (u, theta)
+    yf: np.ndarray  # shape (ny+1,) - cell faces (v)
 
     # Steady-state detector state (if enabled)
     steady_state_enabled: bool
@@ -69,11 +70,11 @@ class RestartState:
                 "current_day": ([], self.current_day, {"long_name": "Current day index"}),
                 # Current instantaneous state
                 "u": (["y"], self.u, {"units": "m/s", "long_name": "Instantaneous zonal wind (timestep n)"}),
-                "v": (["y"], self.v, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n)"}),
+                "v": (["y_edge"], self.v, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n)"}),
                 "theta": (["y"], self.theta, {"units": "K", "long_name": "Instantaneous potential temperature (timestep n)"}),
                 # Previous instantaneous filtered state
                 "u_prev": (["y"], self.u_prev, {"units": "m/s", "long_name": "Instantaneous zonal wind (timestep n-1, filtered)"}),
-                "v_prev": (["y"], self.v_prev, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n-1, filtered)"}),
+                "v_prev": (["y_edge"], self.v_prev, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n-1, filtered)"}),
                 "theta_prev": (["y"], self.theta_prev, {"units": "K", "long_name": "Instantaneous potential temperature (timestep n-1, filtered)"}),
                 # Steady-state detector history
                 "kinetic_energy_history": (
@@ -105,7 +106,8 @@ class RestartState:
                 "smoothness_warning_issued": ([], int(self.smoothness_warning_issued), {"long_name": "v-field smoothness warning issued flag"}),
             },
             coords={
-                "y": (["y"], self.y, {"units": "m", "long_name": "Meridional distance"}),
+                "y": (["y"], self.y, {"units": "m", "long_name": "Meridional distance (cell centers)"}),
+                "y_edge": (["y_edge"], self.yf, {"units": "m", "long_name": "Meridional distance (cell faces)"}),
                 "history_length": np.arange(history_length),
             },
         )
@@ -173,6 +175,9 @@ class RestartState:
         v_prev = ds["v_prev"].values
         theta_prev = ds["theta_prev"].values
         y = ds["y"].values
+        # yf absent in legacy collocated restart files; fall back to y so the
+        # ny-mismatch check in validate_compatibility gives the clean error.
+        yf = ds["y_edge"].values if "y_edge" in ds else y
 
         # Extract steady-state detector history
         kinetic_energy_history = ds["kinetic_energy_history"].values.tolist()
@@ -216,6 +221,7 @@ class RestartState:
             v_prev=v_prev,
             theta_prev=theta_prev,
             y=y,
+            yf=yf,
             steady_state_enabled=steady_state_enabled,
             kinetic_energy_history=kinetic_energy_history,
             temp_variance_history=temp_variance_history,

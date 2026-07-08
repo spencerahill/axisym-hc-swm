@@ -183,7 +183,7 @@ class DailyResults:
     def __init__(self, total_days: int, ny: int, store_theta_e: bool = False):
         self.time = np.zeros(total_days)
         self.u = np.zeros([total_days, ny])
-        self.v = np.zeros([total_days, ny])
+        self.v = np.zeros([total_days, ny + 1])  # v on ny+1 cell faces (C-grid)
         self.theta = np.zeros([total_days, ny])
         self.store_theta_e = store_theta_e
         if store_theta_e:
@@ -218,8 +218,8 @@ class DailyResults:
             ),
             "v": xr.DataArray(
                 data=self.v[mask],
-                dims=["time", "y"],
-                coords={"time": time_filtered, "y": config.y},
+                dims=["time", "y_edge"],
+                coords={"time": time_filtered, "y_edge": config.yf},
                 attrs={"units": "m/s", "long_name": "meridional wind"},
             ),
             "T": xr.DataArray(
@@ -292,5 +292,6 @@ class DailyResults:
         )
 
         return xr.Dataset(
-            data_vars=data_vars, coords={"time": time_coord, "y": config.y}
+            data_vars=data_vars,
+            coords={"time": time_coord, "y": config.y, "y_edge": config.yf},
         )

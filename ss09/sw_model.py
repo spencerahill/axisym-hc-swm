@@ -15,6 +15,7 @@ from .steady_state import SteadyStateDetector
 from .hadley_diagnostics import HadleyDiagnostics
 from .restart_state import RestartState
 from .output_path_utils import generate_restart_filename
+from . import grid as ops
 
 # Configure logging
 logging.basicConfig(
@@ -56,7 +57,7 @@ class SWModel:
         self.state = ModelState(
             t=0.0,
             u=np.zeros(config.ny),
-            v=np.zeros(config.ny),
+            v=np.zeros(config.ny + 1),  # v on ny+1 cell faces (C-grid)
             theta=np.zeros(config.ny),
             y=config.y,
         )
@@ -67,16 +68,16 @@ class SWModel:
         )
         self.temp_vars = TempVars(
             u=np.zeros((0, config.ny)),
-            v=np.zeros((0, config.ny)),
+            v=np.zeros((0, config.ny + 1)),
             theta=np.zeros((0, config.ny)),
             theta_e=np.zeros((0, config.ny)),
             time=np.zeros(0),
         )
         self.vars_prev_step = AuxiliaryVars(
-            u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
+            u=np.zeros(config.ny), v=np.zeros(config.ny + 1), theta=np.zeros(config.ny)
         )
         self.vars_next_step = AuxiliaryVars(
-            u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
+            u=np.zeros(config.ny), v=np.zeros(config.ny + 1), theta=np.zeros(config.ny)
         )
         self.steady_state_detector = SteadyStateDetector(
             enabled=config.enable_steady_state,
@@ -114,34 +115,19 @@ class SWModel:
         steps_per_day = int(SECONDS_PER_DAY / self.config.dt)
         self.temp_vars = TempVars(
             u=np.zeros([steps_per_day, self.config.ny]),
-            v=np.zeros([steps_per_day, self.config.ny]),
+            v=np.zeros([steps_per_day, self.config.ny + 1]),
             theta=np.zeros([steps_per_day, self.config.ny]),
             theta_e=np.zeros([steps_per_day, self.config.ny]),
             time=np.zeros(steps_per_day),
         )
 
-    def du_dy_upwind(self) -> np.ndarray:
-        """Calculate the upwind gradient of u with respect to y based on velocity v."""
-        grad_u_upwind = np.zeros_like(self.state.u)
-        # For positive velocity (backward difference)
-        mask_pos = self.state.v > 0
-        grad_u_upwind[1:][mask_pos[1:]] = (
-            self.state.u[1:][mask_pos[1:]] - self.state.u[:-1][mask_pos[1:]]
-        ) / self.config.dy
-        # For negative velocity (forward difference)
-        mask_neg = self.state.v < 0
-        grad_u_upwind[:-1][mask_neg[:-1]] = (
-            self.state.u[1:][mask_neg[:-1]] - self.state.u[:-1][mask_neg[:-1]]
-        ) / self.config.dy
-        return grad_u_upwind
-
     def edd_mom_flux_div_u(self) -> np.ndarray:
-        """Calculate the eddy momentum flux divergence."""
+        """Calculate the eddy momentum flux divergence (on centers)."""
         return (
             self.config.v_d
             * np.heaviside(self.state.u, 0.5)  # H(u)=1 if u>0, 0 if u<0, 0.5 at u=0
             * np.sign(self.config.y)
-            * np.gradient(self.state.u, self.config.dy)
+            * ops.ddy_center(self.state.u, self.config.dy)
         )
 
     def rayleigh_drag_u(self) -> np.ndarray:
@@ -156,13 +142,18 @@ class SWModel:
             * np.heaviside(self.theta_e_profile(self.state) - self.state.theta, 0.5)
         )
 
-    def coriolis_term(self, u_or_v: np.ndarray) -> np.ndarray:
-        """Calculate the Coriolis term for the u or v equation."""
-        return self.config.beta * self.config.y * u_or_v
+    def coriolis_u(self) -> np.ndarray:
+        """Coriolis term for the u equation: beta*y*v on centers (v faces->centers)."""
+        return self.config.beta * self.config.y * ops.avg_f2c(self.state.v)
+
+    def coriolis_v(self) -> np.ndarray:
+        """Coriolis term for the v equation: beta*yf*u on faces (u centers->faces)."""
+        return self.config.beta * self.config.yf * ops.avg_c2f(self.state.u)
 
     def merid_advec_u(self) -> np.ndarray:
-        """Calculate the meridional advection term for u."""
-        return self.state.v * self.du_dy_upwind()
+        """Meridional advection -v du/dy (upwind), v averaged to centers."""
+        v_c = ops.avg_f2c(self.state.v)
+        return v_c * ops.ddy_upwind(self.state.u, v_c, self.config.dy)
 
     def du_dt(self) -> np.ndarray:
         """Calculate the time derivative of u."""
@@ -173,7 +164,7 @@ class SWModel:
             self.merid_advec_u() if self.config.include_merid_advec_u else 0
         )
         return (
-            self.coriolis_term(self.state.v)
+            self.coriolis_u()
             - merid_advec_u_term
             - vert_advec_u_term
             - self.rayleigh_drag_u()
@@ -181,23 +172,26 @@ class SWModel:
         )
 
     def dv_dy(self) -> np.ndarray:
-        """Calculate the gradient of v with respect to y."""
-        return np.gradient(self.state.v, self.config.dy)
+        """Divergence d_y v of the face field v, returned on centers."""
+        return ops.div_f2c(self.state.v, self.config.dy)
 
     def diffusion_v(self) -> np.ndarray:
-        """Calculate the diffusion term for v."""
-        return np.gradient(self.dv_dy(), self.config.dy) * self.config.k_v
+        """Calculate the diffusion term k_v d^2v/dy^2 for v (on faces)."""
+        return ops.lap_face_dirichlet(self.state.v, self.config.dy) * self.config.k_v
 
     def dp_dy_term(self) -> np.ndarray:
-        """Calculate the pressure gradient term."""
-        dtemp_dy = np.gradient(self.state.theta * THETA_TO_TEMP, self.config.dy)
+        """Calculate the pressure gradient term (on faces)."""
+        dtemp_dy = ops.grad_c2f(self.state.theta * THETA_TO_TEMP, self.config.dy)
         return self.config.gravity * self.config.height * dtemp_dy / self.config.t_ref
 
     def dv_dt(self) -> np.ndarray:
-        """Calculate the time derivative of v."""
-        return (
-            -self.coriolis_term(self.state.u) - self.dp_dy_term() + self.diffusion_v()
+        """Calculate the time derivative of v (on faces; walls held at 0)."""
+        dv = (
+            -self.coriolis_v() - self.dp_dy_term() + self.diffusion_v()
         ) / 2
+        dv[0] = 0.0
+        dv[-1] = 0.0
+        return dv
 
     def newt_cool_term(self) -> np.ndarray:
         """Newtonian cooling term."""
@@ -213,11 +207,12 @@ class SWModel:
         )
 
     def eddy_heat_flux(self) -> np.ndarray:
-        """Calculate the eddy heat flux divergence."""
+        """Calculate the eddy heat flux divergence (on centers)."""
         if self.config.coeff_eddy_heat_diff == 0.0:
             return np.zeros_like(self.state.theta)
-        dtheta_dy = np.gradient(self.state.theta, self.config.dy)
-        return self.config.coeff_eddy_heat_diff * np.gradient(dtheta_dy, self.config.dy)
+        return self.config.coeff_eddy_heat_diff * ops.lap_center_neumann(
+            self.state.theta, self.config.dy
+        )
 
     def dtheta_dt(self) -> np.ndarray:
         """Calculate the time derivative of theta."""
@@ -335,11 +330,15 @@ class SWModel:
             if ind_within_day == 0:
                 self.store_daily_avgs(day)
 
+                # v lives on ny+1 faces; the diagnostics work on the center grid,
+                # so average it to centers (length ny) to pair with u/theta/y.
+                v_center = ops.avg_f2c(self.results.v[day])
+
                 # Record metrics for steady-state detection
                 self.steady_state_detector.record_day(
                     day,
                     self.results.u[day],
-                    self.results.v[day],
+                    v_center,
                     self.results.theta[day],
                     self.config.dy
                 )
@@ -348,7 +347,7 @@ class SWModel:
                 self.hadley_diagnostics.record_day(
                     day,
                     self.results.u[day],
-                    self.results.v[day],
+                    v_center,
                     self.config.y,
                     self.config.dy,
                     self.config.beta,
@@ -442,6 +441,7 @@ class SWModel:
             v_prev=self.vars_prev_step.v.copy(),
             theta_prev=self.vars_prev_step.theta.copy(),
             y=self.state.y.copy(),
+            yf=self.config.yf.copy(),
             # Steady-state detector state
             steady_state_enabled=self.config.enable_steady_state,
             kinetic_energy_history=self.steady_state_detector.kinetic_energy_history.copy(),
@@ -526,6 +526,10 @@ class SWModel:
         ds.y.attrs.update(
             {"units": "m", "long_name": "meridional distance from equator"}
         )
+        if "y_edge" in ds.coords:
+            ds.y_edge.attrs.update(
+                {"units": "m", "long_name": "meridional distance from equator (cell faces)"}
+            )
 
         # Add global attributes
         global_attrs = {

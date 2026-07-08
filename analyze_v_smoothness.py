@@ -77,7 +77,9 @@ def analyze_case(filename, label):
 
     # Time-average over last 50 days
     v = ds.v.isel(time=slice(-50, None)).mean(dim='time').values
-    y = ds.y.values
+    # v lives on the staggered cell faces (y_edge); fall back to y for
+    # legacy collocated output files.
+    y = ds.y_edge.values if 'y_edge' in ds.coords else ds.y.values
     dy = y[1] - y[0]
 
     # Compute metrics

@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 import numpy as np
 
+from .grid import StaggeredGrid
+
 SECONDS_PER_DAY = 86400
 
 
@@ -21,10 +23,11 @@ class SWConfig:
     tau: float = 37.0 * SECONDS_PER_DAY
     v_d: float = 2.5
     dt: int = 3600
-    ny: int = 51
+    ny: int = 50  # number of cell centers (u, theta); even -> face at equator
     domain_size: float = 15751e3 * 2
     dy: float = field(init=False)
-    y: np.ndarray = field(init=False)
+    y: np.ndarray = field(init=False)  # cell centers (u, theta), length ny
+    yf: np.ndarray = field(init=False)  # cell faces (v), length ny + 1
     asselin_filt_coef: float = 0.04
     coeff_eddy_heat_diff: float = 0.0  # values <1e4 make little difference
     include_vert_advec_u: bool = True
@@ -44,8 +47,14 @@ class SWConfig:
     restart_output_dir: str = "./model_output"  # Directory for restart files
 
     def __post_init__(self):
-        self.dy = self.domain_size / (self.ny - 1)
-        self.y = np.linspace(-self.domain_size / 2, self.domain_size / 2, self.ny)
+        # Staggered Arakawa C-grid: u, theta on ny cell centers (self.y);
+        # v on ny + 1 cell faces (self.yf), with v = 0 at the two wall faces.
+        # dy = domain_size / ny matches the legacy collocated resolution
+        # (which used domain_size / (ny - 1) with one extra point).
+        grid = StaggeredGrid(n=self.ny, domain_size=self.domain_size)
+        self.dy = grid.dy
+        self.y = grid.yc
+        self.yf = grid.yf
 
         # Validate steady-state parameters
         if self.enable_steady_state and self.steady_state_window_size > self.total_integration_days:
