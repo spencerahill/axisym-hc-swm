@@ -28,6 +28,8 @@ $$\frac{\partial u}{\partial t} - v(\beta y - \frac{\partial u}{\partial y}) = -
 | Rayleigh drag | $\mathcal{F} = \epsilon_u u$ | Linear damping; ensures numerical stability, no direct atmospheric analog |
 | EMFD | $\mathcal{S}$ | Eddy momentum flux divergence (see §3.1) |
 
+> **Deviation from SS09**: SS09's published equation (their Eq. 2.1) gates the vertical advection term with $\mathcal{H}(\partial_y v)$, not $\mathcal{H}(\theta_E - \theta)$. This implementation changes only the Heaviside *argument* (the on/off gate), keeping the kinematic $\partial_y v$ as the multiplicative magnitude. The two gates coincide in steady state; the thermodynamic gate suppresses a grid-scale numerical artifact. See §3.3 for the full rationale.
+
 ### 2.2 Meridional Momentum Equation
 
 $$2 \frac{\partial v}{\partial t} + \beta y u = -\frac{gH}{T_0} \frac{\partial T}{\partial y} + k_v \frac{\partial^2 v}{\partial y^2}$$
@@ -97,7 +99,11 @@ The term $-\mathcal{H}(\theta_E - \theta)(\partial_y v) u$ represents exchange b
 
 The model uses assumption (1). Sensitivity to this choice is modest compared to EMFD effects.
 
-**Activation condition**: The Heaviside function $\mathcal{H}(\theta_E - \theta)$ uses a thermodynamic criterion rather than a kinematic one. Vertical momentum exchange is active where the atmosphere is cooler than radiative-convective equilibrium ($\theta_E > \theta$), which indicates a convective tendency. When the atmosphere is at or above equilibrium ($\theta \geq \theta_E$), no convective mixing occurs and the term is inactive.
+**Heaviside gate (deviation from SS09)**: SS09's published zonal momentum equation (their Eq. 2.1) gates this term with $\mathcal{H}(\partial_y v)$, so both the gate and the magnitude use the kinematic divergence. This implementation instead gates with $\mathcal{H}(\theta_E - \theta)$, a thermodynamic criterion: vertical momentum exchange is active where the atmosphere is cooler than radiative-convective equilibrium ($\theta_E > \theta$), which indicates a convective (ascending) tendency; when $\theta \geq \theta_E$ the term is inactive. Only the gate is changed. The multiplicative magnitude remains the kinematic $\partial_y v$.
+
+**Why the two gates coincide in steady state**: The steady thermodynamic balance (§2.3, dropping the tendency and diffusion) is $\frac{\delta \Delta_z}{H}\partial_y v = \frac{\theta_E - \theta}{\tau}$, so $\partial_y v \propto (\theta_E - \theta)$ with the same sign and the two Heaviside arguments switch at the same latitudes. Away from equilibrium they differ, and that difference is the reason for the change: $\partial_y v$ is a spatial derivative of the prognostic $v$ field, so it amplifies the 2Δy computational mode of the leapfrog scheme; $\mathcal{H}(\partial_y v)$ then flips on and off between adjacent grid points and sustains grid-scale wiggles. SS09 saw these fluctuations too (their §2b) and controlled them with a staggered grid plus time averaging. $\mathcal{H}(\theta_E - \theta)$ is a smooth function of the smooth $\theta$ field, so the gate switches once at the convective margin and the artifact is suppressed. This gate change originated with Pengcheng Zhang in January 2024.
+
+**Relation to the precursor literature**: Several earlier one- and two-layer models replace *both* the gate and the magnitude with the thermodynamic heating $Q \propto (\theta_E - \theta)$, that is, the convective mass flux, in place of the kinematic divergence: Esler et al. (2000), Shell & Held (2004), and Adam & Paldor (2009). SS09 and Xian & Miller (2008) keep the kinematic $\partial_y v$ magnitude. This implementation is a hybrid: the thermodynamic gate of the former group, the kinematic magnitude of the latter. Replacing the magnitude as well was considered and not adopted, to stay closer to SS09's Eq. 2.1 and to keep the vertical velocity consistent with the adiabatic term of the thermodynamic equation (§2.3), which also uses $\partial_y v$.
 
 ## 4. Equilibrium Temperature Profiles ($\theta_E$)
 
@@ -197,3 +203,8 @@ $$\text{Ro} = \frac{-\zeta}{\beta y} = \frac{\partial u / \partial y}{\beta y}$$
 - Held, I. M. & Hou, A. Y. (1980). Nonlinear axially symmetric circulations in a nearly inviscid atmosphere. *J. Atmos. Sci.*, 37, 515-533.
 - Schneider, T. & Bordoni, S. (2008). Eddy-mediated regime transitions in the seasonal cycle of a Hadley circulation. *J. Atmos. Sci.*, 65, 915-934.
 - Xian, P. & Miller, R. L. (2008). Abrupt seasonal migration of the ITCZ into the summer hemisphere. *J. Atmos. Sci.*, 65, 1878-1895.
+
+**Vertical momentum exchange parameterizations** (referenced in §3.3):
+- Esler, J. G., Polvani, L. M. & Plumb, R. A. (2000). The effect of a Hadley circulation on the propagation and reflection of planetary waves in a simple one-layer model. *J. Atmos. Sci.*, 57, 1536-1556. doi:10.1175/1520-0469(2000)057<1536:TEOAHC>2.0.CO;2
+- Shell, K. M. & Held, I. M. (2004). Abrupt transition to strong superrotation in an axisymmetric model of the upper troposphere. *J. Atmos. Sci.*, 61, 2928-2935. doi:10.1175/JAS-3312.1
+- Adam, O. & Paldor, N. (2009). Global circulation in an axially symmetric shallow water model forced by equinoctial differential heating. *J. Atmos. Sci.*, 66, 1418-1433. doi:10.1175/2008JAS2685.1
