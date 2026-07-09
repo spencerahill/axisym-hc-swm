@@ -534,6 +534,74 @@ def test_emfd_gate_off_matches_ungated_expression(theta_e_config):
     assert np.all(emfd[easterly] != 0.0)
 
 
+def test_emfd_upwind_off_by_default():
+    """The upwind EMFD stencil defaults to off (centered np.gradient),
+    matching the published Zhang et al. (2025) code."""
+    config = SWConfig(total_integration_days=1, ny=51, dt=3600)
+    assert config.emfd_upwind is False
+
+
+def test_emfd_upwind_poleward_stencil(theta_e_config):
+    """With emfd_upwind=True, the EMFD's du/dy uses the one-sided difference
+    from the equatorward (upstream) side: the effective advection velocity
+    v_d*sgn(y) is poleward in each hemisphere, so NH points use the backward
+    difference, SH points the forward difference, and the equator point is
+    exactly zero (sgn(0) = 0). Per SS09 section 2b, which upwinds the
+    advection terms."""
+    config = SWConfig(
+        total_integration_days=1, ny=51, dt=3600, emfd_upwind=True
+    )
+    model = SWModel(config, SS09Profile(theta_e_config))
+
+    rng = np.random.default_rng(7)
+    u_profile = 10.0 + rng.normal(0.0, 3.0, config.ny)  # all-westerly, rough
+    model.state = model.state._replace(u=u_profile)
+
+    emfd = model.edd_mom_flux_div_u()
+    mid = config.ny // 2
+
+    k = mid + 5  # NH interior: backward difference
+    expected_nh = (
+        config.v_d * (u_profile[k] - u_profile[k - 1]) / config.dy
+    )
+    assert np.isclose(emfd[k], expected_nh)
+
+    j = mid - 5  # SH interior: forward difference, sgn(y) = -1
+    expected_sh = (
+        -config.v_d * (u_profile[j + 1] - u_profile[j]) / config.dy
+    )
+    assert np.isclose(emfd[j], expected_sh)
+
+    assert emfd[mid] == 0.0  # equator: sgn(0) = 0
+
+    # boundary points use the only available one-sided difference
+    expected_south = -config.v_d * (u_profile[1] - u_profile[0]) / config.dy
+    expected_north = config.v_d * (u_profile[-1] - u_profile[-2]) / config.dy
+    assert np.isclose(emfd[0], expected_south)
+    assert np.isclose(emfd[-1], expected_north)
+
+
+def test_emfd_upwind_composes_with_gate(theta_e_config):
+    """Gate and upwind stencil compose: H(u) zeroes easterly points while
+    westerly points carry the upwind one-sided difference."""
+    config = SWConfig(
+        total_integration_days=1, ny=51, dt=3600,
+        emfd_heaviside_gate=True, emfd_upwind=True,
+    )
+    model = SWModel(config, SS09Profile(theta_e_config))
+
+    u_profile = np.linspace(-5.0, 15.0, config.ny)  # easterly south, westerly north
+    model.state = model.state._replace(u=u_profile)
+    emfd = model.edd_mom_flux_div_u()
+
+    easterly = u_profile < 0
+    assert np.all(emfd[easterly] == 0.0)
+
+    k = config.ny - 5  # NH westerly interior
+    expected = config.v_d * (u_profile[k] - u_profile[k - 1]) / config.dy
+    assert np.isclose(emfd[k], expected)
+
+
 def test_emfd_gate_on_unchanged_by_new_flag(theta_e_config):
     """With the gate explicitly enabled, EMFD is identical to the historical
     repo behavior: H(u)-gated."""

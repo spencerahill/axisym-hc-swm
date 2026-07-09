@@ -222,6 +222,18 @@ def parse_arguments():
         dest="emfd_heaviside_gate",
         help="Explicitly disable the H(u) gate (the default)",
     )
+    parser.add_argument(
+        "--emfd-upwind",
+        action="store_true",
+        default=False,
+        dest="emfd_upwind",
+        help=(
+            "Use an upwind (one-sided, poleward-advection) du/dy stencil in "
+            "the EMFD instead of the centered stencil of the published "
+            "Zhang et al. (2025) code, per SS09 section 2b; needed for "
+            "stable gate-on integrations (default: centered)"
+        ),
+    )
     # Steady-state detection arguments
     parser.add_argument(
         "--stop-at-steady-state",
@@ -356,6 +368,7 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         include_vert_advec_u=args.include_vert_advec_u,
         include_merid_advec_u=args.include_merid_advec_u,
         emfd_heaviside_gate=getattr(args, "emfd_heaviside_gate", False),
+        emfd_upwind=getattr(args, "emfd_upwind", False),
         enable_steady_state=args.enable_steady_state,
         steady_state_window_size=args.steady_state_window_size,
         steady_state_threshold=args.steady_state_threshold,

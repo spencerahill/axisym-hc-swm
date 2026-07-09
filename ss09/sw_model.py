@@ -143,11 +143,25 @@ class SWModel:
         else:
             # Published Zhang et al. (2025) code omits the H(u) gate
             gate = 1.0
+        if self.config.emfd_upwind:
+            # One-sided du/dy from the equatorward (upstream) side: the
+            # effective advection velocity v_d*sgn(y) is poleward, so NH
+            # points difference backward, SH points forward; sgn(0)=0 zeroes
+            # the equator point regardless.
+            u = self.state.u
+            diff = (u[1:] - u[:-1]) / self.config.dy
+            backward = np.zeros_like(u)
+            backward[1:] = diff
+            forward = np.zeros_like(u)
+            forward[:-1] = diff
+            du_dy = np.where(self.config.y > 0, backward, forward)
+        else:
+            du_dy = np.gradient(self.state.u, self.config.dy)
         return (
             self.config.v_d
             * gate
             * np.sign(self.config.y)
-            * np.gradient(self.state.u, self.config.dy)
+            * du_dy
         )
 
     def rayleigh_drag_u(self) -> np.ndarray:

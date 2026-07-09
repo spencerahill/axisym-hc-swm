@@ -449,6 +449,24 @@ def test_cli_default_ndays_with_steady_state():
         sys.argv = original_argv
 
 
+def test_cli_emfd_upwind_flag(monkeypatch):
+    """--emfd-upwind switches the EMFD du/dy stencil to upwind; absent, the
+    centered published-code stencil is used."""
+    from ss09.cli import parse_arguments
+
+    monkeypatch.setattr("sys.argv", ["run-sw-model"])
+    args = parse_arguments()
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
+    assert sw_config.emfd_upwind is False
+
+    monkeypatch.setattr("sys.argv", ["run-sw-model", "--emfd-upwind"])
+    args = parse_arguments()
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
+    assert sw_config.emfd_upwind is True
+
+
 def test_cli_emfd_heaviside_gate_flags(monkeypatch):
     """--emfd-heaviside-gate enables the H(u) gate; absent or with
     --no-emfd-heaviside-gate, it is disabled (the published-code default)."""

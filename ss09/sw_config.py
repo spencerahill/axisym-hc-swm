@@ -33,6 +33,12 @@ class SWConfig:
     # Off by default, matching the published Zhang et al. (2025) code, which
     # omits the gate; set True for the papers' written equations.
     emfd_heaviside_gate: bool = False
+    # Upwind (one-sided, equatorward-biased) du/dy in the EMFD instead of the
+    # published code's centered np.gradient. The EMFD is advective in form
+    # with poleward velocity v_d*sgn(y); SS09 section 2b upwinds the advection
+    # terms, and the resulting one-sided stencil damps the 2*dy mode the
+    # centered stencil cannot see. Required for stable gate-on integrations.
+    emfd_upwind: bool = False
     # Steady-state detection parameters
     enable_steady_state: bool = False
     steady_state_window_size: int = 10
