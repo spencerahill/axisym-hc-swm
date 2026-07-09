@@ -491,3 +491,55 @@ def test_vert_advec_u_inactive_when_warmer_than_equilibrium(sw_config, theta_e_c
         f"Vertical advection should be zero when theta > theta_e. "
         f"Max value: {np.abs(vert_advec).max()}"
     )
+
+
+def test_emfd_heaviside_gate_on_by_default():
+    """The H(u) gate defaults to enabled, preserving existing model behavior."""
+    config = SWConfig(total_integration_days=1, ny=51, dt=3600)
+    assert config.emfd_heaviside_gate is True
+
+
+def test_emfd_gate_off_matches_ungated_expression(theta_e_config):
+    """With emfd_heaviside_gate=False, EMFD equals v_d*sgn(y)*du/dy with no H(u)
+    factor everywhere, including where u < 0.
+
+    This matches the published Zhang et al. (2025) source code
+    (github.com/zpcllyj/SobelSchneiderModel), which omits the H(u) gate that
+    appears in the paper's Eq. (5) and in SS09's Eq. (2.5).
+    """
+    config = SWConfig(
+        total_integration_days=1, ny=51, dt=3600, emfd_heaviside_gate=False
+    )
+    model = SWModel(config, SS09Profile(theta_e_config))
+
+    # Mixed-sign u with nonzero shear everywhere
+    u_profile = 10.0 * np.sin(3 * np.pi * config.y / config.y.max())
+    model.state = model.state._replace(u=u_profile)
+    assert (u_profile < 0).any() and (u_profile > 0).any()
+
+    emfd = model.edd_mom_flux_div_u()
+    expected = config.v_d * np.sign(config.y) * np.gradient(u_profile, config.dy)
+
+    assert np.array_equal(emfd, expected)
+    # In particular, nonzero in easterly regions with shear (gate would zero these)
+    easterly = (u_profile < -1.0) & (np.abs(expected) > 1e-10)
+    assert easterly.any()
+    assert np.all(emfd[easterly] != 0.0)
+
+
+def test_emfd_gate_on_unchanged_by_new_flag(theta_e_config):
+    """With the gate enabled (default), EMFD is identical to the pre-flag
+    behavior: H(u)-gated."""
+    config = SWConfig(total_integration_days=1, ny=51, dt=3600)
+    model = SWModel(config, SS09Profile(theta_e_config))
+    u_profile = 10.0 * np.sin(3 * np.pi * config.y / config.y.max())
+    model.state = model.state._replace(u=u_profile)
+
+    emfd = model.edd_mom_flux_div_u()
+    expected = (
+        config.v_d
+        * np.heaviside(u_profile, 0.5)
+        * np.sign(config.y)
+        * np.gradient(u_profile, config.dy)
+    )
+    assert np.array_equal(emfd, expected)

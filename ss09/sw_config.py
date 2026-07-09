@@ -29,6 +29,9 @@ class SWConfig:
     coeff_eddy_heat_diff: float = 0.0  # values <1e4 make little difference
     include_vert_advec_u: bool = True
     include_merid_advec_u: bool = True  # Toggle for v*du/dy meridional advection term
+    # H(u) gate on the EMFD, per SS09 eq. (2.5) / Zhang et al. (2025) eq. (5).
+    # The published Zhang et al. (2025) code omits the gate; set False to match it.
+    emfd_heaviside_gate: bool = True
     # Steady-state detection parameters
     enable_steady_state: bool = False
     steady_state_window_size: int = 10

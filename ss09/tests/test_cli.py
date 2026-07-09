@@ -447,3 +447,22 @@ def test_cli_default_ndays_with_steady_state():
         assert args.total_integration_days == 200000
     finally:
         sys.argv = original_argv
+
+
+def test_cli_no_emfd_heaviside_gate_flag(monkeypatch):
+    """--no-emfd-heaviside-gate disables the H(u) gate; absent, it is enabled."""
+    from ss09.cli import parse_arguments
+
+    monkeypatch.setattr(
+        "sys.argv", ["run-sw-model", "--no-emfd-heaviside-gate"]
+    )
+    args = parse_arguments()
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
+    assert sw_config.emfd_heaviside_gate is False
+
+    monkeypatch.setattr("sys.argv", ["run-sw-model"])
+    args = parse_arguments()
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
+    assert sw_config.emfd_heaviside_gate is True

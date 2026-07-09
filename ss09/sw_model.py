@@ -137,9 +137,15 @@ class SWModel:
 
     def edd_mom_flux_div_u(self) -> np.ndarray:
         """Calculate the eddy momentum flux divergence."""
+        if self.config.emfd_heaviside_gate:
+            # H(u)=1 if u>0, 0 if u<0, 0.5 at u=0
+            gate = np.heaviside(self.state.u, 0.5)
+        else:
+            # Published Zhang et al. (2025) code omits the H(u) gate
+            gate = 1.0
         return (
             self.config.v_d
-            * np.heaviside(self.state.u, 0.5)  # H(u)=1 if u>0, 0 if u<0, 0.5 at u=0
+            * gate
             * np.sign(self.config.y)
             * np.gradient(self.state.u, self.config.dy)
         )
