@@ -66,7 +66,7 @@ The 2013 correction to the original SS09 paper fixed two errors:
 
 1. **Removed meridional advection in v-equation**: The term $2v \partial v / \partial y$ was erroneous and has been dropped. The corrected meridional momentum equation is shown in §2.2 above.
 
-2. **Temperature vs. potential temperature bug**: In the original numerical implementation (not the written equations), the RHS of the meridional momentum equation incorrectly used temperature $T$ where it should have used potential temperature $\theta$. This quantitatively (but not qualitatively) affected several figures in the original paper.
+2. **Temperature vs. potential temperature bug**: In the original numerical implementation (not the written equations), potential temperature $\theta$ was inadvertently used in place of temperature $T$ in the pressure-gradient term of the meridional momentum equation. Since $\theta = 1.6\,T$, this made the effective pressure gradient and the computed circulations too strong. It quantitatively (but not qualitatively) affected SS09's figures numbered 3 and higher; the corrected (weaker) circulations in the 2013 figures are the right validation targets.
 
 This implementation follows the corrected (2013) equations.
 
@@ -86,6 +86,8 @@ $$\mathcal{S} = v_d \cdot \mathcal{H}(u) \cdot \text{sgn}(y) \cdot \frac{\partia
 The total EMFD integrated over a Hadley cell is proportional to the subtropical jet strength, which by thermal wind balance scales with the meridional temperature gradient.
 
 **The EMFD is anti-diffusive near a wind maximum.** Because $\mathcal{S} \propto \text{sgn}(y)\,\partial_y u$, the eddy momentum flux is *up-gradient* where $\partial_y u$ reverses (at a zonal-wind extremum), sharpening the jet there rather than smoothing it. The poleward jet flanks, where $u$ turns over and the $\mathcal{H}(u)$ gate switches, are therefore the numerically delicate region of the model.
+
+**Gate provenance (deviation between the Zhang et al. 2025 paper and its code)**: The $\mathcal{H}(u)$ gate appears in SS09's Eq. (2.5) and in Zhang et al. (2025) Eq. (5), but the published source code behind the Zhang et al. (2025) figures ([github.com/zpcllyj/SobelSchneiderModel](https://github.com/zpcllyj/SobelSchneiderModel)) omits it (the gated line is commented out). At the paper's equinoctial forcing ($y_0 = 0$) the omission is physically inconsequential because $u > 0$ throughout the Hadley cell, but numerically the discontinuous gate switching at flank $u=0$ crossings excites a grid-scale mode on this collocated grid: in matched 30-day runs at ny=801/dt=30s, the gateless model reproduces the published code to machine roundoff (max$|\Delta u| = 8\times10^{-12}$ m/s) while the gated model diverges by 28 m/s at the poleward flank (verified 2026-07-09). The gate is configurable via `emfd_heaviside_gate` (`--no-emfd-heaviside-gate`); it defaults to enabled, matching the papers' written equations and this repository's prior behavior.
 
 ### 3.2 Rayleigh Drag
 
@@ -123,9 +125,9 @@ Smoother than SS09; avoids discontinuities at the Hadley cell edge. Default in t
 
 ### 4.3 SB08 Profile (Seasonal Forcing)
 
-$$\theta_E = \theta_{00} - \Delta_y \left[ \sin^2\left(\frac{\pi y}{2 y_1}\right) + 2 \sin\left(\frac{\pi y_0}{2 y_1}\right) \sin\left(\frac{\pi y}{2 y_1}\right) \right]$$
+$$\theta_E = \theta_{00} - \Delta_y \left[ \sin^2\left(\frac{\pi y}{2 y_1}\right) - 2 \sin\left(\frac{\pi y_0}{2 y_1}\right) \sin\left(\frac{\pi y}{2 y_1}\right) \right]$$
 
-Adds an off-equator term via $y_0$, the latitude of maximum RCE temperature. This enables:
+Adds an off-equator term via $y_0$, the latitude of maximum RCE temperature: with the minus sign on the cross term as implemented here, the $\theta_E$ maximum sits at $y = +y_0$. (SS09's printed Eq. (3.2) has a plus sign, which places the maximum at $y = -y_0$ and contradicts their own solstitial figures, whose winter jet lies opposite the stated $y_0$; the minus sign here makes positive $y_0$ put the ITCZ in the northern hemisphere.) This enables:
 - **Equinoctial conditions** ($y_0 = 0$): symmetric two-cell Hadley circulation
 - **Solstitial/monsoon conditions** ($y_0 \neq 0$): asymmetric single dominant cell
 
@@ -184,7 +186,7 @@ $$\text{Ro} = \frac{-\zeta}{\beta y} = \frac{\partial u / \partial y}{\beta y}$$
 | $\theta_{00}$ | 330 K | Background mean potential temperature |
 | $\beta$ | 2×10⁻¹¹ m⁻¹s⁻¹ | Meridional gradient of Coriolis parameter |
 | $v_d$ | 2.5 m/s | EMFD coefficient |
-| $k_v$ | 7786 m²/s | Eddy viscosity on $v$ |
+| $k_v$ | 778,600 m²/s | Eddy viscosity on $v$; 100× SS09's published 7786 m²/s, following the Zhang et al. (2025) code. Effective diffusivity is $k_v/2$ from the $v$ equation's factor of 2 |
 | $\epsilon_u$ | 10⁻⁸ s⁻¹ | Rayleigh drag coefficient |
 | $y_1$ | 9439 km | Half-width of RCE profile (~85° latitude equivalent) |
 

@@ -347,6 +347,17 @@ run-sw-model --no-merid-advec-u --no-vert-advec-u
 - Verifying linear theory predictions
 - Isolating effects of advection on circulation strength
 
+### EMFD Heaviside Gate
+
+The H(u) gate on the eddy momentum flux divergence (SS09 Eq. 2.5) is configurable:
+
+```bash
+# Drop the H(u) gate, matching the published Zhang et al. (2025) code
+run-sw-model --no-emfd-heaviside-gate
+```
+
+Default: gate enabled (the papers' written equations, and this repo's behavior to date). The code that produced the Zhang et al. (2025) figures omits the gate; at ny=801 the gated model develops a spurious grid-scale extratropical jet while the gateless model matches that code to machine roundoff. See SCIENCE.md §3.1 for provenance and evidence.
+
 ### Seasonal Cycle Types
 
 Control the shape of the seasonal ITCZ migration when using SB08 profile:
