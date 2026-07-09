@@ -85,6 +85,8 @@ $$\mathcal{S} = v_d \cdot \mathcal{H}(u) \cdot \text{sgn}(y) \cdot \frac{\partia
 
 The total EMFD integrated over a Hadley cell is proportional to the subtropical jet strength, which by thermal wind balance scales with the meridional temperature gradient.
 
+**The EMFD is anti-diffusive near a wind maximum.** Because $\mathcal{S} \propto \text{sgn}(y)\,\partial_y u$, the eddy momentum flux is *up-gradient* where $\partial_y u$ reverses (at a zonal-wind extremum), sharpening the jet there rather than smoothing it. The poleward jet flanks, where $u$ turns over and the $\mathcal{H}(u)$ gate switches, are therefore the numerically delicate region of the model.
+
 ### 3.2 Rayleigh Drag
 
 $$\mathcal{F} = \epsilon_u u$$
