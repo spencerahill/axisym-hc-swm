@@ -82,7 +82,7 @@ def fig_full_domain(runs):
         ax.set_ylabel(ylab)
         style_ax(ax)
     axs[0].set_ylim(-5, 85)
-    axs[1].set_ylim(-0.05, 0.4)
+    axs[1].set_ylim(-0.15, 0.4)
     axs[0].plot([], [], "x", color="#d95f02", ms=9, mew=2.2,
                 label="Zhang25 fig-read anchors")
     axs[0].legend(fontsize=8, frameon=False)
