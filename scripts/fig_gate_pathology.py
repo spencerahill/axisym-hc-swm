@@ -38,7 +38,7 @@ umax_off = ds_off["u"].isel(time=slice(0, n_on)).max("y")
 fig, axs = plt.subplots(1, 3, figsize=(13, 4.2))
 axs[0].plot(lat_off, u_off, color="#08306b", lw=1.5,
             label="gate OFF (= published code)")
-axs[0].plot(lat_on, u_on, color="#d95f02", lw=1.2, label="gate ON (repo main)")
+axs[0].plot(lat_on, u_on, color="#d95f02", lw=1.2, label="gate ON")
 axs[0].set_xlabel("beta-plane latitude [deg]")
 axs[0].set_ylabel("u [m/s]")
 axs[0].legend(fontsize=8, frameon=False)

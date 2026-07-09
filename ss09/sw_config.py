@@ -30,8 +30,9 @@ class SWConfig:
     include_vert_advec_u: bool = True
     include_merid_advec_u: bool = True  # Toggle for v*du/dy meridional advection term
     # H(u) gate on the EMFD, per SS09 eq. (2.5) / Zhang et al. (2025) eq. (5).
-    # The published Zhang et al. (2025) code omits the gate; set False to match it.
-    emfd_heaviside_gate: bool = True
+    # Off by default, matching the published Zhang et al. (2025) code, which
+    # omits the gate; set True for the papers' written equations.
+    emfd_heaviside_gate: bool = False
     # Steady-state detection parameters
     enable_steady_state: bool = False
     steady_state_window_size: int = 10

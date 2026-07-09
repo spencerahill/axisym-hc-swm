@@ -3,7 +3,7 @@
 Runs three 30-day integrations at the original's config (ny=801, dt=30, v_d=2.5,
 sin2 theta_E, y_0=0) and quantifies pairwise differences of the daily-mean fields:
   A. original SS_Model.py (via run_original_ss_model.py patching machinery)
-  B. repo SWModel, stock (EMFD Heaviside H(u) gate ON, as on main)
+  B. repo SWModel, EMFD Heaviside H(u) gate ON (the pre-2026-07-09 default)
   C. repo SWModel with the H(u) gate removed (matching the original code)
 
 Claim under test: B differs from A only through the H(u) gate, so C should match
@@ -33,6 +33,7 @@ PYEXE = sys.executable
 def run_repo(outdir, gate_on):
     config = SWConfig(
         total_integration_days=DAYS, ny=801, dt=30, v_d=2.5,
+        emfd_heaviside_gate=gate_on,
         output_path=str(outdir / "output.nc"),
         restart_output_dir=str(outdir),
     )

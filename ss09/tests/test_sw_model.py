@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 import numpy as np
 from ss09.sw_model import SWModel
@@ -349,9 +351,11 @@ def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
     """Test that EMFD only acts where u > 0 (westerlies), per SCIENCE.md eq 3.1.
 
     The Heaviside function H(u) (=0 for u < 0, 0.5 at u = 0, 1 for u > 0)
-    ensures that eddies only extract momentum from westerly flow.
+    ensures that eddies only extract momentum from westerly flow. Requires
+    the gate explicitly since 2026-07-09 (default is now gate-off).
     """
-    model = SWModel(sw_config, SS09Profile(theta_e_config))
+    config = dataclasses.replace(sw_config, emfd_heaviside_gate=True)
+    model = SWModel(config, SS09Profile(theta_e_config))
 
     ny = model.config.ny
     equator_idx = ny // 2
@@ -379,10 +383,12 @@ def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
 
 
 def test_emfd_heaviside_half_at_zero_u(sw_config, theta_e_config):
-    """At exactly u = 0, EMFD uses H(0) = 0.5, matching the vertical-advection
-    convention (implicit smoothing at the Heaviside boundary) rather than 0.
+    """At exactly u = 0, the gated EMFD uses H(0) = 0.5, matching the
+    vertical-advection convention (implicit smoothing at the Heaviside
+    boundary) rather than 0.
     """
-    model = SWModel(sw_config, SS09Profile(theta_e_config))
+    config = dataclasses.replace(sw_config, emfd_heaviside_gate=True)
+    model = SWModel(config, SS09Profile(theta_e_config))
     ny = model.config.ny
     y = model.config.y
 
@@ -493,10 +499,11 @@ def test_vert_advec_u_inactive_when_warmer_than_equilibrium(sw_config, theta_e_c
     )
 
 
-def test_emfd_heaviside_gate_on_by_default():
-    """The H(u) gate defaults to enabled, preserving existing model behavior."""
+def test_emfd_heaviside_gate_off_by_default():
+    """The H(u) gate defaults to disabled, matching the published code behind
+    the Zhang et al. (2025) figures (github.com/zpcllyj/SobelSchneiderModel)."""
     config = SWConfig(total_integration_days=1, ny=51, dt=3600)
-    assert config.emfd_heaviside_gate is True
+    assert config.emfd_heaviside_gate is False
 
 
 def test_emfd_gate_off_matches_ungated_expression(theta_e_config):
@@ -528,9 +535,11 @@ def test_emfd_gate_off_matches_ungated_expression(theta_e_config):
 
 
 def test_emfd_gate_on_unchanged_by_new_flag(theta_e_config):
-    """With the gate enabled (default), EMFD is identical to the pre-flag
-    behavior: H(u)-gated."""
-    config = SWConfig(total_integration_days=1, ny=51, dt=3600)
+    """With the gate explicitly enabled, EMFD is identical to the historical
+    repo behavior: H(u)-gated."""
+    config = SWConfig(
+        total_integration_days=1, ny=51, dt=3600, emfd_heaviside_gate=True
+    )
     model = SWModel(config, SS09Profile(theta_e_config))
     u_profile = 10.0 * np.sin(3 * np.pi * config.y / config.y.max())
     model.state = model.state._replace(u=u_profile)

@@ -206,13 +206,21 @@ def parse_arguments():
         help="Disable meridional advection of zonal momentum (v*du/dy) (default: enabled)",
     )
     parser.add_argument(
+        "--emfd-heaviside-gate",
+        action="store_true",
+        default=False,
+        dest="emfd_heaviside_gate",
+        help=(
+            "Apply the H(u) gate to the EMFD, per the papers' written "
+            "equations (SS09 Eq. 2.5) (default: gate disabled, matching "
+            "the published Zhang et al. (2025) code)"
+        ),
+    )
+    parser.add_argument(
         "--no-emfd-heaviside-gate",
         action="store_false",
         dest="emfd_heaviside_gate",
-        help=(
-            "Drop the H(u) gate from the EMFD, matching the published "
-            "Zhang et al. (2025) code (default: gate enabled)"
-        ),
+        help="Explicitly disable the H(u) gate (the default)",
     )
     # Steady-state detection arguments
     parser.add_argument(
@@ -347,7 +355,7 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         asselin_filt_coef=args.asselin_filt_coef,
         include_vert_advec_u=args.include_vert_advec_u,
         include_merid_advec_u=args.include_merid_advec_u,
-        emfd_heaviside_gate=getattr(args, "emfd_heaviside_gate", True),
+        emfd_heaviside_gate=getattr(args, "emfd_heaviside_gate", False),
         enable_steady_state=args.enable_steady_state,
         steady_state_window_size=args.steady_state_window_size,
         steady_state_threshold=args.steady_state_threshold,

@@ -1,4 +1,4 @@
-"""Run the repo SWModel stock (EMFD H(u) gate ON) at the original's config.
+"""Run the repo SWModel with the EMFD H(u) gate ON at the original's config.
 
 Long-horizon companion to equivalence_test.py: documents what the current
 main-branch model does at ny=801/dt=30/v_d=2.5 over many days, to characterize
@@ -21,6 +21,7 @@ outdir.mkdir(parents=True, exist_ok=True)
 
 config = SWConfig(
     total_integration_days=ndays, ny=801, dt=30, v_d=2.5,
+    emfd_heaviside_gate=True,
     output_path=str(outdir / "output.nc"),
     restart_output_dir=str(outdir),
 )
