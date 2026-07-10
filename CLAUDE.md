@@ -361,6 +361,17 @@ run-sw-model --no-emfd-heaviside-gate
 
 Default: gate disabled, matching the code that produced the Zhang et al. (2025) figures (that code omits the gate the papers' written equations include). At ny=801 the gated model develops a spurious grid-scale extratropical jet while the gateless model matches the published code to machine roundoff. The default was flipped on 2026-07-09, and the regression baseline (`ss09/tests/baseline/output.nc`) was regenerated to match. See SCIENCE.md §3.1 for provenance and evidence.
 
+### EMFD Upwind Stencil
+
+The EMFD term is advective in form (poleward transport at speed `v_d` where the gate is open), and SS09 §2b state their advection terms use first-order upwind differencing. The published Zhang et al. (2025) code instead centers the EMFD du/dy, a stencil that is exactly blind to the 2Δy mode the H(u) gate excites where u crosses zero. The stencil is configurable:
+
+```bash
+# One-sided (equatorward-biased) du/dy in the EMFD, per SS09 §2b
+run-sw-model --emfd-upwind
+```
+
+Default: centered (`np.gradient`), matching the published code. Gate-on runs require the upwind stencil: with it, the gate-on flank runaway (420 m/s at ny=801) becomes a steady, bounded solution; the upwind stencil's numerical diffusion (~`v_d`·dy/2) acts only where the EMFD acts, so it vanishes in the axisymmetric (v_d=0) limit. For SS09/SS13-faithful off-equatorial (y0≠0) runs, where the gate is leading-order physics in the tropical easterlies, use `--emfd-heaviside-gate --emfd-upwind` together. Verified 2026-07-10; runs in `model_output/gate_y0_experiment/`.
+
 ### Seasonal Cycle Types
 
 Control the shape of the seasonal ITCZ migration when using SB08 profile:
