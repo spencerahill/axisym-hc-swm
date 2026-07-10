@@ -460,7 +460,7 @@ def test_cli_emfd_stencil_flag(monkeypatch):
     sw_config = setup_sw_config(args, theta_e_config)
     assert sw_config.emfd_stencil == "centered"
 
-    for stencil in ["centered", "upwind"]:
+    for stencil in ["centered", "upwind", "mc"]:
         monkeypatch.setattr(
             "sys.argv", ["run-sw-model", "--emfd-stencil", stencil]
         )
@@ -490,12 +490,13 @@ def test_cli_emfd_upwind_alias(monkeypatch):
     sw_config = setup_sw_config(args, theta_e_config)
     assert sw_config.emfd_stencil == "upwind"
 
-    monkeypatch.setattr(
-        "sys.argv",
-        ["run-sw-model", "--emfd-upwind", "--emfd-stencil", "centered"],
-    )
-    with pytest.raises(SystemExit):
-        parse_arguments()
+    for conflicting in ["centered", "mc"]:
+        monkeypatch.setattr(
+            "sys.argv",
+            ["run-sw-model", "--emfd-upwind", "--emfd-stencil", conflicting],
+        )
+        with pytest.raises(SystemExit):
+            parse_arguments()
 
 
 def test_cli_emfd_heaviside_gate_flags(monkeypatch):

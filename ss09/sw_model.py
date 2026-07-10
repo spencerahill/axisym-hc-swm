@@ -26,6 +26,52 @@ SECONDS_PER_DAY = 86400  # Number of seconds in a day
 THETA_TO_TEMP = 1 / 1.6  # Inverse of (p_s/p_t)^(R/c_p)
 
 
+def mc_limited_slope(u: np.ndarray, dy: float) -> np.ndarray:
+    """Monotonized-central (MC) limited slope of u at each grid point.
+
+    sigma_i = minmod3(2*dm_i, (dm_i + dp_i)/2, 2*dp_i), where dm/dp are the
+    backward/forward one-sided slopes: zero wherever dm and dp differ in
+    sign (local extrema) and at both endpoints, where the missing one-sided
+    slope is padded with zero.
+    """
+    diff = (u[1:] - u[:-1]) / dy
+    dm = np.zeros_like(u)
+    dm[1:] = diff
+    dp = np.zeros_like(u)
+    dp[:-1] = diff
+    centered = 0.5 * (dm + dp)
+    mag = np.minimum(
+        np.minimum(np.abs(2.0 * dm), np.abs(2.0 * dp)), np.abs(centered)
+    )
+    return np.where(dm * dp > 0, np.sign(dm) * mag, 0.0)
+
+
+def muscl_mc_du_dy(u: np.ndarray, dy: float, y: np.ndarray) -> np.ndarray:
+    """MUSCL upwind-biased du/dy with MC-limited slopes, for advection at
+    the poleward velocity v_d*sgn(y).
+
+    NH points use dm_i + (sigma_i - sigma_{i-1})/2, SH points
+    dp_i - (sigma_{i+1} - sigma_i)/2: second-order in smooth regions (the
+    limited-slope correction cancels the one-sided difference's leading
+    (dy/2)*u'' truncation term), reverting toward first-order upwind where
+    the limiter clips (extrema, discontinuities). An equator point takes the
+    SH branch, which the sgn(0)=0 factor in the EMFD zeroes regardless.
+    """
+    diff = (u[1:] - u[:-1]) / dy
+    dm = np.zeros_like(u)
+    dm[1:] = diff
+    dp = np.zeros_like(u)
+    dp[:-1] = diff
+    sigma = mc_limited_slope(u, dy)
+    sigma_m = np.zeros_like(u)  # sigma_{i-1}
+    sigma_m[1:] = sigma[:-1]
+    sigma_p = np.zeros_like(u)  # sigma_{i+1}
+    sigma_p[:-1] = sigma[1:]
+    backward = dm + 0.5 * (sigma - sigma_m)
+    forward = dp - 0.5 * (sigma_p - sigma)
+    return np.where(y > 0, backward, forward)
+
+
 class AuxiliaryVars(NamedTuple):
     """
     Values of u, v, and theta for the previous or future step.
@@ -155,6 +201,8 @@ class SWModel:
             forward = np.zeros_like(u)
             forward[:-1] = diff
             du_dy = np.where(self.config.y > 0, backward, forward)
+        elif self.config.emfd_stencil == "mc":
+            du_dy = muscl_mc_du_dy(self.state.u, self.config.dy, self.config.y)
         else:
             du_dy = np.gradient(self.state.u, self.config.dy)
         return (

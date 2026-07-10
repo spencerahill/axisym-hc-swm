@@ -611,6 +611,139 @@ def test_emfd_upwind_composes_with_gate(theta_e_config):
     assert np.isclose(emfd[k], expected)
 
 
+def test_emfd_mc_slope_smooth_convex():
+    """On the smooth convex-monotone profile u = A*y^3 (the near-equator
+    regime the limiter must not clip), the MC stencil's du/dy is second-order
+    accurate: halving dy shrinks the max NH-interior error ~4x, and the error
+    is well below the first-order upwind stencil's at fixed dy.
+
+    The north wall point is excluded from the error norm: the endpoint slope
+    is defined as zero, so the last point is lower-order there (u at the
+    walls is pinned to zero by the boundary conditions in real integrations).
+    """
+    from ss09.sw_model import muscl_mc_du_dy
+
+    amp = 1e-20
+    errors = {}
+    errors_upwind = {}
+    for ny in (101, 201):
+        config = SWConfig(total_integration_days=1, ny=ny, dt=3600)
+        u = amp * config.y**3
+        exact = 3.0 * amp * config.y**2
+        du_dy = muscl_mc_du_dy(u, config.dy, config.y)
+        backward = np.zeros_like(u)
+        backward[1:] = (u[1:] - u[:-1]) / config.dy
+        nh_interior = (config.y > 0) & (np.arange(ny) < ny - 1)
+        errors[ny] = np.max(np.abs(du_dy - exact)[nh_interior])
+        errors_upwind[ny] = np.max(np.abs(backward - exact)[nh_interior])
+
+    ratio = errors[101] / errors[201]
+    assert 3.0 < ratio < 5.0, f"expected ~4x error drop, got {ratio:.2f}"
+    assert errors[101] < 0.5 * errors_upwind[101], (
+        f"MC error {errors[101]:.3e} not below upwind {errors_upwind[101]:.3e}"
+    )
+    assert errors[201] < 0.5 * errors_upwind[201]
+
+
+def test_emfd_mc_limits_at_extremum():
+    """The MC-limited slope is exactly zero at a local extremum and at both
+    endpoints, and the MUSCL du/dy reverts to the first-order one-sided
+    difference at the two points bracketing a step discontinuity."""
+    from ss09.sw_model import mc_limited_slope, muscl_mc_du_dy
+
+    config = SWConfig(total_integration_days=1, ny=101, dt=3600)
+
+    # Local extremum: smooth NH bump; slope vanishes at the grid maximum
+    u_bump = 10.0 * np.exp(-(((config.y - 5e6) / 2e6) ** 2))
+    sigma = mc_limited_slope(u_bump, config.dy)
+    i_max = int(np.argmax(u_bump))
+    assert sigma[i_max] == 0.0
+    assert sigma[0] == 0.0 and sigma[-1] == 0.0
+
+    # Step discontinuity in the NH: du/dy at the points bracketing the jump
+    # equals the plain backward difference (the limiter clips sigma to zero)
+    u_step = np.where(config.y < 5e6, 10.0, 0.0)
+    du_dy = muscl_mc_du_dy(u_step, config.dy, config.y)
+    k = int(np.argmax(config.y >= 5e6))  # first point past the jump
+    backward_k = (u_step[k] - u_step[k - 1]) / config.dy
+    assert du_dy[k] == backward_k
+    assert du_dy[k - 1] == (u_step[k - 1] - u_step[k - 2]) / config.dy
+
+
+@pytest.mark.parametrize("ny", [50, 51])
+def test_emfd_mc_parity(theta_e_config, ny):
+    """A mirror-symmetric u gives a mirror-antisymmetric MUSCL du/dy and,
+    with the antisymmetric sgn(y) factor, a mirror-symmetric EMFD term, all
+    to machine zero (bit-exact), gate on or off: the stencil cannot seed
+    hemispheric asymmetry. Odd ny has an equator point; even ny does not."""
+    from ss09.sw_model import muscl_mc_du_dy
+
+    rng = np.random.default_rng(11)
+    raw = 10.0 + rng.normal(0.0, 3.0, ny)
+    u_sym = 0.5 * (raw + raw[::-1])  # exactly palindromic in floating point
+    assert np.array_equal(u_sym, u_sym[::-1])
+
+    config = SWConfig(total_integration_days=1, ny=ny, dt=3600,
+                      emfd_stencil="mc")
+    du_dy = muscl_mc_du_dy(u_sym, config.dy, config.y)
+    # Off-equator only: at an odd-ny equator point the raw derivative is
+    # arbitrary (the sgn(0)=0 factor in the EMFD zeroes it), as for upwind
+    off_eq = config.y != 0
+    assert np.array_equal(du_dy[off_eq], (-du_dy[::-1])[off_eq])
+
+    for gate in (False, True):
+        cfg = dataclasses.replace(
+            config, emfd_stencil="mc", emfd_heaviside_gate=gate
+        )
+        model = SWModel(cfg, SS09Profile(theta_e_config))
+        model.state = model.state._replace(u=u_sym.copy())
+        emfd = model.edd_mom_flux_div_u()
+        assert np.array_equal(emfd, emfd[::-1])
+
+
+def test_emfd_mc_vd0_inactive(theta_e_config):
+    """With v_d = 0 the EMFD term is identically zero under the MC stencil,
+    preserving the axisymmetric (AMC) limit bit-exactly."""
+    config = SWConfig(
+        total_integration_days=1, ny=51, dt=3600, v_d=0.0, emfd_stencil="mc"
+    )
+    model = SWModel(config, SS09Profile(theta_e_config))
+    rng = np.random.default_rng(3)
+    model.state = model.state._replace(u=rng.normal(5.0, 4.0, config.ny))
+    emfd = model.edd_mom_flux_div_u()
+    assert np.array_equal(emfd, np.zeros(config.ny))
+
+
+def test_emfd_mc_composes_with_gate(theta_e_config):
+    """The model's mc branch is wired to the MUSCL derivative: gateless EMFD
+    equals v_d*sgn(y)*muscl_mc_du_dy exactly, and the H(u) gate zeroes
+    easterly points while westerly points keep the MUSCL value."""
+    from ss09.sw_model import muscl_mc_du_dy
+
+    config = SWConfig(
+        total_integration_days=1, ny=51, dt=3600, emfd_stencil="mc"
+    )
+    model = SWModel(config, SS09Profile(theta_e_config))
+    u_profile = np.linspace(-5.0, 15.0, config.ny)  # easterly south, westerly north
+    model.state = model.state._replace(u=u_profile)
+
+    expected = (
+        config.v_d
+        * np.sign(config.y)
+        * muscl_mc_du_dy(u_profile, config.dy, config.y)
+    )
+    assert np.array_equal(model.edd_mom_flux_div_u(), expected)
+
+    gated_config = dataclasses.replace(config, emfd_heaviside_gate=True)
+    gated_model = SWModel(gated_config, SS09Profile(theta_e_config))
+    gated_model.state = gated_model.state._replace(u=u_profile)
+    gated_emfd = gated_model.edd_mom_flux_div_u()
+
+    easterly = u_profile < 0
+    assert np.all(gated_emfd[easterly] == 0.0)
+    assert np.array_equal(gated_emfd[~easterly], expected[~easterly])
+
+
 def test_emfd_gate_on_unchanged_by_new_flag(theta_e_config):
     """With the gate explicitly enabled, EMFD is identical to the historical
     repo behavior: H(u)-gated."""
