@@ -61,7 +61,7 @@ def main():
         ny=801,
         dt=30,
         emfd_heaviside_gate=True,
-        emfd_upwind=True,
+        emfd_stencil="upwind",
         output_path=str(outdir / "output.nc"),
         restart_output_dir=str(outdir),
     )

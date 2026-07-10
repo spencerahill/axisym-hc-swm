@@ -33,12 +33,15 @@ class SWConfig:
     # Off by default, matching the published Zhang et al. (2025) code, which
     # omits the gate; set True for the papers' written equations.
     emfd_heaviside_gate: bool = False
-    # Upwind (one-sided, equatorward-biased) du/dy in the EMFD instead of the
-    # published code's centered np.gradient. The EMFD is advective in form
-    # with poleward velocity v_d*sgn(y); SS09 section 2b upwinds the advection
-    # terms, and the resulting one-sided stencil damps the 2*dy mode the
-    # centered stencil cannot see. Required for stable gate-on integrations.
-    emfd_upwind: bool = False
+    # Spatial stencil for the EMFD du/dy. The EMFD is advective in form with
+    # poleward velocity v_d*sgn(y). "centered": np.gradient, matching the
+    # published Zhang et al. (2025) code. "upwind": first-order one-sided
+    # from the equatorward (upstream) side, per SS09 section 2b; damps the
+    # 2*dy mode the centered stencil cannot see, required for stable gate-on
+    # integrations. "mc": MUSCL with monotonized-central limited slopes;
+    # second-order in smooth regions, reverts toward upwind at extrema and
+    # discontinuities.
+    emfd_stencil: str = "centered"
     # Steady-state detection parameters
     enable_steady_state: bool = False
     steady_state_window_size: int = 10
@@ -56,6 +59,13 @@ class SWConfig:
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)
         self.y = np.linspace(-self.domain_size / 2, self.domain_size / 2, self.ny)
+
+        valid_stencils = ("centered", "upwind", "mc")
+        if self.emfd_stencil not in valid_stencils:
+            raise ValueError(
+                f"emfd_stencil must be one of {valid_stencils}, "
+                f"got {self.emfd_stencil!r}"
+            )
 
         # Validate steady-state parameters
         if self.enable_steady_state and self.steady_state_window_size > self.total_integration_days:

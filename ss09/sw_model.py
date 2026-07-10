@@ -143,7 +143,7 @@ class SWModel:
         else:
             # Published Zhang et al. (2025) code omits the H(u) gate
             gate = 1.0
-        if self.config.emfd_upwind:
+        if self.config.emfd_stencil == "upwind":
             # One-sided du/dy from the equatorward (upstream) side: the
             # effective advection velocity v_d*sgn(y) is poleward, so NH
             # points difference backward, SH points forward; sgn(0)=0 zeroes

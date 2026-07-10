@@ -223,16 +223,26 @@ def parse_arguments():
         help="Explicitly disable the H(u) gate (the default)",
     )
     parser.add_argument(
+        "--emfd-stencil",
+        type=str,
+        choices=["centered", "upwind", "mc"],
+        default=None,  # None to detect conflicts with the --emfd-upwind alias
+        dest="emfd_stencil",
+        help=(
+            "Spatial stencil for the EMFD du/dy: 'centered' (the published "
+            "Zhang et al. (2025) code, the default), 'upwind' (first-order "
+            "one-sided per SS09 section 2b, needed for stable gate-on "
+            "integrations), or 'mc' (MUSCL with monotonized-central limited "
+            "slopes; second-order in smooth regions, reverts toward upwind "
+            "at extrema and discontinuities)"
+        ),
+    )
+    parser.add_argument(
         "--emfd-upwind",
         action="store_true",
         default=False,
         dest="emfd_upwind",
-        help=(
-            "Use an upwind (one-sided, poleward-advection) du/dy stencil in "
-            "the EMFD instead of the centered stencil of the published "
-            "Zhang et al. (2025) code, per SS09 section 2b; needed for "
-            "stable gate-on integrations (default: centered)"
-        ),
+        help="Deprecated alias for --emfd-stencil upwind",
     )
     # Steady-state detection arguments
     parser.add_argument(
@@ -313,6 +323,17 @@ def parse_arguments():
     )
     args = parser.parse_args()
 
+    # Resolve the deprecated --emfd-upwind alias against --emfd-stencil
+    if args.emfd_upwind:
+        if args.emfd_stencil is not None and args.emfd_stencil != "upwind":
+            raise SystemExit(
+                "Error: --emfd-upwind is an alias for --emfd-stencil upwind "
+                f"and conflicts with --emfd-stencil {args.emfd_stencil}."
+            )
+        args.emfd_stencil = "upwind"
+    elif args.emfd_stencil is None:
+        args.emfd_stencil = "centered"
+
     # Handle mutual exclusivity: --ndays and --stop-at-steady-state
     ndays_provided = args.total_integration_days is not None
     if ndays_provided and args.enable_steady_state:
@@ -330,6 +351,15 @@ def parse_arguments():
             args.total_integration_days = 250  # Original default
 
     return args
+
+
+def _resolve_emfd_stencil(args) -> str:
+    """Resolve the EMFD stencil, honoring the deprecated emfd_upwind flag on
+    args objects that predate emfd_stencil (hand-built test/script args)."""
+    stencil = getattr(args, "emfd_stencil", None)
+    if stencil is None:
+        return "upwind" if getattr(args, "emfd_upwind", False) else "centered"
+    return stencil
 
 
 def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
@@ -368,7 +398,7 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         include_vert_advec_u=args.include_vert_advec_u,
         include_merid_advec_u=args.include_merid_advec_u,
         emfd_heaviside_gate=getattr(args, "emfd_heaviside_gate", False),
-        emfd_upwind=getattr(args, "emfd_upwind", False),
+        emfd_stencil=_resolve_emfd_stencil(args),
         enable_steady_state=args.enable_steady_state,
         steady_state_window_size=args.steady_state_window_size,
         steady_state_threshold=args.steady_state_threshold,

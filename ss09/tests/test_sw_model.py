@@ -534,22 +534,31 @@ def test_emfd_gate_off_matches_ungated_expression(theta_e_config):
     assert np.all(emfd[easterly] != 0.0)
 
 
-def test_emfd_upwind_off_by_default():
-    """The upwind EMFD stencil defaults to off (centered np.gradient),
-    matching the published Zhang et al. (2025) code."""
+def test_emfd_stencil_centered_by_default():
+    """The EMFD du/dy stencil defaults to centered (np.gradient), matching
+    the published Zhang et al. (2025) code."""
     config = SWConfig(total_integration_days=1, ny=51, dt=3600)
-    assert config.emfd_upwind is False
+    assert config.emfd_stencil == "centered"
+
+
+def test_emfd_stencil_rejects_unknown_value():
+    """SWConfig rejects an unrecognized emfd_stencil at construction, so a
+    typo cannot silently fall through to the centered branch."""
+    with pytest.raises(ValueError, match="emfd_stencil"):
+        SWConfig(
+            total_integration_days=1, ny=51, dt=3600, emfd_stencil="bogus"
+        )
 
 
 def test_emfd_upwind_poleward_stencil(theta_e_config):
-    """With emfd_upwind=True, the EMFD's du/dy uses the one-sided difference
+    """With emfd_stencil="upwind", the EMFD's du/dy uses the one-sided difference
     from the equatorward (upstream) side: the effective advection velocity
     v_d*sgn(y) is poleward in each hemisphere, so NH points use the backward
     difference, SH points the forward difference, and the equator point is
     exactly zero (sgn(0) = 0). Per SS09 section 2b, which upwinds the
     advection terms."""
     config = SWConfig(
-        total_integration_days=1, ny=51, dt=3600, emfd_upwind=True
+        total_integration_days=1, ny=51, dt=3600, emfd_stencil="upwind"
     )
     model = SWModel(config, SS09Profile(theta_e_config))
 
@@ -586,7 +595,7 @@ def test_emfd_upwind_composes_with_gate(theta_e_config):
     westerly points carry the upwind one-sided difference."""
     config = SWConfig(
         total_integration_days=1, ny=51, dt=3600,
-        emfd_heaviside_gate=True, emfd_upwind=True,
+        emfd_heaviside_gate=True, emfd_stencil="upwind",
     )
     model = SWModel(config, SS09Profile(theta_e_config))
 

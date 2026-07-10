@@ -449,22 +449,53 @@ def test_cli_default_ndays_with_steady_state():
         sys.argv = original_argv
 
 
-def test_cli_emfd_upwind_flag(monkeypatch):
-    """--emfd-upwind switches the EMFD du/dy stencil to upwind; absent, the
-    centered published-code stencil is used."""
+def test_cli_emfd_stencil_flag(monkeypatch):
+    """--emfd-stencil selects the EMFD du/dy stencil; absent, the centered
+    published-code stencil is used."""
     from ss09.cli import parse_arguments
 
     monkeypatch.setattr("sys.argv", ["run-sw-model"])
     args = parse_arguments()
     theta_e_config = setup_theta_e_config(args)
     sw_config = setup_sw_config(args, theta_e_config)
-    assert sw_config.emfd_upwind is False
+    assert sw_config.emfd_stencil == "centered"
+
+    for stencil in ["centered", "upwind"]:
+        monkeypatch.setattr(
+            "sys.argv", ["run-sw-model", "--emfd-stencil", stencil]
+        )
+        args = parse_arguments()
+        theta_e_config = setup_theta_e_config(args)
+        sw_config = setup_sw_config(args, theta_e_config)
+        assert sw_config.emfd_stencil == stencil
+
+
+def test_cli_emfd_upwind_alias(monkeypatch):
+    """--emfd-upwind is a back-compat alias for --emfd-stencil upwind; the
+    consistent combination is accepted, inconsistent ones are rejected."""
+    from ss09.cli import parse_arguments
 
     monkeypatch.setattr("sys.argv", ["run-sw-model", "--emfd-upwind"])
     args = parse_arguments()
     theta_e_config = setup_theta_e_config(args)
     sw_config = setup_sw_config(args, theta_e_config)
-    assert sw_config.emfd_upwind is True
+    assert sw_config.emfd_stencil == "upwind"
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["run-sw-model", "--emfd-upwind", "--emfd-stencil", "upwind"],
+    )
+    args = parse_arguments()
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
+    assert sw_config.emfd_stencil == "upwind"
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["run-sw-model", "--emfd-upwind", "--emfd-stencil", "centered"],
+    )
+    with pytest.raises(SystemExit):
+        parse_arguments()
 
 
 def test_cli_emfd_heaviside_gate_flags(monkeypatch):
