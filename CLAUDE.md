@@ -151,6 +151,8 @@ run-sw-model
 run-sw-model --ndays 250 --ny 51 --dt 3600 --theta-e-type sin2 --output-path ./model_output/output.nc
 ```
 
+**Smoke-test new configurations.** Before launching any run projected to take more than ~30 minutes, run the same configuration for ~10 days first. Instabilities surface within days and cost seconds to catch (a y0≠0 cold start at small k_v goes NaN by day 9; catching that inside a 15-year launch wastes hours).
+
 ### Restart/Checkpoint Functionality
 
 The model supports saving and loading simulation state for extending runs or recovery from interruptions.
