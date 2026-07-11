@@ -499,7 +499,9 @@ def main():
     if args.restart_file:
         if not os.path.exists(args.restart_file):
             raise FileNotFoundError(f"Restart file not found: {args.restart_file}")
-        model.restart_day = model.load_from_restart(args.restart_file)
+        model.restart_day = model.load_from_restart(
+            args.restart_file, migrate=getattr(args, "migrate_restart", False)
+        )
 
     model.run_sim()
     model.save_results()

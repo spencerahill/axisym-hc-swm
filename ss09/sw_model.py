@@ -5,7 +5,7 @@ This file shows the python code for S-S model.
 import os
 import logging
 import numpy as np
-from typing import Tuple, NamedTuple
+from typing import Optional, Tuple, NamedTuple
 from dataclasses import asdict
 from .model_state import ModelState
 from .theta_e import ThetaEProfile
@@ -395,7 +395,7 @@ class SWModel:
         reconstructs centers from faces."""
         return v
 
-    def _daily_v_faces(self, v: np.ndarray):
+    def _daily_v_faces(self, v: np.ndarray) -> Optional[np.ndarray]:
         """Daily-averaged v on its native grid, for the grid-scale smoothness
         monitor. None on the collocated grid (the monitor then uses the same
         v the kinetic-energy metric does); the staggered subclass returns the
@@ -606,18 +606,38 @@ class SWModel:
             smoothness_warning_issued=self.steady_state_detector.smoothness_warning_issued,
             config_snapshot=asdict(self.config),
             theta_e_config_snapshot=asdict(self.theta_e_profile.config),
+            grid=self.config.grid,
+            y_v=self.config.y_v.copy(),
         )
 
         # Generate filepath using descriptive naming scheme (matches output file)
         filepath = generate_restart_filename(self.config.output_path, day)
         restart_state.to_netcdf(filepath)
 
-    def load_from_restart(self, restart_file: str) -> int:
+    @staticmethod
+    def _migrate_v(v: np.ndarray, from_grid: str, to_grid: str) -> np.ndarray:
+        """Interpolate v between the center and face grids for a one-time
+        restart migration. Collocated->staggered averages adjacent centers onto
+        the faces; staggered->collocated averages adjacent faces back to the
+        centers (wall centers 0)."""
+        if from_grid == "collocated" and to_grid == "staggered":
+            return 0.5 * (v[:-1] + v[1:])
+        if from_grid == "staggered" and to_grid == "collocated":
+            return v_faces_to_centers(v)
+        raise ValueError(
+            f"unsupported v migration {from_grid!r} -> {to_grid!r}"
+        )
+
+    def load_from_restart(self, restart_file: str, migrate: bool = False) -> int:
         """
         Load state from restart file and restore model.
 
         Args:
             restart_file: Path to restart NetCDF file
+            migrate: If True, permit a v-grid mismatch between the restart file
+                and this run by interpolating v (and its n-1 state) between the
+                center and face grids once. If False, a grid mismatch is a hard
+                error.
 
         Returns:
             starting_day: The day number to resume from
@@ -626,19 +646,29 @@ class SWModel:
         restart_state = RestartState.from_netcdf(restart_file)
 
         # Validate compatibility with current configuration
-        restart_state.validate_compatibility(self.config, self.theta_e_profile.config)
+        restart_state.validate_compatibility(
+            self.config, self.theta_e_profile.config, allow_grid_migration=migrate
+        )
+
+        # Migrate v between grids once if requested (validate already enforced
+        # that this only happens under an explicit migration).
+        v = restart_state.v
+        v_prev = restart_state.v_prev
+        if restart_state.grid != self.config.grid:
+            v = self._migrate_v(v, restart_state.grid, self.config.grid)
+            v_prev = self._migrate_v(v_prev, restart_state.grid, self.config.grid)
 
         # Restore current state
         self.state = self.state._replace(
             t=restart_state.current_time,
             u=restart_state.u,
-            v=restart_state.v,
+            v=v,
             theta=restart_state.theta,
         )
 
         # Restore previous step
         self.vars_prev_step = self.vars_prev_step._replace(
-            u=restart_state.u_prev, v=restart_state.v_prev, theta=restart_state.theta_prev
+            u=restart_state.u_prev, v=v_prev, theta=restart_state.theta_prev
         )
 
         # Restore steady-state detector state if enabled

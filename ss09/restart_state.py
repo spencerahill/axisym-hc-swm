@@ -51,6 +51,13 @@ class RestartState:
     config_snapshot: Dict[str, Any]  # SWConfig as dict
     theta_e_config_snapshot: Dict[str, Any]  # ThetaEConfig as dict
 
+    # v-grid layout the checkpoint was written on. "collocated" (v on the ny
+    # centers, the pre-staggered format) or "staggered" (v on the ny-1 faces).
+    # Defaulted so legacy restart files, which carry no grid tag, load as
+    # collocated. y_v is the v-grid coordinate (faces for staggered, else y).
+    grid: str = "collocated"
+    y_v: Optional[np.ndarray] = None
+
     def to_netcdf(self, filepath: str) -> None:
         """
         Write restart state to NetCDF file.
@@ -59,6 +66,12 @@ class RestartState:
             filepath: Path to output NetCDF file
         """
         history_length = len(self.kinetic_energy_history)
+
+        # v may live on the ny-1 faces (staggered) rather than the ny centers.
+        # Store it on a distinct y_face dimension so its length and grid are
+        # explicit in the file, never silently reinterpreted on the wrong grid.
+        staggered = self.grid == "staggered"
+        v_dim = "y_face" if staggered else "y"
 
         # Create xarray Dataset
         ds = xr.Dataset(
@@ -69,11 +82,11 @@ class RestartState:
                 "current_day": ([], self.current_day, {"long_name": "Current day index"}),
                 # Current instantaneous state
                 "u": (["y"], self.u, {"units": "m/s", "long_name": "Instantaneous zonal wind (timestep n)"}),
-                "v": (["y"], self.v, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n)"}),
+                "v": ([v_dim], self.v, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n)", "grid": self.grid}),
                 "theta": (["y"], self.theta, {"units": "K", "long_name": "Instantaneous potential temperature (timestep n)"}),
                 # Previous instantaneous filtered state
                 "u_prev": (["y"], self.u_prev, {"units": "m/s", "long_name": "Instantaneous zonal wind (timestep n-1, filtered)"}),
-                "v_prev": (["y"], self.v_prev, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n-1, filtered)"}),
+                "v_prev": ([v_dim], self.v_prev, {"units": "m/s", "long_name": "Instantaneous meridional wind (timestep n-1, filtered)", "grid": self.grid}),
                 "theta_prev": (["y"], self.theta_prev, {"units": "K", "long_name": "Instantaneous potential temperature (timestep n-1, filtered)"}),
                 # Steady-state detector history
                 "kinetic_energy_history": (
@@ -110,11 +123,26 @@ class RestartState:
             },
         )
 
+        # Attach the v-face coordinate so its positions are explicit in the file.
+        if staggered and self.y_v is not None:
+            ds = ds.assign_coords(
+                y_face=("y_face", self.y_v, {
+                    "units": "m",
+                    "long_name": "Meridional distance (v faces)",
+                    "grid": "staggered_face",
+                })
+            )
+
         # Add global attributes
         ds.attrs["title"] = "Shallow Water Model Restart File"
         ds.attrs["creation_time"] = datetime.now().isoformat()
         ds.attrs["restart_type"] = "day_boundary"
         ds.attrs["description"] = "Contains instantaneous state for exact simulation continuation"
+        # Grid tag + format version so a loader can tell the v-grid layout and
+        # refuse (or knowingly migrate) a mismatched restart. Version 1 files
+        # predate this and carry no "grid" attribute (read as collocated).
+        ds.attrs["grid"] = self.grid
+        ds.attrs["restart_format_version"] = 2
 
         # Add all config parameters as global attributes
         # Note: NetCDF doesn't support boolean type, convert to int
@@ -165,7 +193,8 @@ class RestartState:
         current_step = int(ds["current_step"].values)
         current_day = int(ds["current_day"].values)
 
-        # Extract instantaneous state arrays
+        # Extract instantaneous state arrays. v/v_prev read by variable name,
+        # so they come back on whichever grid they were written (y or y_face).
         u = ds["u"].values
         v = ds["v"].values
         theta = ds["theta"].values
@@ -173,6 +202,10 @@ class RestartState:
         v_prev = ds["v_prev"].values
         theta_prev = ds["theta_prev"].values
         y = ds["y"].values
+
+        # Grid tag: absent on legacy (version 1) files, which are collocated.
+        grid = str(ds.attrs.get("grid", "collocated"))
+        y_v = ds["y_face"].values if "y_face" in ds.coords else y
 
         # Extract steady-state detector history
         kinetic_energy_history = ds["kinetic_energy_history"].values.tolist()
@@ -228,9 +261,13 @@ class RestartState:
             smoothness_warning_issued=smoothness_warning_issued,
             config_snapshot=config_snapshot,
             theta_e_config_snapshot=theta_e_config_snapshot,
+            grid=grid,
+            y_v=y_v,
         )
 
-    def validate_compatibility(self, config: Any, theta_e_config: Any) -> None:
+    def validate_compatibility(
+        self, config: Any, theta_e_config: Any, allow_grid_migration: bool = False
+    ) -> None:
         """
         Validate that restart state is compatible with current configuration.
 
@@ -239,12 +276,33 @@ class RestartState:
         Args:
             config: Current SWConfig object
             theta_e_config: Current ThetaEConfig object
+            allow_grid_migration: If True, a v-grid mismatch between the restart
+                file and the run is allowed (the caller will migrate v between
+                the center and face grids). If False (the default), a grid
+                mismatch is a hard error, since loading v on the wrong grid
+                silently corrupts the state.
 
         Raises:
             ValueError: If critical parameters don't match
         """
         errors = []
         warnings = []
+
+        # v-grid layout must match unless the caller opts into migration.
+        restart_grid = self.grid
+        current_grid = getattr(config, "grid", "collocated")
+        if restart_grid != current_grid:
+            if allow_grid_migration:
+                warnings.append(
+                    f"Restart grid ({restart_grid}) differs from run grid "
+                    f"({current_grid}); v will be migrated between grids once."
+                )
+            else:
+                errors.append(
+                    f"Grid mismatch: restart file is '{restart_grid}', run is "
+                    f"'{current_grid}'. Re-run on the matching grid, or pass "
+                    f"--migrate-restart to interpolate v between grids once."
+                )
 
         # Critical parameters that must match
         critical_params = {
