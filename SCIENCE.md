@@ -109,6 +109,18 @@ The model uses assumption (1). Sensitivity to this choice is modest compared to 
 
 **Relation to the precursor literature**: Several earlier one- and two-layer models replace *both* the gate and the magnitude with the thermodynamic heating $Q \propto (\theta_E - \theta)$, that is, the convective mass flux, in place of the kinematic divergence: Esler et al. (2000), Shell & Held (2004), and Adam & Paldor (2009). SS09 and Xian & Miller (2008) keep the kinematic $\partial_y v$ magnitude. This implementation is a hybrid: the thermodynamic gate of the former group, the kinematic magnitude of the latter. Replacing the magnitude as well was considered and not adopted, to stay closer to SS09's Eq. 2.1 and to keep the vertical velocity consistent with the adiabatic term of the thermodynamic equation (§2.3), which also uses $\partial_y v$.
 
+### 3.4 Staggered v-Grid (Arakawa C-grid)
+
+The default grid staggers $v$ onto the $ny-1$ interior cell faces $y_i + \Delta y/2$, with $u$ and $\theta$ on the $ny$ centers, the arrangement SS09 use in their §2b. It exists to control the standing grid-scale $v$ noise that the collocated grid cannot.
+
+**Why the collocated grid leaves a ripple.** On the collocated grid every field sits at the centers and $\partial_y v$ is the centered difference $(v_{i+1} - v_{i-1})/2\Delta y$, whose stencil skips $v_i$ and is therefore blind to the $2\Delta y$ checkerboard component of $v$. With the anti-diffusive EMFD forcing a sharp westerly-terminus front (§3.1), the terminus projects onto that checkerboard, and because the divergence and pressure-gradient operators cannot feel it, the grid-scale $v$ is a dynamical null space: it neither radiates nor is damped by them. Adding $k_v$ diffusion damps only *within* that null space, which is why increasing $k_v$ reduced the ripple at most ~3x.
+
+**Why staggering removes it.** On the C-grid the divergence at a center is the compact two-point difference of the two adjacent faces, $(v_{i} - v_{i-1})/\Delta y$, and the meridional pressure gradient at a face is the compact difference of the two adjacent temperatures. Both stencils now see the $2\Delta y$ component, so grid-scale $v$ acquires the gravity-wave dispersion of the resolved dynamics rather than sitting in a null space. At ny=801 the standing interior ripple drops 24-91x by band onto the gateless noise floor, while the climate anchors (jet strength and position, equatorial temperature) move less than 0.02% and the notch physics is unchanged.
+
+**Discretization and parity.** $v$ at a wall center is zero (the physical boundary); the divergence there uses the half-cell one-sided form consistent with that. The $k_v$ diffusion of $v$ is a three-point Laplacian on the faces with a mirror wall ghost (the image value $-v_0$ across the wall, so $v=0$ is enforced there), written in the symmetric association $(v_+ + v_-) - 2 v_c$. That association and a face coordinate defined as the exact midpoint $\tfrac12(y_i + y_{i+1})$ make every operator preserve mirror symmetry to the last floating-point bit: from a symmetric initial state the integration holds $\max|u(y)-u(-y)| = 0$ exactly, the same invariant the collocated model has. The EMFD, drag, Newtonian cooling, and Coriolis coupling ($v$ averaged to centers for the $u$ equation, $u$ averaged to faces for the $v$ equation) are unchanged in form.
+
+The collocated layout remains available (`--grid collocated`) as the bit-exact reproduction path for the Zhang et al. (2025) lineage.
+
 ## 4. Equilibrium Temperature Profiles ($\theta_E$)
 
 ### 4.1 SS09 Profile (Parabolic)

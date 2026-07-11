@@ -378,7 +378,27 @@ run-sw-model --emfd-stencil mc
 
 Default: `centered` (`np.gradient`), matching the published code. `--emfd-upwind` remains as a deprecated alias for `--emfd-stencil upwind` and errors out if combined with a conflicting `--emfd-stencil` value.
 
-Gate-on runs require a one-sided stencil: with it, the gate-on flank runaway (420 m/s at ny=801) becomes a steady, bounded solution, and the numerical diffusion (~`v_d`·dy/2) acts only where the EMFD acts, so it vanishes in the axisymmetric (v_d=0) limit. The `mc` stencil additionally removes most of upwind's first-order truncation bias in the near-equator u profile (measured 2026-07-10/11: the fitted-exponent deficit vs the gateless reference shrinks from 0.111 to within the reference's own bias of the analytical u∝y³ law, and the deficit falls near-quadratically with resolution). For gate-on runs, `--emfd-heaviside-gate --emfd-stencil mc` is the current best formulation; runs in `model_output/formulation_suite/mc_stencil/`. A staggered-v grid (removing the standing interior v ripple) is planned as the production default; see `~/.claude/plans/staggered-v-production.md`.
+Gate-on runs require a one-sided stencil: with it, the gate-on flank runaway (420 m/s at ny=801) becomes a steady, bounded solution, and the numerical diffusion (~`v_d`·dy/2) acts only where the EMFD acts, so it vanishes in the axisymmetric (v_d=0) limit. The `mc` stencil additionally removes most of upwind's first-order truncation bias in the near-equator u profile (measured 2026-07-10/11: the fitted-exponent deficit vs the gateless reference shrinks from 0.111 to within the reference's own bias of the analytical u∝y³ law, and the deficit falls near-quadratically with resolution). For gate-on runs, `--emfd-heaviside-gate --emfd-stencil mc` is the current best formulation; runs in `model_output/formulation_suite/mc_stencil/`. Combined with the staggered v-grid (next section), `--grid staggered --emfd-heaviside-gate --emfd-stencil mc` is the production formulation.
+
+### v-Grid Layout (staggered vs collocated)
+
+The meridional wind `v` can live on one of two grids, selected by `--grid`:
+
+```bash
+# v on the ny-1 interior cell faces (Arakawa C-grid), the default
+run-sw-model --grid staggered
+
+# legacy layout: v on the same ny centers as u and theta
+run-sw-model --grid collocated
+```
+
+**Staggered (default).** `v` lives on the `ny-1` interior faces `y_i + dy/2`; `u` and `theta` stay on the `ny` centers. This is SS09 section 2b's own layout. The collocated `np.gradient` divergence `dv/dy` is blind to the 2*dy checkerboard mode, so grid-scale `v` is a dynamical null space the terminus forcing projects onto (the standing interior ripple the compact-k_v patch could only damp ~3x). Putting `v` on faces makes the compact two-point divergence and pressure-gradient stencils see that mode, giving it gravity-wave dispersion instead of leaving it undamped: at ny=801 the standing ripple drops 24-91x by band onto the gateless noise floor, the interior u sawtooth roughly halves, and climate anchors move <=0.02% (jet, T_eq). The face k_v Laplacian uses the mirror-symmetric association `(f_+ + f_-) - 2 f_c` and a mirror wall ghost (`v=0` at the wall), which make the integration hold **exact** mirror parity, `max|u(y)-u(-y)| == 0.0` bit-for-bit, from a symmetric state.
+
+**Collocated (legacy).** `v` on the `ny` centers, the Zhang et al. (2025)-lineage layout. Kept intact and selectable as the bit-exact reproduction path: `--grid collocated` reproduces the pre-staggered regression baseline to the last bit. The default flip to staggered (2026-07-11) changed only the `grid` default; the gate and stencil defaults are unchanged (`--no-emfd-heaviside-gate`, `--emfd-stencil centered`, matching the published Zhang et al. (2025) code).
+
+**Output and restart formats are grid-aware.** Staggered output writes daily `v` on a `y_face` coordinate (`grid = "staggered_face"`); `u`, `T`, `theta_e` stay on `y`. `ss09.read_output.load_centered(path)` returns `(y, u, v, T)` with `v` reconstructed onto the centers for either layout, so analysis code has one grid. Restart files carry a `grid` tag and `restart_format_version = 2`; a grid mismatch between a restart file and the run is refused unless `--migrate-restart` is passed, which interpolates `v` between the center and face grids once (legacy restarts with no tag load as collocated). Diagnostics (Hadley latitudes, steady-state kinetic energy) consume center-reconstructed `v`; the v-smoothness monitor keeps the native face field.
+
+**Dropbox sync.** `model_output/` is marked `com.dropbox.ignored` (via `xattr -w com.dropbox.ignored 1 model_output`) so run outputs do not churn Dropbox sync during a validation campaign; the measured per-day cost varied 0.55-0.9 s/day with sync load, so keep this attribute set.
 
 ### Seasonal Cycle Types
 
