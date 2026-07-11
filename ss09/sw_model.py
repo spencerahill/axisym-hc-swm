@@ -72,6 +72,50 @@ def muscl_mc_du_dy(u: np.ndarray, dy: float, y: np.ndarray) -> np.ndarray:
     return np.where(y > 0, backward, forward)
 
 
+def v_faces_to_centers(f: np.ndarray) -> np.ndarray:
+    """Reconstruct v at the ny centers from the ny-1 face values.
+
+    Center j (interior) is the two-point average of the faces on either side,
+    0.5*(f[j-1] + f[j]); the wall centers carry v=0. This is the value u feels
+    in the Coriolis and meridional-advection terms. Exactly antisymmetric when
+    f is, because 0.5*((-b)+(-a)) == -(0.5*(a+b)) bit-for-bit.
+    """
+    vc = np.zeros(f.shape[0] + 1, dtype=f.dtype)
+    vc[1:-1] = 0.5 * (f[:-1] + f[1:])
+    return vc
+
+
+def v_divergence_at_centers(f: np.ndarray, dy: float) -> np.ndarray:
+    """Compact dv/dy at the ny centers from the ny-1 face values.
+
+    Interior center j: (f[j] - f[j-1])/dy, a two-point difference blind to no
+    grid-scale mode. Wall centers use the half-cell one-sided form consistent
+    with v=0 at the wall (distance dy/2 from the outermost face). Exactly
+    symmetric when f is antisymmetric (the divergence of an antisymmetric
+    field), which parity of the vertical-advection terms depends on.
+    """
+    d = np.zeros(f.shape[0] + 1, dtype=f.dtype)
+    d[1:-1] = (f[1:] - f[:-1]) / dy
+    d[0] = 2.0 * f[0] / dy
+    d[-1] = -2.0 * f[-1] / dy
+    return d
+
+
+def v_face_laplacian(f: np.ndarray, dy: float) -> np.ndarray:
+    """Second y-derivative of v on the faces, for the k_v diffusion term.
+
+    A 3-point Laplacian in the mirror-symmetric association
+    (f_plus + f_minus) - 2 f_center, which is bit-exact under reflection (the
+    naive (f_plus - 2 f_center) + f_minus form seeds a ~2e-18/step parity
+    drift). The outermost faces borrow a ghost equal to -f[0] (resp. -f[-1]),
+    the mirror image about the wall that enforces v=0 there, so the wall-face
+    Laplacian is (f[1] - 3 f[0])/dy^2 rather than the phantom-zero
+    (f[1] - 2 f[0])/dy^2.
+    """
+    fe = np.concatenate([[-f[0]], f, [-f[-1]]])
+    return ((fe[2:] + fe[:-2]) - 2.0 * fe[1:-1]) / dy**2
+
+
 class AuxiliaryVars(NamedTuple):
     """
     Values of u, v, and theta for the previous or future step.
