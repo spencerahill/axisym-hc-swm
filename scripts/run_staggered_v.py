@@ -198,6 +198,16 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--extend-days", type=int, default=200)
     p.add_argument("--restart", default=str(B1_DIR / "restart_day5475.nc"))
+    p.add_argument("--cold", action="store_true",
+                   help="cold start (v=0 faces) instead of a warm restart")
+    p.add_argument("--ndays", type=int, default=5475,
+                   help="total integration days for a --cold run")
+    p.add_argument("--vd", type=float, default=2.5, dest="v_d")
+    p.add_argument("--restart-every", type=int, default=0,
+                   dest="save_restart_every")
+    p.add_argument("--skip-analysis", action="store_true",
+                   help="skip the B1-baseline analyze() (e.g. at vd=0, "
+                        "where that comparison is meaningless)")
     p.add_argument(
         "--outdir",
         default="model_output/formulation_suite/mc_stencil/staggered_v")
@@ -205,20 +215,25 @@ def main():
     outdir = pathlib.Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
+    total = args.ndays if args.cold else 5475 + args.extend_days
     config = SWConfig(
-        total_integration_days=5475 + args.extend_days,
+        total_integration_days=total,
         ny=801,
         dt=30,
+        v_d=args.v_d,
         emfd_heaviside_gate=True,
         emfd_stencil="mc",
+        save_restart_every=args.save_restart_every,
         output_path=str(outdir / "output.nc"),
         restart_output_dir=str(outdir),
     )
     model = StaggeredVModel(config, Sin2Profile(ThetaEConfig()))
-    model.restart_day = model.load_from_restart(args.restart)
+    if not args.cold:
+        model.restart_day = model.load_from_restart(args.restart)
     model.run_sim()
     model.save_results()
-    analyze(outdir, args.extend_days)
+    if not args.skip_analysis:
+        analyze(outdir, args.extend_days)
 
 
 if __name__ == "__main__":
