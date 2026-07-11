@@ -363,16 +363,22 @@ run-sw-model --no-emfd-heaviside-gate
 
 Default: gate disabled, matching the code that produced the Zhang et al. (2025) figures (that code omits the gate the papers' written equations include). At ny=801 the gated model develops a spurious grid-scale extratropical jet while the gateless model matches the published code to machine roundoff. The default was flipped on 2026-07-09, and the regression baseline (`ss09/tests/baseline/output.nc`) was regenerated to match. See SCIENCE.md §3.1 for provenance and evidence.
 
-### EMFD Upwind Stencil
+### EMFD Stencil
 
 The EMFD term is advective in form (poleward transport at speed `v_d` where the gate is open), and SS09 §2b state their advection terms use first-order upwind differencing. The published Zhang et al. (2025) code instead centers the EMFD du/dy, a stencil that is exactly blind to the 2Δy mode the H(u) gate excites where u crosses zero. The stencil is configurable:
 
 ```bash
-# One-sided (equatorward-biased) du/dy in the EMFD, per SS09 §2b
-run-sw-model --emfd-upwind
+# First-order one-sided (equatorward-biased) du/dy, per SS09 §2b
+run-sw-model --emfd-stencil upwind
+
+# MUSCL with monotonized-central (MC) limited slopes: second-order in
+# smooth regions, reverts toward upwind at extrema and discontinuities
+run-sw-model --emfd-stencil mc
 ```
 
-Default: centered (`np.gradient`), matching the published code. Gate-on runs require the upwind stencil: with it, the gate-on flank runaway (420 m/s at ny=801) becomes a steady, bounded solution; the upwind stencil's numerical diffusion (~`v_d`·dy/2) acts only where the EMFD acts, so it vanishes in the axisymmetric (v_d=0) limit. For SS09/SS13-faithful off-equatorial (y0≠0) runs, where the gate is leading-order physics in the tropical easterlies, use `--emfd-heaviside-gate --emfd-upwind` together. Verified 2026-07-10; runs in `model_output/gate_y0_experiment/`.
+Default: `centered` (`np.gradient`), matching the published code. `--emfd-upwind` remains as a deprecated alias for `--emfd-stencil upwind` and errors out if combined with a conflicting `--emfd-stencil` value.
+
+Gate-on runs require a one-sided stencil: with it, the gate-on flank runaway (420 m/s at ny=801) becomes a steady, bounded solution, and the numerical diffusion (~`v_d`·dy/2) acts only where the EMFD acts, so it vanishes in the axisymmetric (v_d=0) limit. The `mc` stencil additionally removes most of upwind's first-order truncation bias in the near-equator u profile (measured 2026-07-10/11: the fitted-exponent deficit vs the gateless reference shrinks from 0.111 to within the reference's own bias of the analytical u∝y³ law, and the deficit falls near-quadratically with resolution). For gate-on runs, `--emfd-heaviside-gate --emfd-stencil mc` is the current best formulation; runs in `model_output/formulation_suite/mc_stencil/`. A staggered-v grid (removing the standing interior v ripple) is planned as the production default; see `~/.claude/plans/staggered-v-production.md`.
 
 ### Seasonal Cycle Types
 
