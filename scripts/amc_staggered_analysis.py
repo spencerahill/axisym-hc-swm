@@ -170,6 +170,43 @@ def main():
         plt.close(fig)
         print(f"figure saved: {run / 'fig_amc_check.png'}")
 
+        fig, axes = plt.subplots(2, 2, figsize=(11, 7.5))
+        for row, (name, ft, fr, unit) in enumerate(
+            [("v", vc, vr, "m/s"), ("T", T, Tr, "K")]
+        ):
+            ax = axes[row, 0]
+            ax.plot(yr / Mm, fr, color=gray, lw=2.4,
+                    label="collocated reference")
+            ax.plot(y / Mm, ft, color=orange, lw=1.4, ls="--",
+                    label="staggered-v (centers)")
+            ax.set_xlabel("y [Mm]")
+            ax.set_ylabel(f"{name} [{unit}]")
+            ax.set_title(f"time-mean {name}")
+            ax.legend(fontsize=8)
+            ax = axes[row, 1]
+            dd = ft - np.interp(y, yr, fr)
+            ax.plot(y / Mm, dd, color=purple, lw=1.2)
+            ax.axhline(0, color="#c3c2b7", lw=0.8)
+            kk = int(np.argmax(np.abs(dd)))
+            ax.annotate(f"max|d{name}| = {np.abs(dd).max():.2e} {unit} "
+                        f"at {y[kk] / Mm:+.1f} Mm",
+                        xy=(0.03, 0.95), xycoords="axes fraction",
+                        va="top", fontsize=8, color="#3d3d3a")
+            ax.set_xlabel("y [Mm]")
+            ax.set_ylabel(f"{name} difference [{unit}]")
+            ax.set_title("staggered minus reference")
+        for ax in axes.flat:
+            for s in ("top", "right"):
+                ax.spines[s].set_visible(False)
+            ax.grid(True, color="#e1e0d9", linewidth=0.7)
+            ax.set_axisbelow(True)
+        fig.suptitle("AMC limit check, v and T profiles (v_d = 0)", y=1.0)
+        fig.tight_layout()
+        fig.savefig(run / "fig_amc_check_vT.png", dpi=150,
+                    bbox_inches="tight")
+        plt.close(fig)
+        print(f"figure saved: {run / 'fig_amc_check_vT.png'}")
+
 
 if __name__ == "__main__":
     main()
