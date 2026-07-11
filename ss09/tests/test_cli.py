@@ -499,6 +499,25 @@ def test_cli_emfd_upwind_alias(monkeypatch):
             parse_arguments()
 
 
+def test_cli_grid_flag(monkeypatch):
+    """--grid selects the v-grid layout; absent, the staggered production
+    default is used."""
+    from ss09.cli import parse_arguments
+
+    monkeypatch.setattr("sys.argv", ["run-sw-model"])
+    args = parse_arguments()
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
+    assert sw_config.grid == "staggered"
+
+    for grid in ["staggered", "collocated"]:
+        monkeypatch.setattr("sys.argv", ["run-sw-model", "--grid", grid])
+        args = parse_arguments()
+        theta_e_config = setup_theta_e_config(args)
+        sw_config = setup_sw_config(args, theta_e_config)
+        assert sw_config.grid == grid
+
+
 def test_cli_emfd_heaviside_gate_flags(monkeypatch):
     """--emfd-heaviside-gate enables the H(u) gate; absent or with
     --no-emfd-heaviside-gate, it is disabled (the published-code default)."""

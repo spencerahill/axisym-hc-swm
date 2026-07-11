@@ -550,6 +550,41 @@ def test_emfd_stencil_rejects_unknown_value():
         )
 
 
+def test_grid_staggered_by_default():
+    """The grid defaults to 'staggered' (v on cell faces), the production
+    formulation adopted 2026-07-11."""
+    config = SWConfig(total_integration_days=1, ny=51, dt=3600)
+    assert config.grid == "staggered"
+
+
+def test_grid_rejects_unknown_value():
+    """SWConfig rejects an unrecognized grid at construction so a typo cannot
+    silently fall through to a default layout."""
+    with pytest.raises(ValueError, match="grid"):
+        SWConfig(total_integration_days=1, ny=51, dt=3600, grid="bogus")
+
+
+def test_grid_collocated_nv_and_yv():
+    """The legacy collocated grid carries v on the same ny centers as u:
+    nv == ny and the v-grid coordinate y_v equals the u-grid y."""
+    config = SWConfig(total_integration_days=1, ny=51, dt=3600, grid="collocated")
+    assert config.nv == config.ny
+    assert np.array_equal(config.y_v, config.y)
+
+
+def test_grid_staggered_nv_and_yv():
+    """The staggered grid carries v on the ny-1 interior cell faces:
+    nv == ny-1 and y_v sits at the midpoints between adjacent u centers,
+    exactly antisymmetric about the equator."""
+    config = SWConfig(total_integration_days=1, ny=51, dt=3600, grid="staggered")
+    assert config.nv == config.ny - 1
+    assert config.y_v.shape == (config.ny - 1,)
+    expected = 0.5 * (config.y[:-1] + config.y[1:])
+    assert np.array_equal(config.y_v, expected)
+    # exactly antisymmetric about the equator (parity-critical)
+    assert np.max(np.abs(config.y_v + config.y_v[::-1])) == 0.0
+
+
 def test_emfd_upwind_poleward_stencil(theta_e_config):
     """With emfd_stencil="upwind", the EMFD's du/dy uses the one-sided difference
     from the equatorward (upstream) side: the effective advection velocity

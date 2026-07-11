@@ -244,6 +244,30 @@ def parse_arguments():
         dest="emfd_upwind",
         help="Deprecated alias for --emfd-stencil upwind",
     )
+    parser.add_argument(
+        "--grid",
+        type=str,
+        choices=["staggered", "collocated"],
+        default="staggered",
+        dest="grid",
+        help=(
+            "v-grid layout: 'staggered' (v on the ny-1 interior cell faces, "
+            "the production default) or 'collocated' (legacy v on the same "
+            "ny centers as u, the Zhang et al. (2025) reproduction path)"
+        ),
+    )
+    parser.add_argument(
+        "--migrate-restart",
+        action="store_true",
+        default=False,
+        dest="migrate_restart",
+        help=(
+            "Permit continuing a collocated restart file under a staggered "
+            "run (or vice versa) by interpolating v between the center and "
+            "face grids once at load time. Without this flag, a grid mismatch "
+            "between the restart file and the run is refused."
+        ),
+    )
     # Steady-state detection arguments
     parser.add_argument(
         "--stop-at-steady-state",
@@ -399,6 +423,7 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         include_merid_advec_u=args.include_merid_advec_u,
         emfd_heaviside_gate=getattr(args, "emfd_heaviside_gate", False),
         emfd_stencil=_resolve_emfd_stencil(args),
+        grid=getattr(args, "grid", "staggered"),
         enable_steady_state=args.enable_steady_state,
         steady_state_window_size=args.steady_state_window_size,
         steady_state_threshold=args.steady_state_threshold,

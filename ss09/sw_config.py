@@ -25,6 +25,14 @@ class SWConfig:
     domain_size: float = 15751e3 * 2
     dy: float = field(init=False)
     y: np.ndarray = field(init=False)
+    # v-grid layout. "staggered" (default): v lives on the ny-1 interior cell
+    # faces (Arakawa C-grid), the production formulation adopted 2026-07-11;
+    # removes the standing interior 2*dy v ripple the centered dv/dy stencil is
+    # blind to. "collocated": legacy layout with v on the same ny centers as u,
+    # the Zhang et al. (2025)-lineage reproduction path.
+    grid: str = "staggered"
+    nv: int = field(init=False)  # length of the v array (ny or ny-1)
+    y_v: np.ndarray = field(init=False)  # v-grid coordinate (centers or faces)
     asselin_filt_coef: float = 0.04
     coeff_eddy_heat_diff: float = 0.0  # values <1e4 make little difference
     include_vert_advec_u: bool = True
@@ -66,6 +74,22 @@ class SWConfig:
                 f"emfd_stencil must be one of {valid_stencils}, "
                 f"got {self.emfd_stencil!r}"
             )
+
+        valid_grids = ("staggered", "collocated")
+        if self.grid not in valid_grids:
+            raise ValueError(
+                f"grid must be one of {valid_grids}, got {self.grid!r}"
+            )
+        if self.grid == "staggered":
+            # v on the ny-1 interior cell faces at the midpoints between
+            # adjacent u centers. The average form (rather than y[:-1] + dy/2)
+            # is exactly antisymmetric about the equator whenever y is, which
+            # the mirror-parity invariant of the integration depends on.
+            self.nv = self.ny - 1
+            self.y_v = 0.5 * (self.y[:-1] + self.y[1:])
+        else:
+            self.nv = self.ny
+            self.y_v = self.y
 
         # Validate steady-state parameters
         if self.enable_steady_state and self.steady_state_window_size > self.total_integration_days:
