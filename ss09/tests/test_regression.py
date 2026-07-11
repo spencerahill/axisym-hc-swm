@@ -12,31 +12,33 @@ def baseline_path():
 
 
 @pytest.fixture
+def baseline_staggered_path():
+    return "ss09/tests/baseline/output_staggered.nc"
+
+
+@pytest.fixture
 def test_path():
     with tempfile.TemporaryDirectory() as temp_dir:
         yield os.path.join(temp_dir, "test_output.nc")
 
 
-def run_model(output_path, grid="collocated"):
+def run_model(output_path, grid: "str | None" = "collocated"):
+    args = [
+        "run-sw-model",
+        "--ndays",
+        "5",
+        "--ny",
+        "801",
+        "--dt",
+        "30",
+        "--output-path",
+        output_path,
+    ]
+    # grid=None omits --grid entirely, exercising the default (staggered).
+    if grid is not None:
+        args.extend(["--grid", grid])
     try:
-        subprocess.run(
-            [
-                "run-sw-model",
-                "--ndays",
-                "5",
-                "--ny",
-                "801",
-                "--dt",
-                "30",
-                "--grid",
-                grid,
-                "--output-path",
-                output_path,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        subprocess.run(args, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
         print("Command failed with error:")
         print(e.stdout)
@@ -127,6 +129,18 @@ def test_regression(baseline_path, test_path):
     assert compare_outputs(
         baseline_path, test_path
     ), "Regression test failed: Outputs differ."
+
+
+@pytest.mark.regression
+def test_regression_staggered(baseline_staggered_path, test_path):
+    """The default (staggered) path reproduces the staggered baseline. Run with
+    no --grid flag, so it also guards that the production default is staggered:
+    if the default reverted to collocated, v would come back on y (length 801)
+    instead of y_face (length 800) and the comparison would fail."""
+    run_model(test_path, grid=None)
+    assert compare_outputs(
+        baseline_staggered_path, test_path
+    ), "Staggered regression test failed: Outputs differ."
 
 
 @pytest.mark.regression
