@@ -160,16 +160,23 @@ class SteadyStateDetector:
         )
         self.smoothness_warning_issued = True
 
-    def record_day(self, day: int, u: np.ndarray, v: np.ndarray, theta: np.ndarray, dy: float = None):
+    def record_day(self, day: int, u: np.ndarray, v: np.ndarray, theta: np.ndarray, dy: Optional[float] = None, v_faces: Optional[np.ndarray] = None):
         """
         Record metrics for a given day.
 
         Args:
             day: Day number
             u: Daily-averaged zonal wind
-            v: Daily-averaged meridional wind
+            v: Daily-averaged meridional wind, on the u/theta grid (the
+                center-reconstructed field for a staggered run, so kinetic
+                energy is the u^2 + v^2 that u actually feels)
             theta: Daily-averaged potential temperature
             dy: Grid spacing in meridional direction (optional, for smoothness checks)
+            v_faces: Daily-averaged v on its native grid, used for the
+                grid-scale smoothness monitor. Defaults to ``v`` (the
+                collocated case, where the two grids coincide); for a staggered
+                run this is the face field, whose grid-scale noise the monitor
+                exists to detect.
         """
         if not self.enabled:
             return
@@ -183,7 +190,8 @@ class SteadyStateDetector:
 
         # Track v field smoothness if dy is provided
         if dy is not None:
-            smoothness = self.compute_v_smoothness(v, dy)
+            v_for_smoothness = v if v_faces is None else v_faces
+            smoothness = self.compute_v_smoothness(v_for_smoothness, dy)
             self.v_smoothness_history.append(smoothness['neighbor_correlation'])
             self.v_grid_variance_history.append(smoothness['grid_variance'])
 

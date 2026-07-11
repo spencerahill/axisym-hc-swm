@@ -43,6 +43,7 @@ class TestDailyResults:
             seasonal_convergence_threshold=0.01,
             save_restart_every=0,
             restart_output_dir="./",
+            grid="collocated",
         )
 
     @pytest.fixture

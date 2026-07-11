@@ -15,13 +15,14 @@ from ss09.theta_e import ThetaEConfig, SS09Profile
 from ss09.output_path_utils import generate_restart_filename
 
 
-def _make_config(tmp_path, total_days):
+def _make_config(tmp_path, total_days, grid="collocated"):
     return SWConfig(
         total_integration_days=total_days,
         output_path=str(tmp_path / "run_output.nc"),
         restart_output_dir=str(tmp_path),
         ny=21,
         dt=3600,
+        grid=grid,
     )
 
 

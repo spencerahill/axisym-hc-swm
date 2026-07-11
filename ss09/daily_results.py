@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 import xarray as xr
 from .model_state import ModelState
@@ -180,10 +181,19 @@ _HADLEY_VARS = [
 class DailyResults:
     """Handler for daily-averaged model output."""
 
-    def __init__(self, total_days: int, ny: int, store_theta_e: bool = False):
+    def __init__(
+        self, total_days: int, ny: int, store_theta_e: bool = False,
+        nv: Optional[int] = None
+    ):
+        # u and theta live on the ny centers; v may live on a different grid
+        # (nv = ny-1 interior faces for the staggered layout). nv defaults to
+        # ny, the collocated case.
+        if nv is None:
+            nv = ny
+        self.nv = nv
         self.time = np.zeros(total_days)
         self.u = np.zeros([total_days, ny])
-        self.v = np.zeros([total_days, ny])
+        self.v = np.zeros([total_days, nv])
         self.theta = np.zeros([total_days, ny])
         self.store_theta_e = store_theta_e
         if store_theta_e:
@@ -209,6 +219,23 @@ class DailyResults:
         mask = self.time != 0
         time_filtered = self.time[mask]
 
+        # v may live on a different grid than u/theta. On the staggered layout
+        # it sits on the ny-1 interior faces (y_face); on the collocated layout
+        # it shares the ny centers (y), unchanged from earlier output files.
+        staggered = getattr(config, "grid", "collocated") == "staggered"
+        if staggered:
+            v_dims = ["time", "y_face"]
+            v_coords = {"time": time_filtered, "y_face": config.y_v}
+            v_attrs = {
+                "units": "m/s",
+                "long_name": "meridional wind",
+                "grid": "staggered_face",
+            }
+        else:
+            v_dims = ["time", "y"]
+            v_coords = {"time": time_filtered, "y": config.y}
+            v_attrs = {"units": "m/s", "long_name": "meridional wind"}
+
         data_vars = {
             "u": xr.DataArray(
                 data=self.u[mask],
@@ -218,9 +245,9 @@ class DailyResults:
             ),
             "v": xr.DataArray(
                 data=self.v[mask],
-                dims=["time", "y"],
-                coords={"time": time_filtered, "y": config.y},
-                attrs={"units": "m/s", "long_name": "meridional wind"},
+                dims=v_dims,
+                coords=v_coords,
+                attrs=v_attrs,
             ),
             "T": xr.DataArray(
                 data=self.theta[mask] / 1.6,
@@ -291,6 +318,16 @@ class DailyResults:
             },
         )
 
-        return xr.Dataset(
-            data_vars=data_vars, coords={"time": time_coord, "y": config.y}
-        )
+        coords = {"time": time_coord, "y": config.y}
+        if staggered:
+            coords["y_face"] = xr.DataArray(
+                data=config.y_v,
+                dims=["y_face"],
+                attrs={
+                    "units": "m",
+                    "long_name": "meridional distance from equator (v faces)",
+                    "grid": "staggered_face",
+                },
+            )
+
+        return xr.Dataset(data_vars=data_vars, coords=coords)

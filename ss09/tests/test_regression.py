@@ -17,7 +17,7 @@ def test_path():
         yield os.path.join(temp_dir, "test_output.nc")
 
 
-def run_model(output_path):
+def run_model(output_path, grid="collocated"):
     try:
         subprocess.run(
             [
@@ -28,6 +28,8 @@ def run_model(output_path):
                 "801",
                 "--dt",
                 "30",
+                "--grid",
+                grid,
                 "--output-path",
                 output_path,
             ],
@@ -117,8 +119,28 @@ def compare_outputs(baseline_path: str, test_path: str) -> bool:
 
 @pytest.mark.regression
 def test_regression(baseline_path, test_path):
-    """Test the model output against the baseline."""
-    run_model(test_path)
+    """The collocated (legacy) path reproduces the stored baseline. The
+    baseline was generated before the staggered-v refactor, so this guards
+    that the collocated path is unchanged by it (--grid collocated is the
+    Zhang et al. 2025-lineage reproduction path)."""
+    run_model(test_path, grid="collocated")
     assert compare_outputs(
         baseline_path, test_path
     ), "Regression test failed: Outputs differ."
+
+
+@pytest.mark.regression
+def test_collocated_path_bit_identical(baseline_path, test_path):
+    """The collocated path reproduces the baseline state (u, v, T) bit-for-bit,
+    not merely within tolerance: the staggered-v refactor must not perturb a
+    single floating-point bit of the legacy solution."""
+    run_model(test_path, grid="collocated")
+    baseline_ds = xr.open_dataset(baseline_path)
+    test_ds = xr.open_dataset(test_path)
+    for var in ("u", "v", "T"):
+        max_diff = np.abs(
+            baseline_ds[var].values - test_ds[var].values
+        ).max()
+        assert max_diff == 0.0, (
+            f"{var} differs from baseline by {max_diff} (expected bit-exact)"
+        )

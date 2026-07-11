@@ -139,34 +139,48 @@ class TempVars(NamedTuple):
 class SWModel:
     """
     The shallow water model on an equatorial beta plane.
+
+    Instantiating ``SWModel(config, ...)`` returns a ``StaggeredSWModel`` when
+    ``config.grid == "staggered"`` (the production default), so callers get the
+    right dynamics from the config alone; the base class is the collocated
+    (Zhang et al. 2025-lineage) layout and stays bit-for-bit unchanged.
     """
+    def __new__(cls, config: SWConfig, theta_e_profile: ThetaEProfile, *args, **kwargs):
+        if cls is SWModel and getattr(config, "grid", "collocated") == "staggered":
+            return super().__new__(StaggeredSWModel)
+        return super().__new__(cls)
+
     def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
         self.config = config
         self.theta_e_profile = theta_e_profile
+        # u and theta live on the ny centers; v may live on a different grid
+        # (config.nv = ny-1 interior faces for the staggered layout, ny for the
+        # collocated layout).
+        nv = config.nv
         self.state = ModelState(
             t=0.0,
             u=np.zeros(config.ny),
-            v=np.zeros(config.ny),
+            v=np.zeros(nv),
             theta=np.zeros(config.ny),
             y=config.y,
         )
         self.state = self.state._replace(theta=self.theta_e_profile(self.state))
         self.results = DailyResults(
             config.total_integration_days, config.ny,
-            store_theta_e=self.has_seasonal_forcing()
+            store_theta_e=self.has_seasonal_forcing(), nv=nv
         )
         self.temp_vars = TempVars(
             u=np.zeros((0, config.ny)),
-            v=np.zeros((0, config.ny)),
+            v=np.zeros((0, nv)),
             theta=np.zeros((0, config.ny)),
             theta_e=np.zeros((0, config.ny)),
             time=np.zeros(0),
         )
         self.vars_prev_step = AuxiliaryVars(
-            u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
+            u=np.zeros(config.ny), v=np.zeros(nv), theta=np.zeros(config.ny)
         )
         self.vars_next_step = AuxiliaryVars(
-            u=np.zeros(config.ny), v=np.zeros(config.ny), theta=np.zeros(config.ny)
+            u=np.zeros(config.ny), v=np.zeros(nv), theta=np.zeros(config.ny)
         )
         self.steady_state_detector = SteadyStateDetector(
             enabled=config.enable_steady_state,
@@ -204,7 +218,7 @@ class SWModel:
         steps_per_day = int(SECONDS_PER_DAY / self.config.dt)
         self.temp_vars = TempVars(
             u=np.zeros([steps_per_day, self.config.ny]),
-            v=np.zeros([steps_per_day, self.config.ny]),
+            v=np.zeros([steps_per_day, self.config.nv]),
             theta=np.zeros([steps_per_day, self.config.ny]),
             theta_e=np.zeros([steps_per_day, self.config.ny]),
             time=np.zeros(steps_per_day),
@@ -375,6 +389,47 @@ class SWModel:
             theta_e_avg,
         )
 
+    def _daily_v_at_centers(self, v: np.ndarray) -> np.ndarray:
+        """Daily-averaged v on the ny centers, for the diagnostics that ask
+        what u feels. Identity on the collocated grid; the staggered subclass
+        reconstructs centers from faces."""
+        return v
+
+    def _daily_v_faces(self, v: np.ndarray):
+        """Daily-averaged v on its native grid, for the grid-scale smoothness
+        monitor. None on the collocated grid (the monitor then uses the same
+        v the kinetic-energy metric does); the staggered subclass returns the
+        face field."""
+        return None
+
+    def _record_diagnostics(self, day: int):
+        """Record steady-state and Hadley diagnostics for a completed day.
+
+        The steady-state kinetic energy and the Hadley cell-latitude
+        diagnostics consume center-reconstructed v (the field u feels), so
+        their latitudes are correct on either grid; the v-smoothness monitor
+        consumes the native-grid v (faces, on a staggered run) since its
+        purpose is to detect grid-scale noise.
+        """
+        v_daily = self.results.v[day]
+        v_centers = self._daily_v_at_centers(v_daily)
+        self.steady_state_detector.record_day(
+            day,
+            self.results.u[day],
+            v_centers,
+            self.results.theta[day],
+            self.config.dy,
+            v_faces=self._daily_v_faces(v_daily),
+        )
+        self.hadley_diagnostics.record_day(
+            day,
+            self.results.u[day],
+            v_centers,
+            self.config.y,
+            self.config.dy,
+            self.config.beta,
+        )
+
     def reset_temp_storage(self):
         """Reset temporary storage arrays."""
         self.temp_vars = TempVars(
@@ -447,24 +502,8 @@ class SWModel:
             if ind_within_day == 0:
                 self.store_daily_avgs(day)
 
-                # Record metrics for steady-state detection
-                self.steady_state_detector.record_day(
-                    day,
-                    self.results.u[day],
-                    self.results.v[day],
-                    self.results.theta[day],
-                    self.config.dy
-                )
-
-                # Record Hadley diagnostics
-                self.hadley_diagnostics.record_day(
-                    day,
-                    self.results.u[day],
-                    self.results.v[day],
-                    self.config.y,
-                    self.config.dy,
-                    self.config.beta,
-                )
+                # Record steady-state and Hadley diagnostics
+                self._record_diagnostics(day)
 
                 # Check convergence based on forcing type
                 if self.has_seasonal_forcing() and self.config.seasonal_convergence_enabled:
@@ -673,3 +712,104 @@ class SWModel:
         except Exception as e:
             logging.error(f"Failed to save results: {str(e)}")
             raise
+
+
+class StaggeredSWModel(SWModel):
+    """Arakawa C-grid layout: v on the ny-1 interior cell faces (y + dy/2),
+    u and theta on the ny centers. SS09 section 2b's own layout, adopted as
+    the production formulation 2026-07-11 because the centered dv/dy stencil
+    of the collocated model is blind to the standing 2*dy v ripple the
+    terminus forcing projects onto, and the compact face operators are not.
+
+    Only the operators that couple the two grids are overridden; leapfrog,
+    Asselin filtering, restart, and daily averaging carry through from the
+    base class on the ny-1-long v arrays. There is no padding slot: every
+    v array is exactly ny-1, and the shape mismatch with u/theta is the guard
+    against grid confusion.
+    """
+
+    def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
+        if config.grid != "staggered":
+            raise ValueError(
+                "StaggeredSWModel requires config.grid == 'staggered', got "
+                f"{config.grid!r}"
+            )
+        super().__init__(config, theta_e_profile)
+
+    def _v_at_centers(self) -> np.ndarray:
+        """Instantaneous v reconstructed at the ny centers (what u feels)."""
+        return v_faces_to_centers(self.state.v)
+
+    def dv_dy(self) -> np.ndarray:
+        """Compact divergence dv/dy at the ny centers from the face v."""
+        return v_divergence_at_centers(self.state.v, self.config.dy)
+
+    def diffusion_v(self) -> np.ndarray:
+        """k_v diffusion of v on the faces (symmetric-association Laplacian
+        with mirror wall ghosts)."""
+        return v_face_laplacian(self.state.v, self.config.dy) * self.config.k_v
+
+    def merid_advec_u(self) -> np.ndarray:
+        """Meridional advection v*du/dy with v reconstructed at centers, first
+        -order upwind biased by the sign of that center-v (mirrors the base
+        model's du_dy_upwind, which reads the collocated v directly)."""
+        vc = self._v_at_centers()
+        u = self.state.u
+        dy = self.config.dy
+        grad = np.zeros_like(u)
+        mask_pos = vc > 0
+        grad[1:][mask_pos[1:]] = (
+            u[1:][mask_pos[1:]] - u[:-1][mask_pos[1:]]
+        ) / dy
+        mask_neg = vc < 0
+        grad[:-1][mask_neg[:-1]] = (
+            u[1:][mask_neg[:-1]] - u[:-1][mask_neg[:-1]]
+        ) / dy
+        return vc * grad
+
+    def du_dt(self) -> np.ndarray:
+        """u tendency, with the Coriolis term fed the center-reconstructed v."""
+        vert_advec_u_term = (
+            self.vert_advec_u() if self.config.include_vert_advec_u else 0
+        )
+        merid_advec_u_term = (
+            self.merid_advec_u() if self.config.include_merid_advec_u else 0
+        )
+        return (
+            self.coriolis_term(self._v_at_centers())
+            - merid_advec_u_term
+            - vert_advec_u_term
+            - self.rayleigh_drag_u()
+            - self.edd_mom_flux_div_u()
+        )
+
+    def dv_dt(self) -> np.ndarray:
+        """v tendency on the faces: Coriolis (-beta*y_v*u), pressure gradient
+        (-dp/dy), and k_v diffusion, all evaluated on the ny-1 faces, halved
+        per the SS09 formulation. u is averaged to faces and T differenced
+        compactly across each face."""
+        u = self.state.u
+        dy = self.config.dy
+        uf = 0.5 * (u[:-1] + u[1:])  # u averaged to the faces
+        T = self.state.theta * THETA_TO_TEMP
+        dt_dy = (T[1:] - T[:-1]) / dy  # compact dT/dy at the faces
+        dp = self.config.gravity * self.config.height * dt_dy / self.config.t_ref
+        coriolis = self.config.beta * self.config.y_v * uf
+        return (-coriolis - dp + self.diffusion_v()) / 2
+
+    def enforce_boundary_conditions(self):
+        """Pin u=0 at the walls. v lives entirely on interior faces, so no
+        face value sits on a wall to pin; the wall condition v=0 enters
+        through the divergence half-cell form and the diffusion mirror ghost,
+        not through pinning a face."""
+        self.state.u[0] = 0
+        self.state.u[-1] = 0
+
+    def _daily_v_at_centers(self, v: np.ndarray) -> np.ndarray:
+        """Daily-averaged face v reconstructed at the ny centers."""
+        return v_faces_to_centers(v)
+
+    def _daily_v_faces(self, v: np.ndarray) -> np.ndarray:
+        """Daily-averaged v on its native face grid (for the smoothness
+        monitor, whose job is grid-scale noise on that grid)."""
+        return v

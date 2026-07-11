@@ -10,6 +10,9 @@ from ss09.model_state import ModelState
 
 @pytest.fixture
 def sw_config():
+    # These unit tests exercise the collocated (legacy) v-grid operators
+    # directly (np.gradient dv/dy, length-ny v, etc.), so they pin the grid;
+    # the staggered path has its own dedicated tests.
     return SWConfig(
         total_integration_days=100,
         gravity=9.81,
@@ -20,6 +23,7 @@ def sw_config():
         ny=51,
         dt=3600,
         coeff_eddy_heat_diff=0.0,
+        grid="collocated",
     )
 
 
