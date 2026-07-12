@@ -8,8 +8,17 @@ regimes V1/V2 did not exercise: no NaN, the grid-scale v ripple sits on the
 gateless noise floor, the climate anchors match the documented reference values,
 and (for the y_0=0 V3 case, whose state is mirror-symmetric) parity is exactly 0.
 
-Reference anchors (documented, provenance noted where uncertain):
-  V3 (v_d=0.125): NH jet ~48.3 m/s, near-eq exponent ~2.51 (B2 targets).
+Reference anchors:
+  V3 (v_d=0.125, gate-on+mc): NH jet 42.70 m/s, near-eq exponent 2.84,
+      u_min -4.12 m/s. Validated against the self-contained COLLOCATED
+      TWIN (same gate-on+mc formulation, only the grid differs):
+      staggered 42.700 vs collocated 42.697 (0.008%), so staggering is
+      faithful. The pre-registered "B2" targets (u_max 48.34, exponent
+      2.512) do NOT apply here: they were read from the GATELESS
+      published-code run
+      model_output/validation_20260709/runs/vd0125_vert (u_min -0.17,
+      no easterlies), a different formulation from the gate-on+mc one
+      this validates. A target-provenance mismatch, not a model defect.
   V4 (armA y_0=1e6): SH winter jet ~41.7, u(0) ~-14.16, u_min ~-16.15
       (from the A2 armA warm-start smoke, collocated gate-on+mc).
 
