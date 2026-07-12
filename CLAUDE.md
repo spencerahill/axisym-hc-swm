@@ -295,14 +295,17 @@ The model execution follows this sequence:
 **SWModel (`sw_model.py`)**: Main simulation class
 - Integrates u (zonal wind), v (meridional wind), theta (potential temperature)
 - Uses leapfrog time-stepping with Asselin filtering for temporal stability
-- Enforces boundary conditions (u=0, v=0 at domain edges)
+- Enforces u=0 at the walls; v is pinned to 0 at the walls on the collocated grid, or lives on interior faces (no wall value) on the staggered grid
 - Stores daily averages during integration
+- `SWModel(config)` returns a `StaggeredSWModel` subclass when `config.grid == "staggered"` (the default); see the v-Grid Layout section
 
 **ModelState (`model_state.py`)**: NamedTuple containing instantaneous state variables (t, u, v, theta, y)
 
 **SWConfig (`sw_config.py`)**: Dataclass with model configuration
-- Automatically computes `dy` (grid spacing) and `y` (grid points) from `domain_size` and `ny` in `__post_init__`
-- Key numerical parameters: `dt`, `asselin_filt_coef`, `include_vert_advec_u`
+- Automatically computes `dy`, `y`, `nv` (v-array length), and `y_v` (v-grid coordinate) from `domain_size`, `ny`, and `grid` in `__post_init__`
+- Key numerical parameters: `dt`, `asselin_filt_coef`, `include_vert_advec_u`, `grid`, `emfd_heaviside_gate`, `emfd_stencil`
+
+**read_output (`read_output.py`)**: `load_centered(path)` reads a model output file and returns `(y, u, v, T)` with v reconstructed onto the centers for either grid layout
 
 **ThetaEProfile (`theta_e.py`)**: Abstract base class with three implementations
 - Defines equilibrium potential temperature profile
