@@ -22,7 +22,7 @@ def test_path():
         yield os.path.join(temp_dir, "test_output.nc")
 
 
-def run_model(output_path, grid: "str | None" = "collocated"):
+def run_model(output_path, grid: "str | None" = "collocated", legacy=False):
     args = [
         "run-sw-model",
         "--ndays",
@@ -37,6 +37,11 @@ def run_model(output_path, grid: "str | None" = "collocated"):
     # grid=None omits --grid entirely, exercising the default (staggered).
     if grid is not None:
         args.extend(["--grid", grid])
+    # legacy=True pins the pre-2026-07-12 gate/stencil defaults (gate off,
+    # centered) that the collocated Zhang25-repro baseline was generated with,
+    # now that the production defaults are gate-on + mc.
+    if legacy:
+        args.extend(["--no-emfd-heaviside-gate", "--emfd-stencil", "centered"])
     try:
         subprocess.run(args, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
@@ -124,8 +129,8 @@ def test_regression(baseline_path, test_path):
     """The collocated (legacy) path reproduces the stored baseline. The
     baseline was generated before the staggered-v refactor, so this guards
     that the collocated path is unchanged by it (--grid collocated is the
-    Zhang et al. 2025-lineage reproduction path)."""
-    run_model(test_path, grid="collocated")
+    Zhang et al. 2025-lineage reproduction path, gate off + centered)."""
+    run_model(test_path, grid="collocated", legacy=True)
     assert compare_outputs(
         baseline_path, test_path
     ), "Regression test failed: Outputs differ."
@@ -133,10 +138,10 @@ def test_regression(baseline_path, test_path):
 
 @pytest.mark.regression
 def test_regression_staggered(baseline_staggered_path, test_path):
-    """The default (staggered) path reproduces the staggered baseline. Run with
-    no --grid flag, so it also guards that the production default is staggered:
-    if the default reverted to collocated, v would come back on y (length 801)
-    instead of y_face (length 800) and the comparison would fail."""
+    """The default path reproduces the staggered baseline. Run with no flags,
+    so it guards the full production default (staggered grid + gate-on + mc
+    stencil): if any of the three reverted, the solution would differ (grid via
+    v's coordinate length, gate/stencil via the flank/notch structure)."""
     run_model(test_path, grid=None)
     assert compare_outputs(
         baseline_staggered_path, test_path
@@ -148,7 +153,7 @@ def test_collocated_path_bit_identical(baseline_path, test_path):
     """The collocated path reproduces the baseline state (u, v, T) bit-for-bit,
     not merely within tolerance: the staggered-v refactor must not perturb a
     single floating-point bit of the legacy solution."""
-    run_model(test_path, grid="collocated")
+    run_model(test_path, grid="collocated", legacy=True)
     baseline_ds = xr.open_dataset(baseline_path)
     test_ds = xr.open_dataset(test_path)
     for var in ("u", "v", "T"):

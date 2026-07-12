@@ -38,18 +38,19 @@ class SWConfig:
     include_vert_advec_u: bool = True
     include_merid_advec_u: bool = True  # Toggle for v*du/dy meridional advection term
     # H(u) gate on the EMFD, per SS09 eq. (2.5) / Zhang et al. (2025) eq. (5).
-    # Off by default, matching the published Zhang et al. (2025) code, which
-    # omits the gate; set True for the papers' written equations.
-    emfd_heaviside_gate: bool = False
+    # On by default (2026-07-12): the production formulation gates the EMFD.
+    # Set False (--no-emfd-heaviside-gate) for the published Zhang et al. (2025)
+    # code, which omits the gate.
+    emfd_heaviside_gate: bool = True
     # Spatial stencil for the EMFD du/dy. The EMFD is advective in form with
-    # poleward velocity v_d*sgn(y). "centered": np.gradient, matching the
-    # published Zhang et al. (2025) code. "upwind": first-order one-sided
-    # from the equatorward (upstream) side, per SS09 section 2b; damps the
-    # 2*dy mode the centered stencil cannot see, required for stable gate-on
-    # integrations. "mc": MUSCL with monotonized-central limited slopes;
-    # second-order in smooth regions, reverts toward upwind at extrema and
-    # discontinuities.
-    emfd_stencil: str = "centered"
+    # poleward velocity v_d*sgn(y). "mc" (default): MUSCL with monotonized-
+    # central limited slopes, second-order in smooth regions, reverting toward
+    # upwind at extrema and discontinuities; the production stencil, needed for
+    # a stable gate-on integration. "upwind": first-order one-sided from the
+    # equatorward (upstream) side, per SS09 section 2b. "centered": np.gradient,
+    # matching the published Zhang et al. (2025) code (pair with
+    # --no-emfd-heaviside-gate for the gateless reproduction path).
+    emfd_stencil: str = "mc"
     # Steady-state detection parameters
     enable_steady_state: bool = False
     steady_state_window_size: int = 10

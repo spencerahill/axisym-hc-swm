@@ -354,14 +354,14 @@ run-sw-model --no-merid-advec-u --no-vert-advec-u
 The H(u) gate on the eddy momentum flux divergence (SS09 Eq. 2.5) is configurable:
 
 ```bash
-# Apply the H(u) gate, per the papers' written equations
+# Apply the H(u) gate, per the papers' written equations (the default)
 run-sw-model --emfd-heaviside-gate
 
-# Explicitly disable it (the default)
+# Disable it, for the published Zhang et al. (2025) gateless code
 run-sw-model --no-emfd-heaviside-gate
 ```
 
-Default: gate disabled, matching the code that produced the Zhang et al. (2025) figures (that code omits the gate the papers' written equations include). At ny=801 the gated model develops a spurious grid-scale extratropical jet while the gateless model matches the published code to machine roundoff. The default was flipped on 2026-07-09, and the regression baseline (`ss09/tests/baseline/output.nc`) was regenerated to match. See SCIENCE.md §3.1 for provenance and evidence.
+Default: gate **enabled** (2026-07-12), part of the production formulation. It was gateless from 2026-07-09 to 2026-07-11 to match the published Zhang et al. (2025) code, which omits the gate the papers' written equations include; that reproduction path is now `--no-emfd-heaviside-gate --emfd-stencil centered --grid collocated`, guarded by the collocated regression baseline (`ss09/tests/baseline/output.nc`). The gate is safe as the default because the mc stencil and staggered grid make the gate-on integration stable and bounded: the earlier gate-on runaway (a spurious grid-scale extratropical jet, 420 m/s at ny=801) was the centered stencil on the collocated grid, which the production formulation replaces. See SCIENCE.md §3.1 for provenance and evidence.
 
 ### EMFD Stencil
 
@@ -376,9 +376,9 @@ run-sw-model --emfd-stencil upwind
 run-sw-model --emfd-stencil mc
 ```
 
-Default: `centered` (`np.gradient`), matching the published code. `--emfd-upwind` remains as a deprecated alias for `--emfd-stencil upwind` and errors out if combined with a conflicting `--emfd-stencil` value.
+Default: `mc` (2026-07-12), the production stencil. Pass `--emfd-stencil centered` (with `--no-emfd-heaviside-gate`) for the published gateless code path. `--emfd-upwind` remains as a deprecated alias for `--emfd-stencil upwind` and errors out if combined with a conflicting `--emfd-stencil` value.
 
-Gate-on runs require a one-sided stencil: with it, the gate-on flank runaway (420 m/s at ny=801) becomes a steady, bounded solution, and the numerical diffusion (~`v_d`·dy/2) acts only where the EMFD acts, so it vanishes in the axisymmetric (v_d=0) limit. The `mc` stencil additionally removes most of upwind's first-order truncation bias in the near-equator u profile (measured 2026-07-10/11: the fitted-exponent deficit vs the gateless reference shrinks from 0.111 to within the reference's own bias of the analytical u∝y³ law, and the deficit falls near-quadratically with resolution). For gate-on runs, `--emfd-heaviside-gate --emfd-stencil mc` is the current best formulation; runs in `model_output/formulation_suite/mc_stencil/`. Combined with the staggered v-grid (next section), `--grid staggered --emfd-heaviside-gate --emfd-stencil mc` is the production formulation.
+Gate-on runs require a one-sided stencil: with it, the gate-on flank runaway (420 m/s at ny=801) becomes a steady, bounded solution, and the numerical diffusion (~`v_d`·dy/2) acts only where the EMFD acts, so it vanishes in the axisymmetric (v_d=0) limit. The `mc` stencil additionally removes most of upwind's first-order truncation bias in the near-equator u profile (measured 2026-07-10/11: the fitted-exponent deficit vs the gateless reference shrinks from 0.111 to within the reference's own bias of the analytical u∝y³ law, and the deficit falls near-quadratically with resolution). For gate-on runs, `--emfd-heaviside-gate --emfd-stencil mc` is the current best formulation; runs in `model_output/formulation_suite/mc_stencil/`. Combined with the staggered v-grid (next section), `gate-on + mc + staggered` is the production formulation, and since 2026-07-12 it is the default: a bare `run-sw-model` produces it, no flags needed.
 
 ### v-Grid Layout (staggered vs collocated)
 
@@ -394,7 +394,7 @@ run-sw-model --grid collocated
 
 **Staggered (default).** `v` lives on the `ny-1` interior faces `y_i + dy/2`; `u` and `theta` stay on the `ny` centers. This is SS09 section 2b's own layout. The collocated `np.gradient` divergence `dv/dy` is blind to the 2*dy checkerboard mode, so grid-scale `v` is a dynamical null space the terminus forcing projects onto (the standing interior ripple the compact-k_v patch could only damp ~3x). Putting `v` on faces makes the compact two-point divergence and pressure-gradient stencils see that mode, giving it gravity-wave dispersion instead of leaving it undamped: at ny=801 the standing ripple drops 24-91x by band onto the gateless noise floor, the interior u sawtooth roughly halves, and climate anchors move <=0.02% (jet, T_eq). The face k_v Laplacian uses the mirror-symmetric association `(f_+ + f_-) - 2 f_c` and a mirror wall ghost (`v=0` at the wall), which make the integration hold **exact** mirror parity, `max|u(y)-u(-y)| == 0.0` bit-for-bit, from a symmetric state.
 
-**Collocated (legacy).** `v` on the `ny` centers, the Zhang et al. (2025)-lineage layout. Kept intact and selectable as the bit-exact reproduction path: `--grid collocated` reproduces the pre-staggered regression baseline to the last bit. The default flip to staggered (2026-07-11) changed only the `grid` default; the gate and stencil defaults are unchanged (`--no-emfd-heaviside-gate`, `--emfd-stencil centered`, matching the published Zhang et al. (2025) code).
+**Collocated (legacy).** `v` on the `ny` centers, the Zhang et al. (2025)-lineage layout. Kept intact and selectable as the bit-exact reproduction path: `--grid collocated --no-emfd-heaviside-gate --emfd-stencil centered` reproduces the pre-staggered regression baseline (`output.nc`) to the last bit. The 2026-07-12 default flip set all three defaults to the production formulation (staggered grid, gate on, `mc` stencil), so a bare `run-sw-model` produces it; the staggered regression baseline (`output_staggered.nc`) guards that default.
 
 **Output and restart formats are grid-aware.** Staggered output writes daily `v` on a `y_face` coordinate (`grid = "staggered_face"`); `u`, `T`, `theta_e` stay on `y`. `ss09.read_output.load_centered(path)` returns `(y, u, v, T)` with `v` reconstructed onto the centers for either layout, so analysis code has one grid. Restart files carry a `grid` tag and `restart_format_version = 2`; a grid mismatch between a restart file and the run is refused unless `--migrate-restart` is passed, which interpolates `v` between the center and face grids once (legacy restarts with no tag load as collocated). Diagnostics (Hadley latitudes, steady-state kinetic energy) consume center-reconstructed `v`; the v-smoothness monitor keeps the native face field.
 

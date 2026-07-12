@@ -208,19 +208,21 @@ def parse_arguments():
     parser.add_argument(
         "--emfd-heaviside-gate",
         action="store_true",
-        default=False,
+        default=True,
         dest="emfd_heaviside_gate",
         help=(
             "Apply the H(u) gate to the EMFD, per the papers' written "
-            "equations (SS09 Eq. 2.5) (default: gate disabled, matching "
-            "the published Zhang et al. (2025) code)"
+            "equations (SS09 Eq. 2.5) (the production default)"
         ),
     )
     parser.add_argument(
         "--no-emfd-heaviside-gate",
         action="store_false",
         dest="emfd_heaviside_gate",
-        help="Explicitly disable the H(u) gate (the default)",
+        help=(
+            "Disable the H(u) gate, for the published Zhang et al. (2025) "
+            "code (pair with --emfd-stencil centered)"
+        ),
     )
     parser.add_argument(
         "--emfd-stencil",
@@ -229,12 +231,11 @@ def parse_arguments():
         default=None,  # None to detect conflicts with the --emfd-upwind alias
         dest="emfd_stencil",
         help=(
-            "Spatial stencil for the EMFD du/dy: 'centered' (the published "
-            "Zhang et al. (2025) code, the default), 'upwind' (first-order "
-            "one-sided per SS09 section 2b, needed for stable gate-on "
-            "integrations), or 'mc' (MUSCL with monotonized-central limited "
-            "slopes; second-order in smooth regions, reverts toward upwind "
-            "at extrema and discontinuities)"
+            "Spatial stencil for the EMFD du/dy: 'mc' (MUSCL with "
+            "monotonized-central limited slopes, the production default), "
+            "'upwind' (first-order one-sided per SS09 section 2b), or "
+            "'centered' (np.gradient, the published Zhang et al. (2025) code; "
+            "pair with --no-emfd-heaviside-gate for the gateless path)"
         ),
     )
     parser.add_argument(
@@ -356,7 +357,7 @@ def parse_arguments():
             )
         args.emfd_stencil = "upwind"
     elif args.emfd_stencil is None:
-        args.emfd_stencil = "centered"
+        args.emfd_stencil = "mc"
 
     # Handle mutual exclusivity: --ndays and --stop-at-steady-state
     ndays_provided = args.total_integration_days is not None
@@ -382,7 +383,7 @@ def _resolve_emfd_stencil(args) -> str:
     args objects that predate emfd_stencil (hand-built test/script args)."""
     stencil = getattr(args, "emfd_stencil", None)
     if stencil is None:
-        return "upwind" if getattr(args, "emfd_upwind", False) else "centered"
+        return "upwind" if getattr(args, "emfd_upwind", False) else "mc"
     return stencil
 
 

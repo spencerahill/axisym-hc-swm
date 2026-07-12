@@ -10,9 +10,12 @@ from ss09.model_state import ModelState
 
 @pytest.fixture
 def sw_config():
-    # These unit tests exercise the collocated (legacy) v-grid operators
-    # directly (np.gradient dv/dy, length-ny v, etc.), so they pin the grid;
-    # the staggered path has its own dedicated tests.
+    # These unit tests were written against the pre-2026-07-12 defaults
+    # (collocated grid, gate off, centered stencil): they check np.gradient
+    # dv/dy, length-ny v, and gateless EMFD expressions, and the seasonal
+    # integration tests rely on the coarse ny=51/dt=3600 config being stable,
+    # which gate-on is not. Pin all three so the default flip does not silently
+    # change what they exercise; the production defaults have dedicated tests.
     return SWConfig(
         total_integration_days=100,
         gravity=9.81,
@@ -24,6 +27,8 @@ def sw_config():
         dt=3600,
         coeff_eddy_heat_diff=0.0,
         grid="collocated",
+        emfd_heaviside_gate=False,
+        emfd_stencil="centered",
     )
 
 
@@ -503,11 +508,12 @@ def test_vert_advec_u_inactive_when_warmer_than_equilibrium(sw_config, theta_e_c
     )
 
 
-def test_emfd_heaviside_gate_off_by_default():
-    """The H(u) gate defaults to disabled, matching the published code behind
-    the Zhang et al. (2025) figures (github.com/zpcllyj/SobelSchneiderModel)."""
+def test_emfd_heaviside_gate_on_by_default():
+    """The H(u) gate defaults to enabled (2026-07-12): the production
+    formulation gates the EMFD. --no-emfd-heaviside-gate restores the gateless
+    Zhang et al. (2025) code path."""
     config = SWConfig(total_integration_days=1, ny=51, dt=3600)
-    assert config.emfd_heaviside_gate is False
+    assert config.emfd_heaviside_gate is True
 
 
 def test_emfd_gate_off_matches_ungated_expression(theta_e_config):
@@ -519,7 +525,8 @@ def test_emfd_gate_off_matches_ungated_expression(theta_e_config):
     appears in the paper's Eq. (5) and in SS09's Eq. (2.5).
     """
     config = SWConfig(
-        total_integration_days=1, ny=51, dt=3600, emfd_heaviside_gate=False
+        total_integration_days=1, ny=51, dt=3600,
+        emfd_heaviside_gate=False, emfd_stencil="centered",
     )
     model = SWModel(config, SS09Profile(theta_e_config))
 
@@ -538,11 +545,11 @@ def test_emfd_gate_off_matches_ungated_expression(theta_e_config):
     assert np.all(emfd[easterly] != 0.0)
 
 
-def test_emfd_stencil_centered_by_default():
-    """The EMFD du/dy stencil defaults to centered (np.gradient), matching
-    the published Zhang et al. (2025) code."""
+def test_emfd_stencil_mc_by_default():
+    """The EMFD du/dy stencil defaults to mc (MUSCL monotonized-central), the
+    production stencil for a stable gate-on integration."""
     config = SWConfig(total_integration_days=1, ny=51, dt=3600)
-    assert config.emfd_stencil == "centered"
+    assert config.emfd_stencil == "mc"
 
 
 def test_emfd_stencil_rejects_unknown_value():
@@ -760,7 +767,8 @@ def test_emfd_mc_composes_with_gate(theta_e_config):
     from ss09.sw_model import muscl_mc_du_dy
 
     config = SWConfig(
-        total_integration_days=1, ny=51, dt=3600, emfd_stencil="mc"
+        total_integration_days=1, ny=51, dt=3600,
+        emfd_stencil="mc", emfd_heaviside_gate=False,
     )
     model = SWModel(config, SS09Profile(theta_e_config))
     u_profile = np.linspace(-5.0, 15.0, config.ny)  # easterly south, westerly north
@@ -787,7 +795,8 @@ def test_emfd_gate_on_unchanged_by_new_flag(theta_e_config):
     """With the gate explicitly enabled, EMFD is identical to the historical
     repo behavior: H(u)-gated."""
     config = SWConfig(
-        total_integration_days=1, ny=51, dt=3600, emfd_heaviside_gate=True
+        total_integration_days=1, ny=51, dt=3600,
+        emfd_heaviside_gate=True, emfd_stencil="centered",
     )
     model = SWModel(config, SS09Profile(theta_e_config))
     u_profile = 10.0 * np.sin(3 * np.pi * config.y / config.y.max())
