@@ -356,6 +356,34 @@ def test_has_seasonal_forcing_detection(sw_config, theta_e_config):
     assert not model_no_amp.has_seasonal_forcing()
 
 
+def test_theta_e_static_cache_when_not_seasonal(sw_config, theta_e_config):
+    """Non-seasonal theta_E is time-invariant, so it is cached once at init and
+    current_theta_e() returns that cached array (equal to a fresh profile eval)."""
+    model = SWModel(sw_config, Sin2Profile(theta_e_config))
+    assert model._theta_e_static is not None
+    fresh = model.theta_e_profile(model.state)
+    np.testing.assert_array_equal(model.current_theta_e(), fresh)
+    # returns the cached array itself, not a recomputation
+    assert model.current_theta_e() is model._theta_e_static
+
+
+def test_theta_e_not_cached_when_seasonal(sw_config):
+    """Seasonal theta_E varies with time, so it must not be cached:
+    current_theta_e() recomputes and reflects the current state.t."""
+    theta_e_config_seasonal = ThetaEConfig(
+        theta_00=330.0, y_0=0.0, y_one=9439e3, delta_y=50.0,
+        theta_e_type="SB08", y_0_seasonal_amp=500e3,
+        seasonal_period_days=360.0, seasonal_phase_days=0.0,
+    )
+    model = SWModel(sw_config, SB08Profile(theta_e_config_seasonal))
+    assert model._theta_e_static is None
+    te_t0 = model.current_theta_e().copy()
+    # advance a quarter period so the seasonal y_0 migrates
+    model.state = model.state._replace(t=90 * 86400.0)
+    te_later = model.current_theta_e()
+    assert not np.allclose(te_t0, te_later)
+
+
 def test_emfd_only_acts_on_westerlies(sw_config, theta_e_config):
     """Test that EMFD only acts where u > 0 (westerlies), per SCIENCE.md eq 3.1.
 

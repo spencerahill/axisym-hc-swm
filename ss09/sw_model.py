@@ -165,6 +165,12 @@ class SWModel:
             y=config.y,
         )
         self.state = self.state._replace(theta=self.theta_e_profile(self.state))
+        # theta_E is time-invariant unless the forcing migrates seasonally;
+        # cache it once so the RHS terms skip a per-step profile evaluation.
+        self._theta_e_static = (
+            None if self.has_seasonal_forcing()
+            else self.theta_e_profile(self.state)
+        )
         self.results = DailyResults(
             config.total_integration_days, config.ny,
             store_theta_e=self.has_seasonal_forcing(), nv=nv
@@ -205,6 +211,13 @@ class SWModel:
             config = self.theta_e_profile.config
             return getattr(config, 'y_0_seasonal_amp', 0.0) > 0
         return False
+
+    def current_theta_e(self) -> np.ndarray:
+        """theta_E at the current state: the cached array when the forcing is
+        stationary (non-seasonal), a fresh profile evaluation when seasonal."""
+        if self._theta_e_static is not None:
+            return self._theta_e_static
+        return self.theta_e_profile(self.state)
 
     def init_prev_step_vars(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Initialize variables for the previous step."""
@@ -279,7 +292,7 @@ class SWModel:
         return (
             self.state.u
             * self.dv_dy()
-            * np.heaviside(self.theta_e_profile(self.state) - self.state.theta, 0.5)
+            * np.heaviside(self.current_theta_e() - self.state.theta, 0.5)
         )
 
     def coriolis_term(self, u_or_v: np.ndarray) -> np.ndarray:
@@ -327,7 +340,7 @@ class SWModel:
 
     def newt_cool_term(self) -> np.ndarray:
         """Newtonian cooling term."""
-        return (self.theta_e_profile(self.state) - self.state.theta) / self.config.tau
+        return (self.current_theta_e() - self.state.theta) / self.config.tau
 
     def vert_advec_theta(self) -> np.ndarray:
         """Calculate the vertical advection term for theta."""
@@ -371,7 +384,7 @@ class SWModel:
         self.temp_vars.u[j - 1] = self.state.u
         self.temp_vars.v[j - 1] = self.state.v
         self.temp_vars.theta[j - 1] = self.state.theta
-        self.temp_vars.theta_e[j - 1] = self.theta_e_profile(self.state)
+        self.temp_vars.theta_e[j - 1] = self.current_theta_e()
         self.temp_vars.time[j - 1] = timestamp / SECONDS_PER_DAY
 
     def store_daily_avgs(self, day: int):
