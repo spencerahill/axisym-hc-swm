@@ -403,6 +403,24 @@ run-sw-model --grid collocated
 
 **Dropbox sync.** `model_output/` is marked `com.dropbox.ignored` (via `xattr -w com.dropbox.ignored 1 model_output`) so run outputs do not churn Dropbox sync during a validation campaign; the measured per-day cost varied 0.55-0.9 s/day with sync load, so keep this attribute set.
 
+### Integration Backends (numpy vs numba)
+
+The integration loop has two backends, selected by `--backend`:
+
+```bash
+# Reference numpy implementation (the default)
+run-sw-model --backend numpy
+
+# JIT-compiled fused day kernel, bitwise-identical to the reference
+run-sw-model --backend numba
+```
+
+**numpy (default).** The reference implementation in `sw_model.py`. All physics development happens here; it is the transcription source for the numba kernel (and for any future JAX port).
+
+**numba.** `ss09/numba_backend.py` runs each model day as one `@njit` compiled call (`run_day`), preserving the reference's floating-point operation order exactly, so the integration is **bitwise identical** (max|Δ| == 0.0): the parity suite (`tests/test_numba_backend.py`) asserts this on daily outputs, restart-file contents (including the filtered prev state's wall values, observable nowhere else), NaN trajectories, and the full output dataset, and a `--backend numba` run at the production defaults reproduces the staggered regression baseline bit-for-bit. Measured speedup (solo timings, 2026-07-13): 12.8x at ny=801/dt=30 (0.67 -> 0.052 s/day, so a 15-yr production run takes ~4.7 min), 12.8x seasonal SB08, 7.8x at ny=1601/dt=15 (0.22 s/day). Constraints: staggered grid only (the collocated layout is the bit-exact Zhang et al. 2025 reproduction path and stays on the reference implementation), dt must divide 86400, and numba must be installed (`conda install -c conda-forge numba`; on Python 3.14 + Intel macOS use conda-forge, since PyPI has no stable wheel). First use pays a one-time JIT compile (~10 s), cached in `ss09/__pycache__` (gitignored) and reused across processes; editing `numba_backend.py` invalidates the cache and re-pays it once.
+
+**Editing the physics:** change the numpy reference first, then mirror the change in `numba_backend.py` preserving per-element operation order (see the module docstring's bitwise notes: the -0.0 semantics of added zero terms, the shared one-sided differences), and let the parity suite arbitrate; if the two implementations drift, the bitwise tests fail loudly.
+
 ### Seasonal Cycle Types
 
 Control the shape of the seasonal ITCZ migration when using SB08 profile:
