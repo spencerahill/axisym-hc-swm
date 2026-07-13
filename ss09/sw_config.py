@@ -33,6 +33,11 @@ class SWConfig:
     grid: str = "staggered"
     nv: int = field(init=False)  # length of the v array (ny or ny-1)
     y_v: np.ndarray = field(init=False)  # v-grid coordinate (centers or faces)
+    # Integration backend. "numpy": the reference implementation (default).
+    # "numba": JIT-compiled fused day kernel, bitwise-identical to numpy;
+    # staggered grid only (the collocated layout is the bit-exact Zhang et
+    # al. 2025 reproduction path and stays on the reference implementation).
+    backend: str = "numpy"
     asselin_filt_coef: float = 0.04
     coeff_eddy_heat_diff: float = 0.0  # values <1e4 make little difference
     include_vert_advec_u: bool = True
@@ -91,6 +96,25 @@ class SWConfig:
         else:
             self.nv = self.ny
             self.y_v = self.y
+
+        valid_backends = ("numpy", "numba")
+        if self.backend not in valid_backends:
+            raise ValueError(
+                f"backend must be one of {valid_backends}, got {self.backend!r}"
+            )
+        if self.backend == "numba":
+            if self.grid != "staggered":
+                raise ValueError(
+                    "backend='numba' supports only the staggered grid; the "
+                    "collocated layout is the bit-exact reproduction path and "
+                    "stays on the numpy reference implementation"
+                )
+            if SECONDS_PER_DAY % self.dt != 0:
+                raise ValueError(
+                    "backend='numba' integrates whole days, so dt must divide "
+                    f"{SECONDS_PER_DAY} s; got dt={self.dt} (the reference "
+                    "loop's own step accounting is inconsistent for such dt)"
+                )
 
         # Validate steady-state parameters
         if self.enable_steady_state and self.steady_state_window_size > self.total_integration_days:

@@ -457,12 +457,10 @@ class SWModel:
         """Calculate the index within the day."""
         return (current_step + 1) % int(SECONDS_PER_DAY / self.config.dt)
 
-    def run_sim(self):
-        """Run the S-S model simulation."""
-        total_time_steps = int(
-            SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
-        )
-
+    def _setup_run(self) -> Tuple[int, int]:
+        """Shared run initialization: restart bookkeeping, leapfrog seeding
+        for fresh starts, and daily-buffer allocation. Returns the starting
+        (day, step)."""
         # Determine starting day and step (for restart support)
         if getattr(self, "restart_day", None) is not None:
             day = self.restart_day
@@ -478,6 +476,87 @@ class SWModel:
             self.vars_prev_step = AuxiliaryVars(*self.init_prev_step_vars())
 
         self.init_temp_storage()
+        return day, starting_step
+
+    def _process_day_end(self, day: int) -> Tuple[int, bool]:
+        """Day-boundary bookkeeping shared by both backends: store the daily
+        averages, record diagnostics, check convergence, save any periodic
+        restart, and advance the day counter.
+
+        Returns (new_day, stop). On stop the day counter is deliberately NOT
+        advanced, so the final restart file is tagged with the just-completed
+        day (unchanged from the pre-refactor loop)."""
+        self.store_daily_avgs(day)
+        self._record_diagnostics(day)
+
+        # Check convergence based on forcing type
+        if self.has_seasonal_forcing() and self.config.seasonal_convergence_enabled:
+            # Year-to-year comparison for seasonal forcing (only if user enabled it)
+            seasonal_period = self.theta_e_profile.config.seasonal_period_days
+            if self.steady_state_detector.check_seasonal_convergence(
+                day,
+                seasonal_period,
+                window_size=self.config.seasonal_convergence_window,
+                threshold=self.config.seasonal_convergence_threshold
+            ):
+                logging.info(
+                    f"Seasonal cycle converged at day {day} "
+                    f"({day/seasonal_period:.1f} years). "
+                    f"Current year matches previous year within threshold."
+                )
+                return day, True
+        elif not self.has_seasonal_forcing():
+            # Traditional steady-state check (only for non-seasonal runs)
+            if self.steady_state_detector.check_convergence(day):
+                logging.info(
+                    f"Steady state reached at day {day}. "
+                    f"KE converged: {self.steady_state_detector.ke_converged}, "
+                    f"Tvar converged: {self.steady_state_detector.tvar_converged}"
+                )
+                return day, True
+        # If seasonal forcing but convergence disabled: no early stopping, run full integration
+
+        # Save restart file if periodic checkpointing is enabled
+        if self.config.save_restart_every > 0 and day % self.config.save_restart_every == 0 and day > 0:
+            self.save_restart_file(day)
+
+        day += 1
+        logging.info(f"Day {day} finished.")
+        return day, False
+
+    def _finalize_run(self, day: int) -> None:
+        """Shared run tail: unconverged warning and the final restart save."""
+        # Warn if steady-state detection was enabled but convergence not reached
+        if self.config.enable_steady_state and not self.steady_state_detector.is_converged:
+            logging.warning(
+                f"Steady-state convergence was enabled but simulation ended after {day} days "
+                f"without reaching convergence. "
+                f"KE converged: {self.steady_state_detector.ke_converged}, "
+                f"Tvar converged: {self.steady_state_detector.tvar_converged}."
+            )
+
+        # Always save final restart file (unless save_restart_every is explicitly 0 to disable all restarts)
+        # Note: if save_restart_every == 0, we still save a final restart file for manual continuation
+        if day > 0:  # Only save if we actually ran some days
+            self.save_restart_file(day)
+            logging.info(f"Saved final restart file at day {day}")
+
+    def _run_sim_numba(self):
+        raise RuntimeError(
+            "backend='numba' is implemented only for the staggered grid; "
+            "SWConfig validation should have rejected this configuration"
+        )
+
+    def run_sim(self):
+        """Run the S-S model simulation."""
+        if getattr(self.config, "backend", "numpy") == "numba":
+            return self._run_sim_numba()
+
+        total_time_steps = int(
+            SECONDS_PER_DAY * self.config.total_integration_days / self.config.dt
+        )
+
+        day, starting_step = self._setup_run()
 
         for i in range(starting_step, total_time_steps):
             self.state = self.state._replace(t=i * self.config.dt)
@@ -513,64 +592,16 @@ class SWModel:
             ind_within_day = self.calc_ind_within_day(i)
             self.store_temp_results(self.state.t, ind_within_day)
             if ind_within_day == 0:
-                self.store_daily_avgs(day)
-
-                # Record steady-state and Hadley diagnostics
-                self._record_diagnostics(day)
-
-                # Check convergence based on forcing type
-                if self.has_seasonal_forcing() and self.config.seasonal_convergence_enabled:
-                    # Year-to-year comparison for seasonal forcing (only if user enabled it)
-                    seasonal_period = self.theta_e_profile.config.seasonal_period_days
-                    if self.steady_state_detector.check_seasonal_convergence(
-                        day,
-                        seasonal_period,
-                        window_size=self.config.seasonal_convergence_window,
-                        threshold=self.config.seasonal_convergence_threshold
-                    ):
-                        logging.info(
-                            f"Seasonal cycle converged at day {day} "
-                            f"({day/seasonal_period:.1f} years). "
-                            f"Current year matches previous year within threshold."
-                        )
-                        break
-                elif not self.has_seasonal_forcing():
-                    # Traditional steady-state check (only for non-seasonal runs)
-                    if self.steady_state_detector.check_convergence(day):
-                        logging.info(
-                            f"Steady state reached at day {day}. "
-                            f"KE converged: {self.steady_state_detector.ke_converged}, "
-                            f"Tvar converged: {self.steady_state_detector.tvar_converged}"
-                        )
-                        break
-                # If seasonal forcing but convergence disabled: no early stopping, run full integration
-
-                # Save restart file if periodic checkpointing is enabled
-                if self.config.save_restart_every > 0 and day % self.config.save_restart_every == 0 and day > 0:
-                    self.save_restart_file(day)
-
+                day, stop = self._process_day_end(day)
+                if stop:
+                    break
                 self.reset_temp_storage()
-                day += 1
-                logging.info(f"Day {day} finished.")
 
             if np.isnan(self.state.u).any():
                 logging.warning("NaN detected in u, breaking the loop.")
                 break
 
-        # Warn if steady-state detection was enabled but convergence not reached
-        if self.config.enable_steady_state and not self.steady_state_detector.is_converged:
-            logging.warning(
-                f"Steady-state convergence was enabled but simulation ended after {day} days "
-                f"without reaching convergence. "
-                f"KE converged: {self.steady_state_detector.ke_converged}, "
-                f"Tvar converged: {self.steady_state_detector.tvar_converged}."
-            )
-
-        # Always save final restart file (unless save_restart_every is explicitly 0 to disable all restarts)
-        # Note: if save_restart_every == 0, we still save a final restart file for manual continuation
-        if day > 0:  # Only save if we actually ran some days
-            self.save_restart_file(day)
-            logging.info(f"Saved final restart file at day {day}")
+        self._finalize_run(day)
 
     def save_restart_file(self, day: int) -> None:
         """
@@ -856,3 +887,64 @@ class StaggeredSWModel(SWModel):
         """Daily-averaged v on its native face grid (for the smoothness
         monitor, whose job is grid-scale noise on that grid)."""
         return v
+
+    def _run_sim_numba(self):
+        """Day-granular driver around the fused numba kernel.
+
+        Each iteration integrates one whole day in a single compiled call
+        (the kernel fills the daily buffers and mutates the state and
+        filtered-prev arrays in place), then runs the same day-end
+        bookkeeping as the reference loop. Bitwise-identical to the numpy
+        backend; see numba_backend.py. reset_temp_storage is skipped: the
+        kernel overwrites every buffer row of a completed day, and partial
+        (NaN) days are never consumed."""
+        try:
+            from . import numba_backend
+        except ImportError as err:
+            raise ImportError(
+                "backend='numba' requires numba, which is not installed in "
+                "this environment; install it with: "
+                "conda install -c conda-forge numba"
+            ) from err
+
+        day, _ = self._setup_run()
+        spd = int(SECONDS_PER_DAY / self.config.dt)
+        total_days = self.config.total_integration_days
+        seasonal = self.has_seasonal_forcing()
+        if not seasonal:
+            theta_e_day = self._theta_e_static.reshape(1, -1)
+
+        while day < total_days:
+            start_step = day * spd
+            if seasonal:
+                # Precompute the day's theta_E in vectorized numpy directly
+                # into the daily buffer (exactly what the reference stores
+                # per step); the kernel reads it row by row.
+                ts = (start_step + np.arange(spd, dtype=np.int64)) * self.config.dt
+                self.temp_vars.theta_e[:] = self.theta_e_profile.profile_at_times(
+                    ts, self.config.y
+                )
+                theta_e_day = self.temp_vars.theta_e
+
+            nan_step = numba_backend.run_day(
+                **numba_backend.day_kernel_args(self, theta_e_day, start_step)
+            )
+
+            # Stamp t with the last executed step so restart files carry the
+            # same current_time/current_step the reference loop would.
+            last_k = spd - 1 if nan_step < 0 else nan_step
+            self.state = self.state._replace(
+                t=(start_step + last_k) * self.config.dt
+            )
+
+            if nan_step < 0 or nan_step == spd - 1:
+                # Day completed (the reference stores the day before its NaN
+                # check, so a NaN at the last step still stores the day).
+                day, stop = self._process_day_end(day)
+                if stop:
+                    break
+            if nan_step >= 0:
+                logging.warning("NaN detected in u, breaking the loop.")
+                break
+
+        self._finalize_run(day)

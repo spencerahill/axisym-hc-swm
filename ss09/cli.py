@@ -258,6 +258,19 @@ def parse_arguments():
         ),
     )
     parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["numpy", "numba"],
+        default="numpy",
+        dest="backend",
+        help=(
+            "Integration backend: 'numpy' (the reference implementation, "
+            "default) or 'numba' (JIT-compiled fused day kernel, bitwise-"
+            "identical to the reference; requires numba installed, the "
+            "staggered grid, and a dt that divides 86400)"
+        ),
+    )
+    parser.add_argument(
         "--migrate-restart",
         action="store_true",
         default=False,
@@ -425,6 +438,7 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         emfd_heaviside_gate=getattr(args, "emfd_heaviside_gate", False),
         emfd_stencil=_resolve_emfd_stencil(args),
         grid=getattr(args, "grid", "staggered"),
+        backend=getattr(args, "backend", "numpy"),
         enable_steady_state=args.enable_steady_state,
         steady_state_window_size=args.steady_state_window_size,
         steady_state_threshold=args.steady_state_threshold,

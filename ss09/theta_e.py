@@ -135,3 +135,52 @@ class SB08Profile(ThetaEProfile):
             theta_at_plus_y1,
             np.where(state.y < -y_one, theta_at_minus_y1, raw_profile),
         )
+
+    def profile_at_times(self, ts: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """θₑ evaluated at each time in ts: shape (len(ts), len(y)).
+
+        Vectorized over time for the numba backend's per-day precompute.
+        Bitwise-identical to per-step __call__ evaluations: the formula and
+        per-element operation order are the same, and numpy's scalar and
+        array ufunc paths agree to the last bit for sin/tanh/sign over this
+        formula's argument ranges (verified empirically 2026-07-13).
+        """
+        if self.config.y_0_seasonal_amp > 0:
+            period_seconds = self.config.seasonal_period_days * 86400
+            phase_seconds = self.config.seasonal_phase_days * 86400
+            phase = 2 * np.pi * (ts - phase_seconds) / period_seconds
+            if self.config.seasonal_cycle_type == "square":
+                y_0_t = self.config.y_0 + self.config.y_0_seasonal_amp * np.sign(
+                    np.sin(phase)
+                )
+            elif self.config.seasonal_cycle_type == "tanh":
+                y_0_t = self.config.y_0 + self.config.y_0_seasonal_amp * np.tanh(
+                    self.config.tanh_steepness * np.sin(phase)
+                )
+            else:
+                y_0_t = self.config.y_0 + self.config.y_0_seasonal_amp * np.sin(phase)
+        else:
+            y_0_t = np.full(np.shape(ts), self.config.y_0)
+
+        y_one = self.config.y_one
+        y_0_col = np.asarray(y_0_t)[:, np.newaxis]
+
+        def sb08_at_y(y_val):
+            term1 = np.sin(np.pi * y_val / (2 * y_one)) ** 2
+            term2 = (
+                2
+                * np.sin(np.pi * y_0_col / (2 * y_one))
+                * np.sin(np.pi * y_val / (2 * y_one))
+            )
+            return self.config.theta_00 - self.config.delta_y * (term1 - term2)
+
+        y_row = y[np.newaxis, :]
+        raw_profile = sb08_at_y(y_row)
+        theta_at_plus_y1 = sb08_at_y(y_one)
+        theta_at_minus_y1 = sb08_at_y(-y_one)
+
+        return np.where(
+            y_row > y_one,
+            theta_at_plus_y1,
+            np.where(y_row < -y_one, theta_at_minus_y1, raw_profile),
+        )

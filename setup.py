@@ -16,6 +16,9 @@ setup(
         "xarray",
         "pytest",
     ],
+    extras_require={
+        "numba": ["numba"],
+    },
     entry_points={
         "console_scripts": [
             "run-sw-model=ss09.cli:main",

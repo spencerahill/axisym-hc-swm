@@ -542,3 +542,80 @@ def test_cli_emfd_heaviside_gate_flags(monkeypatch):
     theta_e_config = setup_theta_e_config(args)
     sw_config = setup_sw_config(args, theta_e_config)
     assert sw_config.emfd_heaviside_gate is False
+
+
+def test_config_backend_default_numpy():
+    assert SWConfig().backend == "numpy"
+
+
+def test_config_rejects_unknown_backend():
+    with pytest.raises(ValueError, match="backend"):
+        SWConfig(backend="fortran")
+
+
+def test_config_rejects_numba_with_collocated_grid():
+    with pytest.raises(ValueError, match="staggered"):
+        SWConfig(backend="numba", grid="collocated")
+
+
+def test_config_rejects_nondivisor_dt_for_numba():
+    """The reference loop's own step accounting is inconsistent for dt values
+    that do not divide 86400 (int(86400*ndays/dt) != ndays*int(86400/dt)), so
+    the day-granular numba backend refuses them; the numpy backend keeps its
+    existing behavior."""
+    with pytest.raises(ValueError, match="dt"):
+        SWConfig(backend="numba", dt=7000)
+    SWConfig(backend="numpy", dt=7000)  # unchanged for the reference path
+
+
+def test_cli_backend_flag(monkeypatch):
+    from ss09.cli import parse_arguments
+
+    monkeypatch.setattr("sys.argv", ["run-sw-model"])
+    args = parse_arguments()
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
+    assert sw_config.backend == "numpy"
+
+    monkeypatch.setattr("sys.argv", ["run-sw-model", "--backend", "numba"])
+    args = parse_arguments()
+    theta_e_config = setup_theta_e_config(args)
+    sw_config = setup_sw_config(args, theta_e_config)
+    assert sw_config.backend == "numba"
+
+
+def test_cli_emfd_upwind_alias_with_backend(monkeypatch):
+    from ss09.cli import parse_arguments
+
+    monkeypatch.setattr(
+        "sys.argv", ["run-sw-model", "--emfd-upwind", "--backend", "numba"]
+    )
+    args = parse_arguments()
+    assert args.emfd_stencil == "upwind"
+    assert args.backend == "numba"
+
+
+def test_missing_numba_errors_actionably(monkeypatch, tmp_path):
+    """--backend numba without numba installed must fail with an install
+    hint, not a bare ImportError from deep inside the day loop."""
+    import sys
+
+    from ss09.sw_model import SWModel
+    from ss09.theta_e import Sin2Profile
+
+    config = SWConfig(
+        backend="numba",
+        total_integration_days=1,
+        ny=5,
+        dt=3600,
+        output_path=str(tmp_path / "out.nc"),
+        restart_output_dir=str(tmp_path),
+    )
+    model = SWModel(config, Sin2Profile(ThetaEConfig()))
+    monkeypatch.setitem(sys.modules, "numba", None)
+    monkeypatch.delitem(sys.modules, "ss09.numba_backend", raising=False)
+    # an earlier import leaves the module as an attribute on the package,
+    # which `from . import numba_backend` would resolve without re-importing
+    monkeypatch.delattr(sys.modules["ss09"], "numba_backend", raising=False)
+    with pytest.raises(ImportError, match="conda install"):
+        model.run_sim()

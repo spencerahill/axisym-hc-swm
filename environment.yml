@@ -9,6 +9,7 @@ dependencies:
   - xarray
   - netcdf4
   - h5netcdf
+  - numba
   - pytest
   - pip
   - pip:
