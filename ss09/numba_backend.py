@@ -148,94 +148,169 @@ def run_day(
     the current state, leapfrog, Asselin consuming the PRE-boundary-condition
     leapfrog fields, state swap, then boundary conditions on the state arrays
     only; the filtered prev arrays keep their nonzero wall values.
+
+    The body is fused explicit loops over grid points with scratch arrays
+    allocated once per call: per-step array temporaries cost ~50 us/step at
+    ny=801 (measured, ~70% of the array-style kernel's runtime), so the
+    per-element operations of the operator functions above are inlined here
+    in the SAME per-element order; those functions and their unit tests pin
+    that order against the numpy reference. Notes that keep the loop forms
+    bitwise-equal to the reference's array forms:
+    - disabled du/dt terms subtract literal 0.0 (subtracting +0.0 never
+      changes a float64, including -0.0);
+    - the eddy heat term is ADDED even when its coefficient is 0, because
+      adding +0.0 flips -0.0 to +0.0 exactly as the reference's zeros-array
+      add does;
+    - each one-sided difference (u[j+1]-u[j])/dy is precomputed once per
+      step into `diff` and reused, matching the reference's shared array.
     """
     nsteps = temp_u.shape[0]
     te_rows = theta_e_day.shape[0]
+    ny = u.shape[0]
+    nv = v.shape[0]
+    two_dt = 2 * dt
+
+    # scratch, allocated once per day
+    diff = np.empty(ny - 1)  # (u[j+1] - u[j]) / dy
+    vc = np.empty(ny)  # v at centers
+    dvdy = np.empty(ny)  # compact divergence at centers
+    sigma = np.empty(ny)  # MC-limited slopes
+    du_dy = np.empty(ny)  # EMFD stencil
+    d1 = np.empty(ny)  # first gradient pass of the eddy heat term
+    u_next = np.empty(ny)
+    v_next = np.empty(nv)
+    theta_next = np.empty(ny)
+
     for k in range(nsteps):
         t = (start_step + k) * dt
         row = k if te_rows > 1 else 0
-        th_e = theta_e_day[row]
 
-        # --- tendencies from the current state ---
-        vc = v_faces_to_centers(v)
-        dvdy = v_divergence_at_centers(v, dy)
+        # --- grid-coupling scratches from the current state ---
+        for j in range(ny - 1):
+            diff[j] = (u[j + 1] - u[j]) / dy
+        vc[0] = 0.0
+        vc[ny - 1] = 0.0
+        dvdy[0] = 2.0 * v[0] / dy
+        dvdy[ny - 1] = -2.0 * v[nv - 1] / dy
+        for j in range(1, ny - 1):
+            vc[j] = 0.5 * (v[j - 1] + v[j])
+            dvdy[j] = (v[j] - v[j - 1]) / dy
 
-        # du/dt: coriolis - merid advec - vert advec - Rayleigh drag - EMFD.
-        # Disabled terms subtract a zeros array where the reference subtracts
-        # scalar 0: x - 0.0 is exact for every float64 x including -0.0.
-        if include_merid:
-            merid = merid_advec_u_term(u, vc, dy)
-        else:
-            merid = np.zeros_like(u)
-        if include_vert:
-            vert = u * dvdy * heaviside_gate(th_e - theta)
-        else:
-            vert = np.zeros_like(u)
-        if gate_on:
-            gate = heaviside_gate(u)
-        else:
-            gate = np.ones_like(u)
+        # EMFD du/dy stencil
         if stencil_code == 1:  # upwind: one-sided from the equatorward side
-            diff = (u[1:] - u[:-1]) / dy
-            backward = np.zeros_like(u)
-            backward[1:] = diff
-            forward = np.zeros_like(u)
-            forward[:-1] = diff
-            du_dy = np.where(y > 0, backward, forward)
+            for j in range(ny):
+                backward = diff[j - 1] if j >= 1 else 0.0
+                forward = diff[j] if j <= ny - 2 else 0.0
+                du_dy[j] = backward if y[j] > 0 else forward
         elif stencil_code == 2:  # mc
-            du_dy = muscl_mc_du_dy(u, dy, y)
-        else:  # centered
-            du_dy = gradient_uniform(u, dy)
-        emfd = v_d * gate * np.sign(y) * du_dy
-        dudt = beta * y * vc - merid - vert - u * epsilon_u - emfd
+            for j in range(ny):
+                dm = diff[j - 1] if j >= 1 else 0.0
+                dp = diff[j] if j <= ny - 2 else 0.0
+                centered = 0.5 * (dm + dp)
+                mag = np.minimum(
+                    np.minimum(np.abs(2.0 * dm), np.abs(2.0 * dp)), np.abs(centered)
+                )
+                sigma[j] = np.sign(dm) * mag if dm * dp > 0 else 0.0
+            for j in range(ny):
+                dm = diff[j - 1] if j >= 1 else 0.0
+                dp = diff[j] if j <= ny - 2 else 0.0
+                sigma_m = sigma[j - 1] if j >= 1 else 0.0
+                sigma_p = sigma[j + 1] if j <= ny - 2 else 0.0
+                backward = dm + 0.5 * (sigma[j] - sigma_m)
+                forward = dp - 0.5 * (sigma_p - sigma[j])
+                du_dy[j] = backward if y[j] > 0 else forward
+        else:  # centered: np.gradient replica
+            du_dy[0] = (u[1] - u[0]) / dy
+            du_dy[ny - 1] = (u[ny - 1] - u[ny - 2]) / dy
+            for j in range(1, ny - 1):
+                du_dy[j] = (u[j + 1] - u[j - 1]) / (2.0 * dy)
 
-        # dv/dt on the faces
-        uf = 0.5 * (u[:-1] + u[1:])
-        T = theta * theta_to_temp
-        dt_dy = (T[1:] - T[:-1]) / dy
-        dp = gravity * height * dt_dy / t_ref
-        coriolis = beta * y_v * uf
-        diffusion = v_face_laplacian(v, dy) * k_v
-        dvdt = (-coriolis - dp + diffusion) / 2
+        # eddy heat flux first pass: d1 = np.gradient(theta, dy)
+        if coeff_eddy_heat_diff != 0.0:
+            d1[0] = (theta[1] - theta[0]) / dy
+            d1[ny - 1] = (theta[ny - 1] - theta[ny - 2]) / dy
+            for j in range(1, ny - 1):
+                d1[j] = (theta[j + 1] - theta[j - 1]) / (2.0 * dy)
 
-        # dtheta/dt. The zeros eddy term is ADDED (not skipped) when the
-        # coefficient is 0, as the reference does: x + 0.0 flips -0.0 to
-        # +0.0, so skipping the add would not be bitwise-equivalent.
-        newt = (th_e - theta) / tau
-        vadv_th = -delta * delta_z * dvdy / height
-        if coeff_eddy_heat_diff == 0.0:
-            eddy = np.zeros_like(theta)
-        else:
-            dtheta_dy = gradient_uniform(theta, dy)
-            eddy = coeff_eddy_heat_diff * gradient_uniform(dtheta_dy, dy)
-        dthdt = newt + vadv_th + eddy
+        # --- u: tendency, leapfrog, Asselin (state committed later) ---
+        for j in range(ny):
+            if include_merid:
+                if vc[j] > 0 and j >= 1:
+                    grad = diff[j - 1]
+                elif vc[j] < 0 and j <= ny - 2:
+                    grad = diff[j]
+                else:
+                    grad = 0.0
+                merid = vc[j] * grad
+            else:
+                merid = 0.0
+            if include_vert:
+                x = theta_e_day[row, j] - theta[j]
+                gate_th = 1.0 if x > 0.0 else (0.0 if x < 0.0 else 0.5)
+                vert = u[j] * dvdy[j] * gate_th
+            else:
+                vert = 0.0
+            if gate_on:
+                gate = 1.0 if u[j] > 0.0 else (0.0 if u[j] < 0.0 else 0.5)
+            else:
+                gate = 1.0
+            emfd = v_d * gate * np.sign(y[j]) * du_dy[j]
+            dudt = beta * y[j] * vc[j] - merid - vert - u[j] * epsilon_u - emfd
+            un = u_prev[j] + two_dt * dudt
+            u_prev[j] = u[j] + asselin_coef * (un + u_prev[j] - 2 * u[j])
+            u_next[j] = un
 
-        # leapfrog (2 * dt formed in int, matching `2 * config.dt`)
-        two_dt = 2 * dt
-        u_next = u_prev + two_dt * dudt
-        v_next = v_prev + two_dt * dvdt
-        theta_next = theta_prev + two_dt * dthdt
+        # --- v on the faces (reads the still-uncommitted u and v) ---
+        for j in range(nv):
+            uf = 0.5 * (u[j] + u[j + 1])
+            dt_dy = (theta[j + 1] * theta_to_temp - theta[j] * theta_to_temp) / dy
+            dp_term = gravity * height * dt_dy / t_ref
+            coriolis = beta * y_v[j] * uf
+            left = -v[0] if j == 0 else v[j - 1]
+            right = -v[nv - 1] if j == nv - 1 else v[j + 1]
+            lap = ((right + left) - 2.0 * v[j]) / dy**2
+            dvdt = (-coriolis - dp_term + lap * k_v) / 2
+            vn = v_prev[j] + two_dt * dvdt
+            v_prev[j] = v[j] + asselin_coef * (vn + v_prev[j] - 2 * v[j])
+            v_next[j] = vn
 
-        # Asselin filter, consuming the pre-BC leapfrog fields
-        u_prev_new = u + asselin_coef * (u_next + u_prev - 2 * u)
-        v_prev_new = v + asselin_coef * (v_next + v_prev - 2 * v)
-        theta_prev_new = theta + asselin_coef * (theta_next + theta_prev - 2 * theta)
-        u_prev[:] = u_prev_new
-        v_prev[:] = v_prev_new
-        theta_prev[:] = theta_prev_new
+        # --- theta ---
+        for j in range(ny):
+            newt = (theta_e_day[row, j] - theta[j]) / tau
+            vadv_th = -delta * delta_z * dvdy[j] / height
+            if coeff_eddy_heat_diff == 0.0:
+                eddy = 0.0
+            else:
+                if j == 0:
+                    g2 = (d1[1] - d1[0]) / dy
+                elif j == ny - 1:
+                    g2 = (d1[ny - 1] - d1[ny - 2]) / dy
+                else:
+                    g2 = (d1[j + 1] - d1[j - 1]) / (2.0 * dy)
+                eddy = coeff_eddy_heat_diff * g2
+            dthdt = newt + vadv_th + eddy
+            thn = theta_prev[j] + two_dt * dthdt
+            theta_prev[j] = theta[j] + asselin_coef * (thn + theta_prev[j] - 2 * theta[j])
+            theta_next[j] = thn
 
-        # state <- next, then BCs on the state only
-        u[:] = u_next
-        v[:] = v_next
-        theta[:] = theta_next
+        # --- commit state, BCs on the state only, store, NaN check ---
+        nan_found = False
+        for j in range(ny):
+            u[j] = u_next[j]
+            theta[j] = theta_next[j]
+        for j in range(nv):
+            v[j] = v_next[j]
         u[0] = 0.0
-        u[-1] = 0.0
-
-        temp_u[k] = u
-        temp_v[k] = v
-        temp_theta[k] = theta
+        u[ny - 1] = 0.0
+        for j in range(ny):
+            temp_u[k, j] = u[j]
+            temp_theta[k, j] = theta[j]
+            if np.isnan(u[j]):
+                nan_found = True
+        for j in range(nv):
+            temp_v[k, j] = v[j]
         temp_time[k] = t / 86400
-        if np.isnan(u).any():
+        if nan_found:
             return k
     return -1
 
