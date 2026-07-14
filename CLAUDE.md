@@ -464,6 +464,8 @@ Regression tests run short simulations (5 days) and compare against stored basel
 
 The model supports optional early termination when it reaches statistical steady state, which can significantly reduce computational cost for long simulations.
 
+**Known wart:** the seasonal variant `--seas-conv` works only in combination with `--stop-at-steady-state` (the detector records no history otherwise, so seasonal convergence can never trigger); see KNOWN_ISSUES.md #1.
+
 ### Usage
 
 Enable via CLI:
@@ -579,3 +581,4 @@ Jet positions (`north_jet_lat`, `south_jet_lat`) and magnitudes are tracked usin
 - NaN detection breaks the integration loop early with a warning
 - Output NetCDF files include all configuration parameters as global attributes
 - Steady-state detection is disabled by default and has zero performance overhead when off
+- A dt that does not divide 86400 makes the reference loop's step accounting and restart resume mutually inconsistent (the numba backend rejects such dt; the numpy path accepts them silently); see KNOWN_ISSUES.md #2
