@@ -307,6 +307,8 @@ The model execution follows this sequence:
 
 **read_output (`read_output.py`)**: `load_centered(path)` reads a model output file and returns `(y, u, v, T)` with v reconstructed onto the centers for either grid layout
 
+**numba_backend (`numba_backend.py`)**: Optional JIT-compiled integration backend (`--backend numba`), bitwise-identical to the reference; a fused `@njit` day kernel plus unit-tested array-style operator oracles. See the Integration Backends section
+
 **ThetaEProfile (`theta_e.py`)**: Abstract base class with three implementations
 - Defines equilibrium potential temperature profile
 - Called during model integration for Newtonian cooling
@@ -419,7 +421,7 @@ run-sw-model --backend numba
 
 **numba.** `ss09/numba_backend.py` runs each model day as one `@njit` compiled call (`run_day`), preserving the reference's floating-point operation order exactly, so the integration is **bitwise identical** (max|Δ| == 0.0): the parity suite (`tests/test_numba_backend.py`) asserts this on daily outputs, restart-file contents (including the filtered prev state's wall values, observable nowhere else), NaN trajectories, and the full output dataset, and a `--backend numba` run at the production defaults reproduces the staggered regression baseline bit-for-bit. Measured speedup (solo timings, 2026-07-13): 12.8x at ny=801/dt=30 (0.67 -> 0.052 s/day, so a 15-yr production run takes ~4.7 min), 12.8x seasonal SB08, 7.8x at ny=1601/dt=15 (0.22 s/day). Constraints: staggered grid only (the collocated layout is the bit-exact Zhang et al. 2025 reproduction path and stays on the reference implementation), dt must divide 86400, and numba must be installed (`conda install -c conda-forge numba`; on Python 3.14 + Intel macOS use conda-forge, since PyPI has no stable wheel). First use pays a one-time JIT compile (~10 s), cached in `ss09/__pycache__` (gitignored) and reused across processes; editing `numba_backend.py` invalidates the cache and re-pays it once.
 
-**Editing the physics:** change the numpy reference first, then mirror the change in `numba_backend.py` preserving per-element operation order (see the module docstring's bitwise notes: the -0.0 semantics of added zero terms, the shared one-sided differences), and let the parity suite arbitrate; if the two implementations drift, the bitwise tests fail loudly.
+**Editing the physics:** change the numpy reference first, then mirror the change in `numba_backend.py` preserving per-element operation order (see the module docstring's bitwise notes: the -0.0 semantics of added zero terms, the shared one-sided differences), and let the parity suite arbitrate; if the two implementations drift, the bitwise tests fail loudly. Cache caveat: constants the kernel imports from `sw_model.py` (`THETA_TO_TEMP`, `SECONDS_PER_DAY`) are frozen into the compiled artifact, and the JIT cache watches only `numba_backend.py` itself, so changing such a constant requires touching `numba_backend.py` (or deleting `ss09/__pycache__`) to force a recompile; a stale cache fails the parity suite loudly. Decision (Spencer, 2026-07-14): keep the two-implementation split at least through moist V1 (numpy for fast physics iteration and as the JAX transcription source, numba for production runs); reassess once the mirroring cost of one real physics change is measured.
 
 ### Seasonal Cycle Types
 
@@ -457,6 +459,7 @@ Tests are organized by functionality:
 - `test_theta_e_config.py`: Configuration validation
 - `test_cli.py`: Command-line interface tests
 - `test_regression.py`: End-to-end regression tests against baseline output in `ss09/tests/baseline/`
+- `test_numba_backend.py`: Bitwise parity of the numba backend against the numpy reference (operator oracles, single-step planted-zeros, integration variants, restarts, early-stop paths, full dataset, CLI baseline reproduction)
 
 Regression tests run short simulations (5 days) and compare against stored baseline using `xarray.testing.assert_allclose`.
 
