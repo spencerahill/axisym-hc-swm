@@ -321,7 +321,10 @@ def parse_arguments():
         "--seas-conv",
         action="store_true",
         dest="seasonal_convergence_enabled",
-        help="Stop when seasonal cycle converges (default: disabled)",
+        help=(
+            "Stop when seasonal cycle converges; requires "
+            "--stop-at-steady-state (default: disabled)"
+        ),
     )
     parser.add_argument(
         "--seas-conv-window",
@@ -379,6 +382,16 @@ def parse_arguments():
             "Error: Cannot specify both --ndays and --stop-at-steady-state. "
             "Use --ndays for fixed-length runs, or --stop-at-steady-state "
             "for convergence-based termination."
+        )
+
+    # --seas-conv reads the daily history the steady-state detector records,
+    # and the detector records only when --stop-at-steady-state is on; alone,
+    # --seas-conv was a silent no-op (the run completed its full length).
+    if args.seasonal_convergence_enabled and not args.enable_steady_state:
+        raise SystemExit(
+            "Error: --seas-conv requires --stop-at-steady-state (the "
+            "steady-state detector records the daily history the seasonal "
+            "convergence check compares year-to-year)."
         )
 
     # Apply conditional default for ndays

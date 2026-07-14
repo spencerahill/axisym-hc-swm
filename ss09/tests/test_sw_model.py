@@ -275,8 +275,11 @@ def test_seasonal_convergence_enabled(sw_config):
         seasonal_phase_days=0.0
     )
 
-    # Enable seasonal convergence
+    # Enable seasonal convergence. enable_steady_state is required (and now
+    # enforced by SWConfig validation): the detector records the daily history
+    # the seasonal check reads only when it is enabled.
     sw_config.total_integration_days = 1000  # Long run
+    sw_config.enable_steady_state = True
     sw_config.seasonal_convergence_enabled = True
     sw_config.seasonal_convergence_window = 30
     sw_config.seasonal_convergence_threshold = 0.01

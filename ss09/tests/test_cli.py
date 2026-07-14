@@ -558,14 +558,30 @@ def test_config_rejects_numba_with_collocated_grid():
         SWConfig(backend="numba", grid="collocated")
 
 
-def test_config_rejects_nondivisor_dt_for_numba():
-    """The reference loop's own step accounting is inconsistent for dt values
-    that do not divide 86400 (int(86400*ndays/dt) != ndays*int(86400/dt)), so
-    the day-granular numba backend refuses them; the numpy backend keeps its
-    existing behavior."""
+def test_config_rejects_nondivisor_dt_all_backends():
+    """The loop's step accounting is inconsistent for dt values that do not
+    divide 86400: int(86400*ndays/dt) != ndays*int(86400/dt), trailing sub-day
+    steps belong to no stored day, and restart resume lands off the original
+    run's day boundary. Formerly only the day-granular numba backend refused
+    such dt while the numpy path accepted them silently
+    (https://github.com/spencerahill/axisym-hc-swm/issues/3); now every
+    backend refuses them at config time."""
     with pytest.raises(ValueError, match="dt"):
         SWConfig(backend="numba", dt=7000)
-    SWConfig(backend="numpy", dt=7000)  # unchanged for the reference path
+    with pytest.raises(ValueError, match="dt"):
+        SWConfig(backend="numpy", dt=7000)
+
+
+def test_cli_rejects_nondivisor_dt(monkeypatch):
+    """--dt not dividing 86400 must be refused for a default (numpy-backend)
+    CLI run, not only for --backend numba."""
+    from ss09.cli import parse_arguments
+
+    monkeypatch.setattr("sys.argv", ["run-sw-model", "--dt", "7000"])
+    args = parse_arguments()
+    theta_e_config = setup_theta_e_config(args)
+    with pytest.raises(ValueError, match="dt"):
+        setup_sw_config(args, theta_e_config)
 
 
 def test_config_rejects_fractional_dt_for_numba():
@@ -576,7 +592,38 @@ def test_config_rejects_fractional_dt_for_numba():
     but silent wrong physics must be a config error."""
     with pytest.raises(ValueError, match="dt"):
         SWConfig(backend="numba", dt=4.5)
-    SWConfig(backend="numpy", dt=4.5)  # unchanged for the reference path
+    # 4.5 divides 86400 exactly, so the all-backend divisibility check passes
+    # it; only the numba integer-t bookkeeping forbids fractional dt.
+    SWConfig(backend="numpy", dt=4.5)
+
+
+def test_config_seasonal_convergence_requires_steady_state():
+    """seasonal_convergence_enabled without enable_steady_state was a silent
+    no-op: the detector records history only when enabled, so the seasonal
+    year-to-year check could never trigger and the run silently completed its
+    full length (https://github.com/spencerahill/axisym-hc-swm/issues/2).
+    Now a config error."""
+    with pytest.raises(ValueError, match="seasonal_convergence_enabled"):
+        SWConfig(seasonal_convergence_enabled=True)
+    # The documented combination stays valid.
+    SWConfig(seasonal_convergence_enabled=True, enable_steady_state=True)
+
+
+def test_cli_seas_conv_requires_stop_at_steady_state(monkeypatch):
+    """--seas-conv alone is refused with a message naming the missing flag;
+    the documented --stop-at-steady-state --seas-conv combination parses."""
+    from ss09.cli import parse_arguments
+
+    monkeypatch.setattr("sys.argv", ["run-sw-model", "--seas-conv"])
+    with pytest.raises(SystemExit, match="stop-at-steady-state"):
+        parse_arguments()
+
+    monkeypatch.setattr(
+        "sys.argv", ["run-sw-model", "--stop-at-steady-state", "--seas-conv"]
+    )
+    args = parse_arguments()
+    assert args.seasonal_convergence_enabled
+    assert args.enable_steady_state
 
 
 def test_cli_backend_flag(monkeypatch):

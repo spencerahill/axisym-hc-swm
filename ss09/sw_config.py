@@ -109,20 +109,41 @@ class SWConfig:
                     "collocated layout is the bit-exact reproduction path and "
                     "stays on the numpy reference implementation"
                 )
-            # Integral first: a fractional dt like 4.5 divides 86400 in float
-            # arithmetic but would be silently truncated by the kernel's
-            # integer-t bookkeeping.
+            # Fractional dt is numba-specific: a value like 4.5 divides 86400
+            # exactly in float arithmetic (so the all-backend divisibility
+            # check below passes it) but would be silently truncated by the
+            # kernel's integer-t bookkeeping.
             if not float(self.dt).is_integer():
                 raise ValueError(
                     "backend='numba' requires an integer dt (its time "
                     f"bookkeeping is exact integer seconds); got dt={self.dt}"
                 )
-            if SECONDS_PER_DAY % self.dt != 0:
-                raise ValueError(
-                    "backend='numba' integrates whole days, so dt must divide "
-                    f"{SECONDS_PER_DAY} s; got dt={self.dt} (the reference "
-                    "loop's own step accounting is inconsistent for such dt)"
-                )
+
+        # Any backend: for a dt not dividing 86400, the total-step count
+        # int(86400*ndays/dt), the per-"day" storage cycle of int(86400/dt)
+        # steps, and the restart resume step int(day*86400/dt) are mutually
+        # inconsistent (trailing sub-day steps belong to no stored day, and a
+        # continuation duplicates or skips a step relative to the
+        # uninterrupted run).
+        if SECONDS_PER_DAY % self.dt != 0:
+            raise ValueError(
+                f"dt must divide {SECONDS_PER_DAY} s (daily-average storage "
+                "and restart resume assume an integer number of steps per "
+                f"day); got dt={self.dt}"
+            )
+
+        # The seasonal year-to-year convergence check reads the daily history
+        # the steady-state detector records, and the detector records only
+        # when enabled: without enable_steady_state the history stays empty
+        # and seasonal convergence can never trigger (a former silent no-op).
+        if self.seasonal_convergence_enabled and not self.enable_steady_state:
+            raise ValueError(
+                "seasonal_convergence_enabled=True requires "
+                "enable_steady_state=True (the steady-state detector records "
+                "the daily history the seasonal convergence check compares "
+                "year-to-year); pass --stop-at-steady-state alongside "
+                "--seas-conv"
+            )
 
         # Validate steady-state parameters
         if self.enable_steady_state and self.steady_state_window_size > self.total_integration_days:
