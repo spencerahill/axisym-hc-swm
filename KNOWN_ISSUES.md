@@ -7,6 +7,8 @@ needs a small decision plus tests.
 
 ## 1. `--seas-conv` can never trigger without `--stop-at-steady-state`
 
+Tracked as [issue #2](https://github.com/spencerahill/axisym-hc-swm/issues/2).
+
 **Behavior.** `--seas-conv` (`seasonal_convergence_enabled`) alone never
 stops a run: the simulation silently completes its full length with no
 warning.
@@ -38,6 +40,8 @@ recording. Each needs tests for the newly reachable or forbidden
 combinations.
 
 ## 2. Reference-loop step accounting is inconsistent for dt not dividing 86400
+
+Tracked as [issue #3](https://github.com/spencerahill/axisym-hc-swm/issues/3).
 
 **Behavior.** For a `dt` that does not divide 86400, the numpy loop's
 total-step count, day-boundary bookkeeping, and restart resume disagree
