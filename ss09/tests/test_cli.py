@@ -568,6 +568,17 @@ def test_config_rejects_nondivisor_dt_for_numba():
     SWConfig(backend="numpy", dt=7000)  # unchanged for the reference path
 
 
+def test_config_rejects_fractional_dt_for_numba():
+    """A fractional dt like 4.5 divides 86400 in float arithmetic, so the
+    divisibility check alone accepts it, and the kernel's integer-t
+    arithmetic would then silently truncate it to 4: different physics, no
+    error. Reachable only through the Python API (the CLI pins --dt to int),
+    but silent wrong physics must be a config error."""
+    with pytest.raises(ValueError, match="dt"):
+        SWConfig(backend="numba", dt=4.5)
+    SWConfig(backend="numpy", dt=4.5)  # unchanged for the reference path
+
+
 def test_cli_backend_flag(monkeypatch):
     from ss09.cli import parse_arguments
 

@@ -109,6 +109,14 @@ class SWConfig:
                     "collocated layout is the bit-exact reproduction path and "
                     "stays on the numpy reference implementation"
                 )
+            # Integral first: a fractional dt like 4.5 divides 86400 in float
+            # arithmetic but would be silently truncated by the kernel's
+            # integer-t bookkeeping.
+            if not float(self.dt).is_integer():
+                raise ValueError(
+                    "backend='numba' requires an integer dt (its time "
+                    f"bookkeeping is exact integer seconds); got dt={self.dt}"
+                )
             if SECONDS_PER_DAY % self.dt != 0:
                 raise ValueError(
                     "backend='numba' integrates whole days, so dt must divide "

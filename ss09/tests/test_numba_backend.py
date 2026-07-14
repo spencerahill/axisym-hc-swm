@@ -265,6 +265,7 @@ def test_parity_default_five_days(tmp_path):
 
 VARIANTS = [
     ("gate_off", dict(emfd_heaviside_gate=False), {}),
+    ("gate_off_upwind", dict(emfd_heaviside_gate=False, emfd_stencil="upwind"), {}),
     ("upwind", dict(emfd_stencil="upwind"), {}),
     ("centered", dict(emfd_stencil="centered"), {}),
     ("no_merid", dict(include_merid_advec_u=False), {}),
@@ -339,6 +340,22 @@ def test_sb08_profile_at_times_matches_per_step(cycle):
     for k, t in enumerate(ts):
         ref = profile(ModelState(t=int(t), u=zeros, v=zeros, theta=zeros, y=y))
         assert_bitwise(ref, block[k], f"theta_e block row {k}")
+
+
+def test_sb08_profile_at_times_zero_amplitude():
+    """The amp=0 branch of profile_at_times (unused by the production driver,
+    which only calls the helper for seasonal runs) still matches per-step
+    evaluation."""
+    te_config = ThetaEConfig(theta_e_type="SB08", y_0=300e3)
+    profile = SB08Profile(te_config)
+    config = SWConfig(ny=51, dt=1800, total_integration_days=1)
+    y = config.y
+    ts = np.arange(4) * 1800
+    block = profile.profile_at_times(ts, y)
+    zeros = np.zeros_like(y)
+    for k, t in enumerate(ts):
+        ref = profile(ModelState(t=int(t), u=zeros, v=zeros, theta=zeros, y=y))
+        assert_bitwise(ref, block[k], f"static theta_e block row {k}")
 
 
 def test_numba_backend_actually_invoked(tmp_path, monkeypatch):

@@ -10,20 +10,28 @@ numpy backend; the parity tests in tests/test_numba_backend.py assert
 max|delta| == 0.0, and any nonzero difference is a transcription bug here.
 
 Two constructs necessarily differ from the reference text (numba 0.65.1
-lacks them) but are value-identical, verified against the originals:
-np.heaviside -> heaviside_gate (NaN input yields 0.5 instead of NaN, reached
-only on already-NaN trajectories the driver is about to abort), and the
-list-form np.concatenate ghost construction in v_face_laplacian -> explicit
-ghost-array fill.
+lacks them) but are value-identical for every state the model can reach,
+verified against the originals: np.heaviside -> heaviside_gate (NaN input
+yields 0.5 instead of NaN; see its docstring for the reachability argument),
+and the list-form np.concatenate ghost construction in v_face_laplacian ->
+explicit ghost-array fill.
 
-The kernel is written in "conservative array style" (vectorized expressions,
-np.where branches, no in-place tricks beyond the reference's own) so it
-transcribes nearly line-for-line to a future JAX port.
+The module has two layers. The array-style operator functions
+(heaviside_gate through merid_advec_u_term) are per-element-semantics
+oracles: their unit tests pin each transcription against the corresponding
+numpy-reference function on adversarial inputs (exact and signed zeros,
+walls). run_day, the production kernel, inlines those same per-element
+operations as fused explicit loops (per-step array temporaries dominated
+the array-style kernel's runtime) and is pinned by the composed parity
+tests: single-step with planted zeros, multi-day integrations across the
+physics-switch matrix, restart files, and the full output dataset. For a
+future JAX port, transcribe from the numpy reference in sw_model.py, not
+from this module.
 """
 import numpy as np
 from numba import njit
 
-from .sw_model import THETA_TO_TEMP
+from .sw_model import SECONDS_PER_DAY, THETA_TO_TEMP
 
 STENCIL_CODES = {"centered": 0, "upwind": 1, "mc": 2}
 
@@ -31,8 +39,13 @@ STENCIL_CODES = {"centered": 0, "upwind": 1, "mc": 2}
 @njit(cache=True)
 def heaviside_gate(x):
     """np.heaviside(x, 0.5), which numba lacks. NaN input yields 0.5 here
-    (np.heaviside propagates NaN); reached only after the state is already
-    NaN, one step before the NaN check aborts the run."""
+    (np.heaviside propagates NaN). For the EMFD u-gate this is reached only
+    after u is already NaN, the same step the NaN check aborts the run. The
+    vert-advec theta-gate channel COULD diverge if theta went NaN at a point
+    where u is still finite, but no reachable trajectory does that (theta's
+    first NaN never precedes u's; verified empirically on organic blowups
+    and NaN-poisoned restarts, 2026-07-13): only hand-injected NaN state via
+    the Python API can observe the difference."""
     return np.where(x > 0.0, 1.0, np.where(x < 0.0, 0.0, 0.5))
 
 
@@ -150,12 +163,11 @@ def run_day(
     only; the filtered prev arrays keep their nonzero wall values.
 
     The body is fused explicit loops over grid points with scratch arrays
-    allocated once per call: per-step array temporaries cost ~50 us/step at
-    ny=801 (measured, ~70% of the array-style kernel's runtime), so the
-    per-element operations of the operator functions above are inlined here
-    in the SAME per-element order; those functions and their unit tests pin
-    that order against the numpy reference. Notes that keep the loop forms
-    bitwise-equal to the reference's array forms:
+    allocated once per call (per-step array temporaries would dominate the
+    runtime): the per-element operations of the operator functions above
+    are inlined here in the SAME per-element order; those functions and
+    their unit tests pin that order against the numpy reference. Notes that
+    keep the loop forms bitwise-equal to the reference's array forms:
     - disabled du/dt terms subtract literal 0.0 (subtracting +0.0 never
       changes a float64, including -0.0);
     - the eddy heat term is ADDED even when its coefficient is 0, because
@@ -263,8 +275,8 @@ def run_day(
         # --- v on the faces (reads the still-uncommitted u and v) ---
         for j in range(nv):
             uf = 0.5 * (u[j] + u[j + 1])
-            dt_dy = (theta[j + 1] * theta_to_temp - theta[j] * theta_to_temp) / dy
-            dp_term = gravity * height * dt_dy / t_ref
+            dtemp_dy = (theta[j + 1] * theta_to_temp - theta[j] * theta_to_temp) / dy
+            dp_term = gravity * height * dtemp_dy / t_ref
             coriolis = beta * y_v[j] * uf
             left = -v[0] if j == 0 else v[j - 1]
             right = -v[nv - 1] if j == nv - 1 else v[j + 1]
@@ -309,7 +321,7 @@ def run_day(
                 nan_found = True
         for j in range(nv):
             temp_v[k, j] = v[j]
-        temp_time[k] = t / 86400
+        temp_time[k] = t / SECONDS_PER_DAY
         if nan_found:
             return k
     return -1
@@ -320,7 +332,9 @@ def day_kernel_args(model, theta_e_day, start_step):
 
     Scalars are coerced to fixed types (float/int/bool) so every call hits
     one compiled signature regardless of how the config values were spelled
-    (e.g. the int-valued k_v default); the coercions are value-exact."""
+    (e.g. the int-valued k_v default). The coercions are value-exact for
+    every config the numba backend accepts: SWConfig validation requires an
+    integral dt, so int(config.dt) cannot truncate."""
     config = model.config
     return dict(
         u=model.state.u,
