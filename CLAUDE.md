@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Python implementation of the Sobel-Schneider single-layer shallow water model for simulating Hadley circulation with parameterized eddy momentum forcing, based on Sobel and Schneider (2009, 2013). The model integrates momentum and thermodynamic equations on an equatorial beta plane using a leapfrog time-stepping scheme with Asselin filtering.
 
-See **SCIENCE.md** for detailed physics background (governing equations, parameterizations, dynamical regimes).
+See **SCIENCE.md** for detailed physics background (governing equations, parameterizations, dynamical regimes). See **docs/fixed_ro_beta_plane_theory.pdf** (source: the `.tex` beside it; rebuild with `latexmk -pdf -output-directory=docs docs/fixed_ro_beta_plane_theory.tex`) for the fixed-Ro suite's beta-plane theory memo and its run record.
 
 ## Git Workflow
 
@@ -482,8 +482,10 @@ run-sw-model --stop-at-steady-state --steady-state-window 15 --steady-state-thre
 # Require only one metric to converge instead of both
 run-sw-model --stop-at-steady-state --steady-state-either
 
-# Run for up to 500 days but stop early if steady state reached
-run-sw-model --ndays 500 --stop-at-steady-state
+# NOTE: --ndays and --stop-at-steady-state are mutually exclusive (the
+# CLI refuses the combination). A convergence run carries an internal
+# 200000-day ceiling; the detector does the stopping.
+run-sw-model --stop-at-steady-state
 ```
 
 ### Parameters

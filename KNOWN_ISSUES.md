@@ -4,7 +4,17 @@ Latent defects documented for future cleanup. Each is found and verified
 empirically; an entry stays here until a session fixes it with a decision
 plus tests, since every fix changes user-visible behavior.
 
-None currently open.
+- **Custom `--output-path` with a nonexistent parent directory crashes the
+  end-of-run restart write**
+  ([issue #4](https://github.com/spencerahill/axisym-hc-swm/issues/4)):
+  nothing creates the parent directory, so after the full integration the
+  final restart's netCDF create fails with the library's misleading
+  `PermissionError` (its standard complaint for a missing parent), and the
+  daily output, written after the restart, is lost with it. Found
+  2026-07-16 launching the fixed-Ro suite Tier-0 runs; workaround is
+  pre-creating the directory. Candidate fix: `makedirs(exist_ok=True)`
+  for the output and restart parents at startup, so a doomed path fails
+  fast instead of after the run.
 
 ## Fixed
 
