@@ -97,7 +97,10 @@ so
 \section{Equal-area edge and equatorial temperature}
 \label{sec:edge}
 
-\textbf{[derived: confirmed at the 1--8\% level by runs 1a--1b below]}
+\textbf{[derived: scalar anchors confirmed at the 1--8\% level by runs
+1a--1b below; at profile level the inner half of the cell agrees at the
+10\% level and the terminus misfit is ${\sim}35$--$40\%$ of the
+depression, run-record addendum]}
 With $D(y) = T_{\Ro}(y) - T_E(y)$, imposing $D(Y) = 0$ and
 $\int_0^Y D\, \mathrm{d}y = 0$ (measure $\mathrm{d}y$; the Newtonian
 relaxation has uniform $\tau$) gives $\tfrac{2}{3} b Y^2 = \tfrac{4}{5} c
@@ -125,8 +128,10 @@ exactly this factor.
 \section{Meridional wind, heat flux, momentum flux}
 \label{sec:v}
 
-\textbf{[derived: $v$ magnitude and shape confirmed at the 1--4\% level by
-runs 1a--1b below]}
+\textbf{[derived: $v_{\max}$ magnitude and location confirmed at the
+1--4\% level by runs 1a--1b below; at profile level the inner flank agrees
+at the 5\% level and the terminus flank misfit is ${\sim}45\%$ of
+$v_{\max}$, run-record addendum]}
 The steady thermodynamic balance \eqref{eq:thermo} integrates to the
 model's $v$ profile directly, using $\theta_E - \theta = 1.6\,(T_E - T) =
 -1.6\, D$:
@@ -168,8 +173,24 @@ cell, exactly as verified for the sphere forms in puffins
 \texttt{test\_eq\_area.py}.
 
 \section{Diagnosed quantities: conventions for the suite}
+\label{sec:diag}
 
 \begin{itemize}
+  \item \textbf{Full-profile scorecard (the confirmation standard for
+    every suite run):} the simulated $u$, $T$, and $v$ profiles are
+    compared against the zero-free-parameter theory profiles at the
+    diagnosed (regression) cell-mean $\Ro$, reporting $\max|\Delta|$ and
+    its location both over the cell $[0, Y_{\Ro}]$ and over its inner half,
+    each scaled by the field's theory amplitude (cell-edge $u$, the
+    equatorial depression, and $v_{\max}$ respectively). The temperature
+    comparison is visualized as the equal-area lobes $D(y) = T - T_E$,
+    which removes the ${\sim}200$~K shared background. Implemented in
+    \path|scripts/fixed_ro_scorecard.py| (one four-panel figure per run;
+    fields are means over the final 30 days). Scalar anchors (depression,
+    $v_{\max}$, edge) are by-products of the same tool, not the
+    confirmation standard: runs 1a--1b passed the scalars at the 1--8\%
+    level while the profile misfit at the terminus is ${\sim}35$--$45\%$ of
+    scale (see the profile addendum in the run record).
   \item \textbf{Local $\Ro(y)$:} $(\partial_y u)/(\beta y)$, the model's
     existing diagnostic (NaN within $|y| < \Delta y_{\mathrm{grid}}$ of the
     equator).
@@ -223,16 +244,20 @@ Zhang et al.\ (2025) Figs.~2--3 magnitudes within $\sim$1.5$\times$.
 \section{Falsifying checks and status}
 \label{sec:checks}
 
+Every run in the checks below also gets the Section~\ref{sec:diag}
+full-profile scorecard on $u$, $T$, and $v$; the tier-specific items are
+the additional, targeted comparisons.
+
 \begin{enumerate}
-  \item \textbf{Edge, equatorial depression, $v$ profile vs diagnosed
-    $\Ro$ (the most-falsifying single check):} SS09-parabolic forcing,
-    $v_d = 0$. Framing correction from the first run: with the default
+  \item \textbf{Full $u$/$T$/$v$ profiles, edge, and equatorial depression
+    vs theory at diagnosed $\Ro$ (the most-falsifying single check):}
+    SS09-parabolic forcing, $v_d = 0$. Framing correction from the first run: with the default
     vertical momentum advection on, $v_d = 0$ is \emph{not} the $\Ro = 1$
     limit (Zhang et al.\ 2025: $u \sim \beta y^2/3$ near the ascent, and
     drag lowers it further); the theory must be evaluated at the run's
     diagnosed cell-mean $\Ro$. The $\Ro \to 1$ anchor requires
     \texttt{-{}-no-vert-advec-u} \emph{and} reduced drag (run 1b). Status:
-    runs 1a--1b below.
+    runs 1a--1b below, scalar level and profile level (addendum).
   \item \textbf{Edge collapse:} $Y_{\mathrm{edge}} (\Ro/\Rb)^{1/2}/y_1 =
     (5/3)^{1/2}$ flat across the $v_d$, $\Delta_y$, $\beta$, and radius
     ladders. Status: pending Tiers 1--2.
@@ -240,7 +265,8 @@ Zhang et al.\ (2025) Figs.~2--3 magnitudes within $\sim$1.5$\times$.
     invariant under $(\beta \to \beta/k,\; y_1 \to k y_1,\; L \to k L)$.
     Status: pending Tier 2.
   \item \textbf{$v$-profile shape and $\Ro^{-3/2}$ magnitude scaling}
-    (Section~\ref{sec:v}). Status: pending Tier 1.
+    (Section~\ref{sec:v}). Status: shape checked at profile level in runs
+    1a--1b (addendum); the $\Ro^{-3/2}$ scaling pending Tier 1.
   \item \textbf{Momentum flux increases as $\Ro$ decreases}
     (Section~\ref{sec:v}). Status: pending Tier 1.
   \item \textbf{Emergent $\bar{\Ro}(v_d)$} (Section~\ref{sec:closure}).
@@ -331,5 +357,46 @@ max $\Ro \sim 0.9$ there); (iii) the steady-state detector (window 30~d,
 $10^{-4}$) fires while the jet still drifts ${\sim}0.4\%$ per 60~d on the
 drag timescale, so budget-grade runs need a stricter threshold or a fixed
 post-detection extension.
+
+\subsection*{2026-07-16, profile-level addendum to runs 1a--1b}
+
+The tables above are endpoint checks (the equatorial depression and
+$v_{\max}$ are, respectively, the $y = 0$ anchor of $T$ and a single point
+of $v$). The suite standard is now the full-profile scorecard
+(Section~\ref{sec:diag}), applied retroactively to both runs: final-30-day means, theory at the
+fitted cell-mean $\Ro$ of 0.479 (1a) and 0.473 (1b). Under this
+standardized window 1b's fit reproduces the value quoted above exactly,
+while 1a's shifts from 0.470 to 0.479, within run 1a's stated ${\sim}2\%$
+drift allowance. Profile results \textbf{[computed]}:
+
+\begin{center}
+\begin{tabular}{llcccc}
+\toprule
+run & field & $\max|\Delta|$ (cell) & at $y$ [$10^6$ m] & \% of scale
+  & inner half \\
+\midrule
+1a & $u$ & 10.4~m/s & 2.52 & 34 & 2.3~m/s (7.5\%) \\
+1a & $T$ & 0.133~K & 2.01 & 36 & 0.038~K (10\%) \\
+1a & $v$ & 4.0~mm/s & 2.44 & 45 & 0.49~mm/s (5.5\%) \\
+1b & $u$ & 10.2~m/s & 2.52 & 33 & 3.2~m/s (10\%) \\
+1b & $T$ & 0.152~K & 2.01 & 40 & 0.042~K (11\%) \\
+1b & $v$ & 3.9~mm/s & 2.44 & 43 & 0.48~mm/s (5.2\%) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Scales: cell-edge $u_{\Ro}(Y_{\Ro})$, the equatorial depression, and
+$v_{\max}$. Reading: the inner half of the cell agrees at the 5--11\%
+level in all three fields, and the misfit concentrates at the terminus in
+all three, consistent with the diagnosed local $\Ro(y)$ declining to
+${\sim}0.2$ at the jet: a single cell-mean $\Ro$ is furthest from the
+local value exactly there. The simulated subtropical warm lobe of $D(y)$
+peaks at 0.17~K (1a) against the predicted 0.30~K and is smeared poleward
+across the edge ($D$ stays ${\sim}{+}0.015$~K out to at least $4.5\times
+10^6$~m), suggesting the sharp-edge equal-area closure, not the quartic
+interior shape, is the limiting idealization. The $u$ misfit sits at the
+theory's terminus discontinuity (the jump to the RCE plateau). The ms's
+linear-$\Ro$ variant targets exactly this regime and is testable against
+these same stored profiles (suite extension, not yet scheduled).
 
 \end{document}
