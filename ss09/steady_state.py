@@ -45,7 +45,10 @@ class SteadyStateDetector:
         window_size: int = 10,
         threshold: float = 0.001,
         check_both_metrics: bool = True,
-        smoothness_threshold: float = 0.5
+        smoothness_threshold: float = 0.5,
+        slow_gate: bool = False,
+        slow_window: int = 0,
+        slow_threshold: float = 0.002,
     ):
         """
         Initialize the steady-state detector.
@@ -57,17 +60,40 @@ class SteadyStateDetector:
             check_both_metrics: If True, both KE and Tvar must converge;
                                 if False, either metric converging is sufficient
             smoothness_threshold: Neighbor correlation threshold for v field smoothness
+            slow_gate: Additionally require the slow diagnostics (jet
+                latitude, max |v|, equatorial depression) to converge. The
+                KE/Tvar metrics are nearly blind to the slow jet-position
+                mode, which approaches equilibrium as a decaying
+                oscillation, so a range criterion over a long window is
+                used: near a turning point of the ringing the local trend
+                vanishes while the amplitude does not, and only a window
+                long enough to span a lobe of the oscillation sees it.
+            slow_window: Trailing window (days) for the slow-gate range
+                criterion; choose comparable to the slowest damping
+                timescale (the drag time 1/epsilon_u).
+            slow_threshold: Relative range threshold for the slow gate
+                (default 0.002 = 0.2%).
         """
         self.enabled = enabled
         self.window_size = window_size
         self.threshold = threshold
         self.check_both_metrics = check_both_metrics
         self.smoothness_threshold = smoothness_threshold
+        self.slow_gate = slow_gate
+        self.slow_window = slow_window
+        self.slow_threshold = slow_threshold
 
         # History storage
         self.kinetic_energy_history = []
         self.temp_variance_history = []
         self.days_recorded = []
+
+        # Slow-diagnostic histories (populated only when slow_gate is on;
+        # deliberately NOT persisted in restart files, so a restarted run
+        # re-fills the window before it can stop -- conservative by design)
+        self.jet_lat_history = []
+        self.v_absmax_history = []
+        self.depression_history = []
 
         # Smoothness tracking
         self.v_smoothness_history = []
@@ -79,6 +105,7 @@ class SteadyStateDetector:
         self.convergence_day: Optional[int] = None
         self.ke_converged = False
         self.tvar_converged = False
+        self.slow_converged = False
 
     def compute_kinetic_energy(self, u: np.ndarray, v: np.ndarray) -> float:
         """
@@ -160,7 +187,18 @@ class SteadyStateDetector:
         )
         self.smoothness_warning_issued = True
 
-    def record_day(self, day: int, u: np.ndarray, v: np.ndarray, theta: np.ndarray, dy: Optional[float] = None, v_faces: Optional[np.ndarray] = None):
+    def record_day(
+        self,
+        day: int,
+        u: np.ndarray,
+        v: np.ndarray,
+        theta: np.ndarray,
+        dy: Optional[float] = None,
+        v_faces: Optional[np.ndarray] = None,
+        jet_lat: Optional[float] = None,
+        v_absmax: Optional[float] = None,
+        depression: Optional[float] = None,
+    ):
         """
         Record metrics for a given day.
 
@@ -177,6 +215,9 @@ class SteadyStateDetector:
                 collocated case, where the two grids coincide); for a staggered
                 run this is the face field, whose grid-scale noise the monitor
                 exists to detect.
+            jet_lat: Northern jet latitude for the day (slow gate only)
+            v_absmax: Max |v| for the day (slow gate only)
+            depression: Equatorial theta_E - theta for the day (slow gate only)
         """
         if not self.enabled:
             return
@@ -187,6 +228,14 @@ class SteadyStateDetector:
         self.days_recorded.append(day)
         self.kinetic_energy_history.append(ke)
         self.temp_variance_history.append(tvar)
+
+        if self.slow_gate:
+            if jet_lat is not None:
+                self.jet_lat_history.append(jet_lat)
+            if v_absmax is not None:
+                self.v_absmax_history.append(v_absmax)
+            if depression is not None:
+                self.depression_history.append(depression)
 
         # Track v field smoothness if dy is provided
         if dy is not None:
@@ -234,6 +283,10 @@ class SteadyStateDetector:
             converged = self.ke_converged and self.tvar_converged
         else:
             converged = self.ke_converged or self.tvar_converged
+
+        if self.slow_gate:
+            self.slow_converged = self._check_slow_gate()
+            converged = converged and self.slow_converged
 
         if converged and not self.is_converged:
             self.is_converged = True
@@ -323,6 +376,27 @@ class SteadyStateDetector:
 
         return False
 
+    def _check_slow_gate(self) -> bool:
+        """Range criterion on the slow diagnostics: each history's relative
+        range over the trailing slow_window days must be below
+        slow_threshold. A window containing non-finite values (e.g. a jet
+        latitude the spline finder could not determine) blocks convergence
+        until those days age out of the window."""
+        histories = (
+            self.jet_lat_history,
+            self.v_absmax_history,
+            self.depression_history,
+        )
+        for hist in histories:
+            if len(hist) < self.slow_window:
+                return False
+            window = np.asarray(hist[-self.slow_window:], dtype=float)
+            if not np.all(np.isfinite(window)):
+                return False
+            if self._compute_relative_change(list(window)) >= self.slow_threshold:
+                return False
+        return True
+
     def _compute_relative_change(self, values: list) -> float:
         """
         Compute relative change over window.
@@ -386,6 +460,10 @@ class SteadyStateDetector:
             'steady_state_convergence_day': self.convergence_day if self.is_converged else -1,
             'steady_state_ke_converged': int(self.ke_converged),
             'steady_state_tvar_converged': int(self.tvar_converged),
+            'steady_state_slow_gate': int(self.slow_gate),
+            'steady_state_slow_window': self.slow_window,
+            'steady_state_slow_threshold': self.slow_threshold,
+            'steady_state_slow_converged': int(self.slow_converged),
         }
 
         # Add smoothness summary statistics if available

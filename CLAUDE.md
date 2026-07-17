@@ -496,6 +496,16 @@ run-sw-model --stop-at-steady-state
 - `--steady-state-either`: Require only one metric to converge instead of both
 - `--v-smooth-thresh X`: Neighbor correlation threshold for v field smoothness (default: 0.5)
 
+### Slow-Drift Gate (budget-grade convergence runs)
+
+The KE/T-variance metrics are nearly blind to the slow jet-position mode, which approaches equilibrium as a decaying oscillation (envelope ~400 d at default drag): runs 1a/1b of the fixed-Ro suite "converged" at day ~960 with the jet still moving −0.7% per 60 d. For runs whose diagnosed numbers must be drift-free, add the slow-drift gate:
+
+```bash
+run-sw-model --stop-at-steady-state --slow-drift-gate
+```
+
+The gate additionally requires the slow diagnostics (northern jet latitude, max |v|, equatorial theta_E − theta) to each have a relative range below `--slow-drift-thresh` (default 0.002 = 0.2%) over the trailing `--slow-drift-window` days (default 0 = auto: the drag timescale 1/epsilon_u in days, 1158 at the default drag; epsilon_u = 0 requires an explicit window). The criterion is a range over a drag-timescale window, deliberately: a trend test false-fires at the oscillation's turning points, where the local slope vanishes while the amplitude does not. Validated 2026-07-17: exact replay on runs 1a/1b fires at day 3683/3912 (vs the contaminated day-960 stop; 35-39% cheaper than a fixed 6000-d run) with every gated quantity settled below 0.02%, and a gated cold-start run reproduced day 3683 exactly. Constraints: requires `--stop-at-steady-state`; non-seasonal runs only (the slow diagnostics oscillate with the seasonal cycle); after `--restart-from` the gate re-fills its window before it can fire (slow histories are not persisted in restart files). The simple alternative for suite runs remains a fixed `--ndays` of at least 5 drag timescales.
+
 ### Convergence Metrics
 
 By default, both metrics must satisfy convergence criteria:

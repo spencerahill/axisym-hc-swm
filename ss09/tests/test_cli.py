@@ -677,3 +677,41 @@ def test_missing_numba_errors_actionably(monkeypatch, tmp_path):
     monkeypatch.delattr(sys.modules["ss09"], "numba_backend", raising=False)
     with pytest.raises(ImportError, match="conda install"):
         model.run_sim()
+
+
+def test_cli_slow_drift_flags(monkeypatch):
+    """--slow-drift-gate, --slow-drift-window, --slow-drift-thresh parse and
+    default correctly (gate off, window 0 = auto, threshold 0.2%)."""
+    from ss09.cli import parse_arguments
+
+    monkeypatch.setattr("sys.argv", ["run-sw-model"])
+    args = parse_arguments()
+    assert args.slow_drift_gate is False
+    assert args.slow_drift_window == 0
+    assert args.slow_drift_thresh == 0.002
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["run-sw-model", "--stop-at-steady-state", "--slow-drift-gate",
+         "--slow-drift-window", "500", "--slow-drift-thresh", "0.001"],
+    )
+    args = parse_arguments()
+    assert args.slow_drift_gate is True
+    assert args.slow_drift_window == 500
+    assert args.slow_drift_thresh == 0.001
+
+
+def test_cli_slow_drift_gate_flows_into_config(monkeypatch):
+    """The slow-drift flags reach SWConfig, with the window auto-resolved
+    from epsilon_u when left at 0."""
+    from ss09.cli import parse_arguments, setup_sw_config, setup_theta_e_config
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["run-sw-model", "--stop-at-steady-state", "--slow-drift-gate"],
+    )
+    args = parse_arguments()
+    config = setup_sw_config(args, setup_theta_e_config(args))
+    assert config.slow_drift_gate is True
+    assert config.slow_drift_window == 1158  # ceil(1 / (1e-8 * 86400))
+    assert config.slow_drift_thresh == 0.002
