@@ -98,9 +98,9 @@ so
 \label{sec:edge}
 
 \textbf{[derived: confirmed by runs 1a--1b at the equilibrated day-6000
-record: depression within 3\%, edge $-7$ to $-8\%$; at profile level the
+record: depression within 4\%, edge $-7$ to $-8\%$; at profile level the
 inner half of the cell agrees at the 10\% level and the terminus misfit
-is ${\sim}33$--$36\%$ of the depression; run-record addenda]}
+is ${\sim}32$--$36\%$ of the depression; run-record addenda]}
 With $D(y) = T_{\Ro}(y) - T_E(y)$, imposing $D(Y) = 0$ and
 $\int_0^Y D\, \mathrm{d}y = 0$ (measure $\mathrm{d}y$; the Newtonian
 relaxation has uniform $\tau$) gives $\tfrac{2}{3} b Y^2 = \tfrac{4}{5} c
@@ -129,9 +129,9 @@ exactly this factor.
 \label{sec:v}
 
 \textbf{[derived: confirmed by runs 1a--1b at the equilibrated day-6000
-record: $v_{\max}$ within 2--6\% and its location within 4--5\%; at
-profile level the inner flank agrees at the 3--7\% level and the terminus
-flank misfit is ${\sim}43$--$45\%$ of $v_{\max}$; run-record addenda]}
+record: $v_{\max}$ within 2--7\% and its location within 4--5\%; at
+profile level the inner flank agrees at the 3--8\% level and the terminus
+flank misfit is ${\sim}44$--$45\%$ of $v_{\max}$; run-record addenda]}
 The steady thermodynamic balance \eqref{eq:thermo} integrates to the
 model's $v$ profile directly, using $\theta_E - \theta = 1.6\,(T_E - T) =
 -1.6\, D$:
@@ -206,12 +206,21 @@ cell, exactly as verified for the sphere forms in puffins
   \item \textbf{Local $\Ro(y)$:} $(\partial_y u)/(\beta y)$, the model's
     existing diagnostic (NaN within $|y| < \Delta y_{\mathrm{grid}}$ of the
     equator).
-  \item \textbf{Cell-mean $\Ro$, two definitions, both reported}
-    (paralleling Hill et al.\ 2025): (i) the area mean of local $\Ro$ over
-    $[y_{\Ro\text{-max}},\, Y_{\mathrm{edge}}]$; (ii) the best-fit $\Ro$
-    regressing $u(y)$ against $\beta y^2/2$ over the same interval. The
-    near-ascent region is excluded because $\Ro \to 0$ at the equator
-    whenever $v_d > 0$ (Zhang et al.\ 2025, $u \sim y^3$).
+  \item \textbf{Cell-mean $\Ro$, two definitions, both reported, one
+    fixed interval:} both are computed over $[y_5,\, y_{\mathrm{jet}}]$
+    with $y_5 \equiv a \times 5^\circ = 5.56\times 10^5$~m, the beta-plane
+    analog of Hill et al.\ (2025)'s convention (average from the
+    descending edge to whichever of the ascending edge or $5^\circ$ is
+    closer, $\Ro$ being ill-defined near the equator; for the symmetric
+    cells here the $5^\circ$ cutoff binds). (i) The area mean of local
+    $\Ro$; (ii) the best-fit $\Ro$ regressing $u(y)$ against $\beta
+    y^2/2$, the \emph{primary} definition (insensitive to the interval).
+    The earlier inner anchor $y_{\Ro\text{-max}}$ (argmax of the $\Ro$
+    profile) was retired 2026-07-17: an argmax is a discontinuous
+    functional of a smooth profile, and it jumped $1.1\times 10^6$~m
+    between epochs of run 1a when the profile's two gentle extrema traded
+    rank, moving the area mean 0.476 $\to$ 0.355. On the fixed interval
+    the two equilibrated runs' area means nearly coincide (0.429, 0.424).
   \item \textbf{Cell edge, three definitions, all reported:} the
     $v$-threshold edge ($|v|$ below 10\% of its extremum, existing
     diagnostic; see run 1a for its failure mode at small $v_d$), the jet
@@ -427,15 +436,16 @@ Section~\ref{sec:diag} duration policy. The
 60~d) and the fitted $\Ro$ stable to $<0.001\%$ between consecutive 30-d
 windows.
 
-What the contamination had been hiding \textbf{[computed]}: the jet
-settled equatorward (1a: $2.36 \to 2.33$; 1b: $2.38 \to 2.33 \times
-10^6$~m), so the edge gap vs $Y_{\Ro}$ \emph{widens} to $-7.9\%$ (1a) /
-$-7.2\%$ (1b); 1b's fitted $\Ro$ rises 0.473 $\to$ 0.485 ($+2.5\%$, the
-largest single shift); the depression gaps become $+2.9\%$ (1a: measured
-0.385 vs predicted 0.374~K) and $-0.8\%$ (1b: 0.366 vs 0.369~K); and
-$v_{\max}$ gaps become $5.6\%$ (1a: 9.58 vs 9.04~mm/s) and $2.0\%$ (1b:
-9.03 vs 8.85~mm/s). Equilibrated profile metrics, superseding the table
-above:
+What the contamination had been hiding \textbf{[computed]} (numbers
+restated 2026-07-17 under the fixed $[y_5, y_{\mathrm{jet}}]$ interval of
+Section~\ref{sec:diag}): the jet settled equatorward (1a: $2.36 \to 2.33$;
+1b: $2.38 \to 2.33 \times 10^6$~m), so the edge gap vs $Y_{\Ro}$
+\emph{widens} to $-7.7\%$ (1a) / $-7.2\%$ (1b); 1b's fitted $\Ro$ rises
+0.473 $\to$ 0.485 ($+2.5\%$, the largest single shift; 1a's is 0.480);
+the depression gaps become $+3.5\%$ (1a: measured 0.385 vs predicted
+0.372~K) and $-0.8\%$ (1b: 0.366 vs 0.369~K); and $v_{\max}$ gaps become
+$6.8\%$ (1a: 9.58 vs 8.97~mm/s) and $2.0\%$ (1b: 9.03 vs 8.85~mm/s).
+Equilibrated profile metrics, superseding the table above:
 
 \begin{center}
 \begin{tabular}{llcccc}
@@ -443,24 +453,61 @@ above:
 run & field & $\max|\Delta|$ (cell) & at $y$ [$10^6$ m] & \% of scale
   & inner half \\
 \midrule
-1a & $u$ & 10.0~m/s & 2.52 & 33 & 1.9~m/s (6.1\%) \\
-1a & $T$ & 0.122~K & 2.01 & 33 & 0.035~K (9.5\%) \\
-1a & $v$ & 3.9~mm/s & 2.44 & 43 & 0.64~mm/s (7.1\%) \\
-1b & $u$ & 9.6~m/s & 2.48 & 32 & 2.5~m/s (8.1\%) \\
+1a & $u$ & 10.2~m/s & 2.52 & 33 & 1.8~m/s (6.0\%) \\
+1a & $T$ & 0.121~K & 2.01 & 32 & 0.037~K (9.8\%) \\
+1a & $v$ & 3.9~mm/s & 2.44 & 44 & 0.72~mm/s (8.0\%) \\
+1b & $u$ & 9.6~m/s & 2.48 & 31 & 2.5~m/s (8.1\%) \\
 1b & $T$ & 0.133~K & 1.97 & 36 & 0.039~K (10.5\%) \\
-1b & $v$ & 3.9~mm/s & 2.40 & 45 & 0.26~mm/s (2.9\%) \\
+1b & $v$ & 3.9~mm/s & 2.40 & 45 & 0.25~mm/s (2.9\%) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 The profile-level story is unchanged in character: inner half at the
-3--11\% level, terminus at 32--45\% of scale, in all three fields of both
-runs. One diagnostics finding: during the slow tail, 1a's local-$\Ro$
-maximum migrated from the ascent ($y \approx 0.04\times 10^6$~m) to
-mid-cell ($1.14\times 10^6$~m), which collapses the area-mean definition's
-averaging interval $[y_{\Ro\text{-max}}, y_{\mathrm{jet}}]$ and drops its
-value to 0.355 while the regression value barely moves (0.479 $\to$
-0.478). The regression definition is the robust one and stays primary;
-report the area mean with its interval.
+3--11\% level, terminus at 31--45\% of scale, in all three fields of both
+runs. During the slow tail, 1a's local-$\Ro$ profile also exposed a
+fragility in the then-current area-mean interval anchor; that finding and
+the resulting convention change are in the next entry.
+
+\subsection*{2026-07-17, settling analysis, slow-drift gate, and
+cell-mean-$\Ro$ convention update}
+
+\textbf{Settling [computed]:} every quoted quantity (jet latitude, fitted
+$\Ro$, depression, $v_{\max}$) is within 0.1\% of its final value by day
+${\sim}2400$--2600 (1a) / 2700--3200 (1b), and within 0.02\% by day
+${\sim}3000$--3550 / 3450--3970, so the fixed 6000-d length is
+${\sim}2\times$ conservative. The tail is an underdamped oscillation:
+envelope timescale 394~d (1a) / 436~d (1b), about a third of the drag
+time, with the jet overshooting its final latitude (deviation lobes near
+days 1600, 3200, 4500 in 1a). The stop-time ``${\sim}13\%$ remaining''
+drag-timescale estimate above was therefore conservative by ${\sim}3
+\times$; the realized post-stop movement was 1--3\% per quantity.
+Reproduce with \path|scripts/tier0_settling_analysis.py|.
+
+\textbf{Slow-drift gate:} a trend-based stopping criterion fails on this
+tail: replayed on run 1a it fires at day 1629, the crest of the first
+overshoot lobe, where the 120-d trend is ${\sim}0$ while the jet is still
+1.4\% from its final position. The detector therefore gained an opt-in
+range criterion (\texttt{-{}-slow-drift-gate}): converged only when jet
+latitude, $\max|v|$, and the equatorial depression each have relative
+range $< 0.2\%$ over the trailing $1/\epsilon_u$ (1158~d at default
+drag). Exact replay on the full 1a/1b histories
+(\path|scripts/tier0_gate_replay.py|): fires at day 3683 (1a; jet
+binding) / 3912 (1b; $v_{\max}$ binding), saving 39\%/35\% vs the fixed
+6000~d with every gated quantity settled below 0.02\%. Confirmed by a
+gated cold-start run of the 1a configuration
+(\path|..._gatecheck.nc|): it stopped at day 3683 exactly (the gated
+trajectory is bitwise-identical to the recorded one), and its scorecard
+matches the day-6000 record to display precision in every reported
+quantity, with the drift gate passing at 0.06\% implied remaining.
+
+\textbf{Convention update:} the cell-mean-$\Ro$ interval anchor
+$y_{\Ro\text{-max}}$ was retired for the fixed $[y_5, y_{\mathrm{jet}}]$
+interval (Section~\ref{sec:diag}): 1a's smooth $\Ro(y)$ has a
+near-equator spike (1.00 at day 960, relaxing to 0.62) and a mid-cell
+bump (0.65 $\to$ 0.64 at $y \approx 1.15\times 10^6$~m), and when they
+traded rank the argmax anchor jumped $1.1\times 10^6$~m, moving the area
+mean 0.476 $\to$ 0.355 from a 0.03 relative-height flip. On the fixed
+interval: area means 0.429 (1a) / 0.424 (1b), fitted 0.480 / 0.485.
 
 \end{document}

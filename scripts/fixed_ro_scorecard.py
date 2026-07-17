@@ -58,12 +58,16 @@ def diagnose(path: str, ndays: int) -> Dict:
     pref_v = H / (THETA_TO_TEMP * a["delta"] * a["delta_z"] * a["tau"])
     t_e = theta_e * THETA_TO_TEMP
 
-    # Diagnosed cell-mean Ro over [y_Ro-max, y_jet] (memo sec. 6): area mean
-    # of local Ro, and the best-fit Ro regressing u against beta*y^2/2.
+    # Diagnosed cell-mean Ro over [y5, y_jet] (memo sec. 6): area mean of
+    # local Ro, and the best-fit Ro regressing u against beta*y^2/2. The
+    # inner bound is fixed at the beta-plane equivalent of Hill et al.
+    # (2025)'s 5-degree cutoff (Ro ill-defined near the equator); a fixed
+    # bound, unlike the earlier argmax-of-Ro anchor, is continuous in the
+    # underlying fields (the anchor jumped 1.1e6 m between epochs of run 1a
+    # when its two smooth Ro extrema traded rank).
+    y5 = 6.371e6 * np.deg2rad(5.0)
     nh = y > 0
-    core = nh & (y <= y_jet) & np.isfinite(ro_local)
-    y_romax = y[core][np.nanargmax(ro_local[core])]
-    band = core & (y >= y_romax)
+    band = nh & (y >= y5) & (y <= y_jet) & np.isfinite(ro_local)
     ro_area = float(np.mean(ro_local[band]))
     basis = beta * y[band] ** 2 / 2
     ro_fit = float(np.sum(u[band] * basis) / np.sum(basis**2))
@@ -137,7 +141,7 @@ def diagnose(path: str, ndays: int) -> Dict:
 
     return {"path": path, "ndays": ndays, "y": y, "u": u, "v": v, "T": temp,
             "t_e": t_e, "ro_local": ro_local, "y_jet": y_jet,
-            "y_romax": y_romax, "ro_area": ro_area, "ro_fit": ro_fit,
+            "y5": y5, "ro_area": ro_area, "ro_fit": ro_fit,
             "r_beta": r_beta, "y_ro": y_ro, "d0": d0, "u_rce": u_rce,
             "u_pred": u_pred, "t_pred": t_pred, "d_pred": d_pred,
             "v_pred": v_pred, "metrics": metrics, "scalars": scalars,
@@ -227,7 +231,8 @@ def make_figure(r: Dict, out_png: str) -> None:
 def report(r: Dict) -> None:
     print(f"\n=== {os.path.basename(r['path'])} (last {r['ndays']} d) ===")
     print(f"diagnosed R̄o: fit {r['ro_fit']:.3f}, area mean {r['ro_area']:.3f}"
-          f" over [{r['y_romax'] / 1e6:.2f}, {r['y_jet'] / 1e6:.2f}]e6 m")
+          f" over [{r['y5'] / 1e6:.2f}, {r['y_jet'] / 1e6:.2f}]e6 m"
+          f" (y5 = a*5deg, HH25)")
     print(f"theory: Y_Ro {r['y_ro'] / 1e6:.3f}e6 m, depression {r['d0']:.3f} K,"
           f" u_RCE {r['u_rce']:.2f} m/s")
     for name, m in r["metrics"].items():
