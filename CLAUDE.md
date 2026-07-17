@@ -144,12 +144,14 @@ pip install -e .
 
 ### Running the Model
 ```bash
-# Run with default parameters
-run-sw-model
+# Run at the default resolution (pass an explicit dt; see warning below)
+run-sw-model --dt 1800
 
 # Run with custom parameters
-run-sw-model --ndays 250 --ny 51 --dt 3600 --theta-e-type sin2 --output-path ./model_output/output.nc
+run-sw-model --ndays 250 --ny 51 --dt 1800 --theta-e-type sin2 --output-path ./model_output/output.nc
 ```
+
+**The default dt=3600 is unstable at the default ny=51** (measured 2026-07-17, production formulation, sin2 forcing, default v_d): a bare `run-sw-model` goes NaN by day 5, and dt=2700 diverges by day 6, while dt=2400 completes 250 days and dt=1800 completes 1000 days cleanly (86400 has no divisors between 2400 and 2700, so the divisor-lattice edge is fully resolved). Use dt=1800 at ny=51 for a ~25% margin. The config default stays 3600 because the bit-exact regression baselines were generated with it; see KNOWN_ISSUES.
 
 **Smoke-test new configurations.** Before launching any run projected to take more than ~30 minutes, run the same configuration for ~10 days first. Instabilities surface within days and cost seconds to catch (a y0≠0 cold start at small k_v goes NaN by day 9; catching that inside a 15-year launch wastes hours).
 
