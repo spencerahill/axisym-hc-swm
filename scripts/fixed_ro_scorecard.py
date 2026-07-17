@@ -45,6 +45,10 @@ def diagnose(path: str, ndays: int) -> Dict:
             ds["north_jet_lat"].isel(time=slice(-ndays, None)).mean("time")
         )
         theta_e = ds["theta_e"].values
+        jet_series = ds["north_jet_lat"].isel(time=slice(-120, None)).values
+        u_prev_win = (
+            ds["u"].isel(time=slice(-2 * ndays, -ndays)).mean("time").values
+        )
     finally:
         ds.close()
 
@@ -63,6 +67,23 @@ def diagnose(path: str, ndays: int) -> Dict:
     ro_area = float(np.mean(ro_local[band]))
     basis = beta * y[band] ** 2 / 2
     ro_fit = float(np.sum(u[band] * basis) / np.sum(basis**2))
+
+    # Residual-drift gate: the slow tail rides the drag timescale 1/eps_u,
+    # so a linear jet-latitude trend over the last 120 d, extrapolated as an
+    # exponential tail, implies remaining drift ~ rate x tau_drag. WARN when
+    # that exceeds 0.2% (the detector-stop runs 1a/1b failed this badly:
+    # 0.4%/60 d at stop with tau_drag = 1157 d implies ~8% remaining).
+    days = np.arange(jet_series.size, dtype=float)
+    jet_slope = float(np.polyfit(days, jet_series, 1)[0])  # m/day
+    jet_rate_60d = jet_slope * 60 / y_jet
+    tau_drag_days = (1.0 / (a["epsilon_u"] * 86400.0)
+                     if a["epsilon_u"] > 0 else np.nan)
+    drift_remaining = abs(jet_slope) / y_jet * tau_drag_days
+    ro_fit_prev = float(np.sum(u_prev_win[band] * basis) / np.sum(basis**2))
+    drift = {"jet_rate_60d": jet_rate_60d, "tau_drag_days": tau_drag_days,
+             "remaining": drift_remaining, "ndays_trend": jet_series.size,
+             "ro_fit_prev": ro_fit_prev,
+             "ok": bool(drift_remaining < 0.002)}
 
     # Theory at the fitted Ro: memo Eqs. (5)-(9) and (13).
     ro = ro_fit
@@ -120,6 +141,7 @@ def diagnose(path: str, ndays: int) -> Dict:
             "r_beta": r_beta, "y_ro": y_ro, "d0": d0, "u_rce": u_rce,
             "u_pred": u_pred, "t_pred": t_pred, "d_pred": d_pred,
             "v_pred": v_pred, "metrics": metrics, "scalars": scalars,
+            "drift": drift,
             "u_asym": float(np.nanmax(np.abs(u - u[::-1])))}
 
 
@@ -190,11 +212,14 @@ def make_figure(r: Dict, out_png: str) -> None:
     axs[1, 1].set_ylim(
         -0.15 * np.nanmax(r["v_pred"]), 1.6 * np.nanmax(r["v_pred"]))
 
+    d = r["drift"]
     fig.suptitle(
-        f"{os.path.basename(r['path'])}   "
-        f"R̄o fit = {r['ro_fit']:.3f} (area mean {r['ro_area']:.3f}),   "
+        f"{os.path.basename(r['path'])}\n"
+        f"R̄o fit = {r['ro_fit']:.3f} (area mean {r['ro_area']:.3f}),  "
         f"Y_Ro = {r['y_ro'] / 1e6:.2f}e6 m,  jet = {r['y_jet'] / 1e6:.2f}e6 m,"
-        f"  last {r['ndays']} d", fontsize=11)
+        f"  last {r['ndays']} d,  drift gate "
+        f"{'PASS' if d['ok'] else 'WARN'} "
+        f"({100 * d['remaining']:.2f}% rem)", fontsize=10)
     fig.savefig(out_png, dpi=150)
     plt.close(fig)
 
@@ -216,6 +241,14 @@ def report(r: Dict) -> None:
           f" {s['y_v_max_meas'] / 1e6:.2f}e6 m; pred"
           f" {1000 * s['v_max_pred']:.2f} mm/s at"
           f" {s['y_v_max_pred'] / 1e6:.2f}e6 m")
+    d = r["drift"]
+    print(f"  drift gate: {'PASS' if d['ok'] else 'WARN'}: jet trend "
+          f"{100 * d['jet_rate_60d']:+.4f}%/60 d over last {d['ndays_trend']} d,"
+          f" tau_drag {d['tau_drag_days']:.0f} d, implied remaining "
+          f"{100 * d['remaining']:.2f}% (gate: <0.2%)")
+    print(f"  Ro-fit stability: previous {r['ndays']}-d window "
+          f"{d['ro_fit_prev']:.4f} vs current {r['ro_fit']:.4f} "
+          f"({100 * (r['ro_fit'] - d['ro_fit_prev']) / r['ro_fit']:+.3f}%)")
     print(f"  u hemispheric asymmetry max|u(y)-u(-y)|: {r['u_asym']:.2e}")
 
 

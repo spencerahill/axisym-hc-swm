@@ -97,10 +97,10 @@ so
 \section{Equal-area edge and equatorial temperature}
 \label{sec:edge}
 
-\textbf{[derived: scalar anchors confirmed at the 1--8\% level by runs
-1a--1b below; at profile level the inner half of the cell agrees at the
-10\% level and the terminus misfit is ${\sim}35$--$40\%$ of the
-depression, run-record addendum]}
+\textbf{[derived: confirmed by runs 1a--1b at the equilibrated day-6000
+record: depression within 3\%, edge $-7$ to $-8\%$; at profile level the
+inner half of the cell agrees at the 10\% level and the terminus misfit
+is ${\sim}33$--$36\%$ of the depression; run-record addenda]}
 With $D(y) = T_{\Ro}(y) - T_E(y)$, imposing $D(Y) = 0$ and
 $\int_0^Y D\, \mathrm{d}y = 0$ (measure $\mathrm{d}y$; the Newtonian
 relaxation has uniform $\tau$) gives $\tfrac{2}{3} b Y^2 = \tfrac{4}{5} c
@@ -128,10 +128,10 @@ exactly this factor.
 \section{Meridional wind, heat flux, momentum flux}
 \label{sec:v}
 
-\textbf{[derived: $v_{\max}$ magnitude and location confirmed at the
-1--4\% level by runs 1a--1b below; at profile level the inner flank agrees
-at the 5\% level and the terminus flank misfit is ${\sim}45\%$ of
-$v_{\max}$, run-record addendum]}
+\textbf{[derived: confirmed by runs 1a--1b at the equilibrated day-6000
+record: $v_{\max}$ within 2--6\% and its location within 4--5\%; at
+profile level the inner flank agrees at the 3--7\% level and the terminus
+flank misfit is ${\sim}43$--$45\%$ of $v_{\max}$; run-record addenda]}
 The steady thermodynamic balance \eqref{eq:thermo} integrates to the
 model's $v$ profile directly, using $\theta_E - \theta = 1.6\,(T_E - T) =
 -1.6\, D$:
@@ -191,6 +191,18 @@ cell, exactly as verified for the sphere forms in puffins
     confirmation standard: runs 1a--1b passed the scalars at the 1--8\%
     level while the profile misfit at the terminus is ${\sim}35$--$45\%$ of
     scale (see the profile addendum in the run record).
+  \item \textbf{Run duration (budget-grade):} the steady-state detector's
+    KE and $T$-variance metrics are nearly blind to the slow jet-position
+    mode: in runs 1a--1b the detector fired at day ${\sim}960$ with the
+    jet latitude still moving ${\sim}0.7\%$ per 60~d (measured over the
+    final 120~d). Scorecard-grade runs therefore use a fixed length of at
+    least five times the slowest damping timescale, the drag time
+    $1/\epsilon_u$ (1157~d at the default $\epsilon_u = 10^{-8}$~s$^{-1}$,
+    so 6000~d), with no early stop. The scorecard enforces this after the
+    fact: it fits the jet-latitude trend over the final 120~d and warns
+    unless the implied remaining drift (trend $\times$ $1/\epsilon_u$, the
+    exponential-tail estimate) is below 0.2\%. The detector remains fine
+    for smokes and exploratory runs.
   \item \textbf{Local $\Ro(y)$:} $(\partial_y u)/(\beta y)$, the model's
     existing diagnostic (NaN within $|y| < \Delta y_{\mathrm{grid}}$ of the
     equator).
@@ -398,5 +410,57 @@ interior shape, is the limiting idealization. The $u$ misfit sits at the
 theory's terminus discontinuity (the jump to the RCE plateau). The ms's
 linear-$\Ro$ variant targets exactly this regime and is testable against
 these same stored profiles (suite extension, not yet scheduled).
+
+\subsection*{2026-07-17, drift fix: runs 1a--1b extended to day 6000}
+
+The detector-stop states above were drift-contaminated: at the day
+${\sim}960$ stop the jet latitude was still moving $-0.69\%$ per 60~d
+(fit over the final 120~d; equatorward), which the exponential-tail
+estimate turns into ${\sim}13\%$ remaining drift. (This measurement
+supersedes the ``$+0.4\%$ per 60~d'' figure quoted in the 1a entry, which
+came from a different ad-hoc check.) Both runs were therefore restarted
+from their day-959/971 checkpoints and integrated to day 6000, about five
+drag timescales, with a fixed length and no early stop, per the
+Section~\ref{sec:diag} duration policy. The
+\path|..._day6000.nc| outputs are now the citable record for checks
+1a--1b; both pass the drift gate with a flat jet trend ($+0.0000\%$ per
+60~d) and the fitted $\Ro$ stable to $<0.001\%$ between consecutive 30-d
+windows.
+
+What the contamination had been hiding \textbf{[computed]}: the jet
+settled equatorward (1a: $2.36 \to 2.33$; 1b: $2.38 \to 2.33 \times
+10^6$~m), so the edge gap vs $Y_{\Ro}$ \emph{widens} to $-7.9\%$ (1a) /
+$-7.2\%$ (1b); 1b's fitted $\Ro$ rises 0.473 $\to$ 0.485 ($+2.5\%$, the
+largest single shift); the depression gaps become $+2.9\%$ (1a: measured
+0.385 vs predicted 0.374~K) and $-0.8\%$ (1b: 0.366 vs 0.369~K); and
+$v_{\max}$ gaps become $5.6\%$ (1a: 9.58 vs 9.04~mm/s) and $2.0\%$ (1b:
+9.03 vs 8.85~mm/s). Equilibrated profile metrics, superseding the table
+above:
+
+\begin{center}
+\begin{tabular}{llcccc}
+\toprule
+run & field & $\max|\Delta|$ (cell) & at $y$ [$10^6$ m] & \% of scale
+  & inner half \\
+\midrule
+1a & $u$ & 10.0~m/s & 2.52 & 33 & 1.9~m/s (6.1\%) \\
+1a & $T$ & 0.122~K & 2.01 & 33 & 0.035~K (9.5\%) \\
+1a & $v$ & 3.9~mm/s & 2.44 & 43 & 0.64~mm/s (7.1\%) \\
+1b & $u$ & 9.6~m/s & 2.48 & 32 & 2.5~m/s (8.1\%) \\
+1b & $T$ & 0.133~K & 1.97 & 36 & 0.039~K (10.5\%) \\
+1b & $v$ & 3.9~mm/s & 2.40 & 45 & 0.26~mm/s (2.9\%) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The profile-level story is unchanged in character: inner half at the
+3--11\% level, terminus at 32--45\% of scale, in all three fields of both
+runs. One diagnostics finding: during the slow tail, 1a's local-$\Ro$
+maximum migrated from the ascent ($y \approx 0.04\times 10^6$~m) to
+mid-cell ($1.14\times 10^6$~m), which collapses the area-mean definition's
+averaging interval $[y_{\Ro\text{-max}}, y_{\mathrm{jet}}]$ and drops its
+value to 0.355 while the regression value barely moves (0.479 $\to$
+0.478). The regression definition is the robust one and stays primary;
+report the area mean with its interval.
 
 \end{document}
