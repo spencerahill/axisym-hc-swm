@@ -116,6 +116,60 @@ def v_face_laplacian(f: np.ndarray, dy: float) -> np.ndarray:
     return ((fe[2:] + fe[:-2]) - 2.0 * fe[1:-1]) / dy**2
 
 
+def mc_face_values(w: np.ndarray, dy: float, c_f: np.ndarray) -> np.ndarray:
+    """MUSCL face values of a center field w on the ny-1 interior faces,
+    upwinded on the sign of the face transport velocity c_f.
+
+    Face j sits between centers j and j+1. Where c_f > 0 the upwind cell is
+    the left center j and the face value is its MC-limited linear
+    reconstruction w[j] + (dy/2) sigma[j]; otherwise the right center j+1
+    gives w[j+1] - (dy/2) sigma[j+1]. The limiter keeps every face value
+    between the two adjacent cell values (non-oscillatory, so the transport
+    cannot undershoot W < 0 at the sharp ITCZ front), and at a local
+    extremum it reverts exactly to the upwind cell value. At c_f == 0 the
+    branch choice is irrelevant: the advective flux c_f * w_face vanishes.
+    """
+    sigma = mc_limited_slope(w, dy)
+    left = w[:-1] + 0.5 * dy * sigma[:-1]
+    right = w[1:] - 0.5 * dy * sigma[1:]
+    return np.where(c_f > 0, left, right)
+
+
+def moisture_transport_tendency(
+    w_adv: np.ndarray,
+    w_diff: np.ndarray,
+    v_f: np.ndarray,
+    cwv_frac: float,
+    d_w: float,
+    dy: float,
+) -> np.ndarray:
+    """Finite-volume flux-form transport tendency of W on the ny centers.
+
+    The flux on each interior face is F = c_f * W_f - D * dW/dy with
+    c_f = -(2a-1) v_f the column transport velocity (opposite to the
+    upper-layer v for a bottom-heavy column, a > 1/2), W_f the MUSCL-MC
+    face value, and the diffusive gradient the compact face difference.
+    The two W arguments let the integrator split time levels: w_adv is the
+    central (n) field the advective flux sees, w_diff the lagged (n-1)
+    field the diffusive flux sees. Wall fluxes are zero (zero total flux at
+    the walls), and the wall centers use the half-cell divergence form
+    (v_divergence_at_centers on the flux array), so the cell-weighted sum
+    of the tendency telescopes to zero exactly: transport moves no total
+    water, and total W changes only through E_0 - P.
+    """
+    c_f = -(2.0 * cwv_frac - 1.0) * v_f
+    w_face = mc_face_values(w_adv, dy, c_f)
+    flux = c_f * w_face - d_w * (w_diff[1:] - w_diff[:-1]) / dy
+    return -v_divergence_at_centers(flux, dy)
+
+
+def cwv_integral(w: np.ndarray, dy: float) -> float:
+    """Discrete integral of a center field over the domain, with the FV
+    cell widths (dy/2 half cells at the walls, dy interior): the measure
+    under which the transport tendency conserves total water exactly."""
+    return dy * (0.5 * w[0] + np.sum(w[1:-1]) + 0.5 * w[-1])
+
+
 class AuxiliaryVars(NamedTuple):
     """
     Values of u, v, and theta for the previous or future step.
