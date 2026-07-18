@@ -717,8 +717,18 @@ class SWModel:
                     break
                 self.reset_temp_storage()
 
-            if np.isnan(self.state.u).any():
-                logging.warning("NaN detected in u, breaking the loop.")
+            # Break on divergence. u alone suffices for the dry fields (u, v,
+            # theta are mutually coupled, so a NaN in any reaches u within a
+            # step), but W is one-way coupled and never feeds back into u, so
+            # a diverging W has to be checked on its own or the run integrates
+            # to completion and writes a NaN output that reports as finished.
+            nan_u = np.isnan(self.state.u).any()
+            nan_w = self.config.enable_moisture and np.isnan(self.w).any()
+            if nan_u or nan_w:
+                logging.warning(
+                    "NaN detected in %s, breaking the loop.",
+                    "u" if nan_u else "W",
+                )
                 break
 
         self._finalize_run(day)
@@ -848,8 +858,9 @@ class SWModel:
                 self.w_prev = restart_state.w_prev
             else:
                 self.w = np.full(self.config.ny, float(self.config.w_init))
-                # Seed W's leapfrog history from the restored level-n state,
-                # exactly as a fresh start would.
+                # Seed W's leapfrog history with the one-off backward step,
+                # now against the restored (spun-up) circulation rather than
+                # the rest state a fresh start sees.
                 self._seed_moisture_prev()
                 logging.info(
                     "Restart file has no moisture state; W freshly "

@@ -151,6 +151,23 @@ class SWConfig:
             )
 
         if self.enable_moisture:
+            # Guard the two moist parameters whose bad values are not merely
+            # unphysical but catastrophic: tau_c divides the precipitation
+            # closure (tau_c <= 0 is an immediate divide-to-NaN), and a
+            # negative diffusivity is anti-diffusion (a guaranteed grid-scale
+            # blow-up). d_w = 0 stays valid: the advection-only member of the
+            # V1 D ladder.
+            if self.tau_c <= 0:
+                raise ValueError(
+                    f"tau_c must be positive (it is the precipitation "
+                    f"relaxation timescale and a divisor); got tau_c={self.tau_c}"
+                )
+            if self.d_w < 0:
+                raise ValueError(
+                    f"d_w must be non-negative (a negative moisture "
+                    f"diffusivity is anti-diffusion and blows up at the grid "
+                    f"scale); got d_w={self.d_w}"
+                )
             if self.backend == "numba":
                 raise ValueError(
                     "enable_moisture=True is not supported on backend='numba' "

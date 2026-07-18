@@ -102,6 +102,28 @@ def test_config_moist_param_without_enable_moisture_raises(param, value):
         SWConfig(total_integration_days=2, ny=51, dt=1800, **{param: value})
 
 
+@pytest.mark.parametrize("tau_c", [0.0, -100.0])
+def test_config_rejects_nonpositive_tau_c(tau_c):
+    """tau_c is a divisor in the precipitation closure; tau_c <= 0 is a
+    guaranteed divide-by-zero / sign flip to NaN, so it is a hard error."""
+    with pytest.raises(ValueError, match="tau_c"):
+        _moist_config(tau_c=tau_c)
+
+
+def test_config_rejects_negative_d_w():
+    """Negative diffusivity is anti-diffusion, a guaranteed grid-scale
+    blow-up; d_w >= 0 (d_w = 0 stays valid, the advection-only ladder
+    member)."""
+    with pytest.raises(ValueError, match="d_w"):
+        _moist_config(d_w=-1.0e6)
+
+
+def test_config_accepts_zero_d_w():
+    """d_w = 0 is the advection-only member of the V1 D ladder."""
+    config = _moist_config(d_w=0.0)
+    assert config.d_w == 0.0
+
+
 def test_config_enable_moisture_rejects_numba_backend():
     """The numba kernel does not mirror the moisture step yet (deferred until
     the V1 physics is frozen)."""
@@ -260,9 +282,12 @@ def test_moisture_transport_tendency_uniform_w_zero_v_is_zero():
 
 
 def test_moisture_transport_tendency_parity_bitexact():
-    """Even W and odd face-v give an exactly even tendency, bit-for-bit:
-    the discrete parity that lets a symmetric moist run hold
-    max|W(y) - W(-y)| == 0.0 through the full integration."""
+    """Even W and odd face-v give an exactly even tendency, bit-for-bit, at
+    any ny (even and odd alike): the operator-level parity that lets a
+    symmetric moist run hold W exactly even. The whole-run W parity is exact
+    only on the odd-ny grid, where the linspace mesh is itself bit-
+    antisymmetric (see test_moist_symmetric_run_holds_w_parity_bitexact); the
+    operator does not itself depend on that."""
     for ny in (20, 21, 51, 52):
         w_adv = _even_centers(ny, seed=ny)
         w_diff = _even_centers(ny, seed=1000 + ny)
@@ -350,6 +375,23 @@ def test_moisture_conserved_without_sources():
     assert np.all(model.w < config.w_crit)  # P stayed off, as constructed
     i1 = cwv_integral(model.w, config.dy)
     assert abs(i1 - i0) / i0 < 1e-11
+
+
+def test_moist_run_aborts_when_w_diverges():
+    """A divergent moisture field must break the integration loop, like the
+    dry NaN guard: W is one-way coupled, so u stays finite while W blows up,
+    and without a W check the run wastes the full wall-time and writes a NaN
+    output that reports as complete. d_w = 1e11 at ny=21 violates the lagged
+    diffusion stability bound and drives W to NaN within a few days."""
+    config = _moist_config(total_integration_days=8, ny=21, d_w=1.0e11)
+    model = SWModel(config, _sin2_profile())
+    with np.errstate(over="ignore", invalid="ignore"):  # divergence is the point
+        model.run_sim()
+    stored_days = int(np.sum(model.results.time != 0))
+    assert stored_days < config.total_integration_days, (
+        "run integrated to completion despite W diverging"
+    )
+    assert np.any(np.isnan(model.w))  # the field did diverge, as constructed
 
 
 class _BudgetRecorder(StaggeredSWModel):
@@ -444,9 +486,13 @@ def test_moist_run_dry_fields_bitwise_identical_to_dry_twin():
 
 
 def test_moist_symmetric_run_holds_w_parity_bitexact():
-    """From a symmetric state (y_0 = 0), the whole moist integration holds
-    W exactly even, bit-for-bit, alongside the dry mirror-parity invariant:
-    max|W(y) - W(-y)| == 0.0 on both leapfrog levels after 5 days."""
+    """From a symmetric state (y_0 = 0) on the odd-ny grid (ny = 51, where
+    the linspace mesh is itself bit-antisymmetric), the whole moist
+    integration holds W exactly even, bit-for-bit, alongside the dry
+    mirror-parity invariant: max|W(y) - W(-y)| == 0.0 on both leapfrog levels
+    after 5 days. (At even ny the mesh is not bit-antisymmetric, so both the
+    dry and moist fields carry a ~1e-13 asymmetry; the transport operator is
+    exact regardless, per test_moisture_transport_tendency_parity_bitexact.)"""
     config = _moist_config(total_integration_days=5)
     model = SWModel(config, _sin2_profile(y_0=0.0))
     model.run_sim()
