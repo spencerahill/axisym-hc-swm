@@ -183,7 +183,7 @@ class DailyResults:
 
     def __init__(
         self, total_days: int, ny: int, store_theta_e: bool = False,
-        nv: Optional[int] = None
+        nv: Optional[int] = None, store_moisture: bool = False
     ):
         # u and theta live on the ny centers; v may live on a different grid
         # (nv = ny-1 interior faces for the staggered layout). nv defaults to
@@ -198,10 +198,19 @@ class DailyResults:
         self.store_theta_e = store_theta_e
         if store_theta_e:
             self.theta_e = np.zeros([total_days, ny])
+        # Moist V1: daily-mean W and applied P on the centers, plus the
+        # minimum instantaneous W of each day (an undershoot monitor a daily
+        # mean would hide).
+        self.store_moisture = store_moisture
+        if store_moisture:
+            self.w = np.zeros([total_days, ny])
+            self.precip = np.zeros([total_days, ny])
+            self.w_min = np.zeros(total_days)
 
     def store_day(
         self, day: int, time: float, u: np.ndarray, v: np.ndarray, theta: np.ndarray,
-        theta_e: np.ndarray = None
+        theta_e: np.ndarray = None, w: Optional[np.ndarray] = None,
+        precip: Optional[np.ndarray] = None, w_min: Optional[float] = None
     ):
         """Store results for one day."""
         self.time[day] = time
@@ -210,6 +219,10 @@ class DailyResults:
         self.theta[day] = theta
         if self.store_theta_e and theta_e is not None:
             self.theta_e[day] = theta_e
+        if self.store_moisture and w is not None:
+            self.w[day] = w
+            self.precip[day] = precip
+            self.w_min[day] = w_min
 
     def to_xarray(
         self, config: SWConfig, theta_e_profile: ThetaEProfile, steady_state_detector=None,
@@ -280,6 +293,60 @@ class DailyResults:
                 dims=["y"],
                 coords={"y": config.y},
                 attrs={"units": "K", "long_name": "equilibrium potential temperature"},
+            )
+
+        # Moist V1 output: daily-mean W and applied P, plus the monitoring
+        # scalars (FV cell-weighted domain mean, and the day's minimum
+        # instantaneous W).
+        if self.store_moisture:
+            data_vars["W"] = xr.DataArray(
+                data=self.w[mask],
+                dims=["time", "y"],
+                coords={"time": time_filtered, "y": config.y},
+                attrs={
+                    "units": "kg m-2",
+                    "long_name": "column water vapor (daily mean)",
+                },
+            )
+            data_vars["P"] = xr.DataArray(
+                data=self.precip[mask],
+                dims=["time", "y"],
+                coords={"time": time_filtered, "y": config.y},
+                attrs={
+                    "units": "kg m-2 s-1",
+                    "long_name": "precipitation (daily mean of the applied sink)",
+                },
+            )
+            w_masked = self.w[mask]
+            ny = w_masked.shape[1]
+            w_mean = (
+                0.5 * w_masked[:, 0]
+                + w_masked[:, 1:-1].sum(axis=1)
+                + 0.5 * w_masked[:, -1]
+            ) / (ny - 1)
+            data_vars["W_mean"] = xr.DataArray(
+                data=w_mean,
+                dims=["time"],
+                attrs={
+                    "units": "kg m-2",
+                    "long_name": "domain-mean column water vapor",
+                    "description": (
+                        "FV cell-weighted mean (half cells at the walls), the "
+                        "measure under which transport conserves total water"
+                    ),
+                },
+            )
+            data_vars["W_min"] = xr.DataArray(
+                data=self.w_min[mask],
+                dims=["time"],
+                attrs={
+                    "units": "kg m-2",
+                    "long_name": "minimum instantaneous column water vapor",
+                    "description": (
+                        "Minimum over the day's timesteps and the domain; "
+                        "negative values indicate transport undershoot"
+                    ),
+                },
             )
 
         # Add steady-state convergence history if available

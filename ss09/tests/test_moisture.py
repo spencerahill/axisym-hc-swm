@@ -456,3 +456,223 @@ def test_moist_symmetric_run_holds_w_parity_bitexact():
     assert np.max(np.abs(model.w_prev - model.w_prev[::-1])) == 0.0
     # and the field is nontrivial: the circulation has structured W by day 5
     assert np.max(model.w) - np.min(model.w) > 0.1
+
+
+# --- output -----------------------------------------------------------------
+
+def _run_and_open(tmp_path, config, profile):
+    import xarray as xr
+
+    model = SWModel(config, profile)
+    model.run_sim()
+    model.save_results()
+    return model, xr.open_dataset(config.output_path)
+
+
+def test_moist_output_contains_moisture_fields(tmp_path):
+    config = _moist_config(
+        total_integration_days=2,
+        ny=21,
+        output_path=str(tmp_path / "moist.nc"),
+        restart_output_dir=str(tmp_path),
+    )
+    model, ds = _run_and_open(tmp_path, config, _sin2_profile())
+    assert ds["W"].dims == ("time", "y")
+    assert ds["P"].dims == ("time", "y")
+    assert ds["W_min"].dims == ("time",)
+    assert ds["W_mean"].dims == ("time",)
+    assert ds["W"].attrs["units"] == "kg m-2"
+    assert ds["P"].attrs["units"] == "kg m-2 s-1"
+    # daily W in the file is what the model accumulated
+    np.testing.assert_array_equal(ds["W"].values, model.results.w)
+    # the daily scalars are consistent with the daily fields
+    w = ds["W"].values
+    w_mean = (0.5 * w[:, 0] + w[:, 1:-1].sum(axis=1) + 0.5 * w[:, -1]) / (
+        config.ny - 1
+    )
+    np.testing.assert_allclose(ds["W_mean"].values, w_mean, rtol=1e-14)
+    # min instantaneous W never exceeds the daily-mean minimum
+    assert np.all(ds["W_min"].values <= ds["W"].values.min(axis=1) + 1e-12)
+    # moist parameters landed in the global attrs
+    assert ds.attrs["enable_moisture"] == "True"
+    assert ds.attrs["w_crit"] == 50.0
+    ds.close()
+
+
+def test_dry_output_has_no_moisture_fields(tmp_path):
+    config = SWConfig(
+        total_integration_days=2,
+        ny=21,
+        dt=1800,
+        output_path=str(tmp_path / "dry.nc"),
+        restart_output_dir=str(tmp_path),
+    )
+    _, ds = _run_and_open(tmp_path, config, _sin2_profile())
+    for var in ("W", "P", "W_min", "W_mean"):
+        assert var not in ds
+    assert ds.attrs["enable_moisture"] == "False"
+    ds.close()
+
+
+# --- restart format v3 ------------------------------------------------------
+
+def _restart_file_for(config, profile):
+    from ss09.output_path_utils import generate_restart_filename
+
+    model = SWModel(config, profile)
+    model.run_sim()
+    return model, generate_restart_filename(
+        config.output_path, config.total_integration_days
+    )
+
+
+def test_restart_v3_moist_continuation_bit_identical(tmp_path):
+    """A moist run stopped, checkpointed, and resumed reproduces the
+    uninterrupted trajectory bit-for-bit: dry fields and W alike, daily
+    averages and both leapfrog levels."""
+    total_days, split_day = 4, 2
+
+    full_dir = tmp_path / "full"
+    full_dir.mkdir()
+    full = SWModel(
+        _moist_config(
+            total_integration_days=total_days,
+            ny=21,
+            output_path=str(full_dir / "out.nc"),
+            restart_output_dir=str(full_dir),
+        ),
+        _sin2_profile(),
+    )
+    full.run_sim()
+
+    part_dir = tmp_path / "part"
+    part_dir.mkdir()
+    part_config = _moist_config(
+        total_integration_days=split_day,
+        ny=21,
+        output_path=str(part_dir / "out.nc"),
+        restart_output_dir=str(part_dir),
+    )
+    _, restart_file = _restart_file_for(part_config, _sin2_profile())
+
+    cont = SWModel(
+        _moist_config(
+            total_integration_days=total_days,
+            ny=21,
+            output_path=str(part_dir / "cont.nc"),
+            restart_output_dir=str(part_dir),
+        ),
+        _sin2_profile(),
+    )
+    cont.restart_day = cont.load_from_restart(restart_file)
+    cont.run_sim()
+
+    for day in range(split_day, total_days):
+        for name in ("u", "v", "theta", "w", "precip"):
+            a = getattr(cont.results, name)[day]
+            b = getattr(full.results, name)[day]
+            assert np.max(np.abs(a - b)) == 0.0, (
+                f"{name} differs on resumed day {day}"
+            )
+    assert np.max(np.abs(cont.w - full.w)) == 0.0
+    assert np.max(np.abs(cont.w_prev - full.w_prev)) == 0.0
+
+
+def test_restart_file_carries_format_version_3(tmp_path):
+    import xarray as xr
+
+    for name, config in (
+        (
+            "moist",
+            _moist_config(
+                total_integration_days=1,
+                ny=21,
+                output_path=str(tmp_path / "m.nc"),
+                restart_output_dir=str(tmp_path),
+            ),
+        ),
+        (
+            "dry",
+            SWConfig(
+                total_integration_days=1,
+                ny=21,
+                dt=1800,
+                output_path=str(tmp_path / "d.nc"),
+                restart_output_dir=str(tmp_path),
+            ),
+        ),
+    ):
+        _, restart_file = _restart_file_for(config, _sin2_profile())
+        ds = xr.open_dataset(restart_file, decode_times=False)
+        assert ds.attrs["restart_format_version"] == 3, name
+        has_w = "w" in ds.data_vars
+        ds.close()
+        assert has_w == (name == "moist")
+
+
+def test_moist_run_from_dry_restart_requires_explicit_w_init(tmp_path):
+    """Starting a moist run from a dry restart file initializes W fresh,
+    which is refused unless the initial value is explicit (--w-init); with
+    it, W starts uniform and the run continues."""
+    dry_config = SWConfig(
+        total_integration_days=2,
+        ny=21,
+        dt=1800,
+        output_path=str(tmp_path / "d.nc"),
+        restart_output_dir=str(tmp_path),
+    )
+    _, restart_file = _restart_file_for(dry_config, _sin2_profile())
+
+    # without --w-init: refused
+    moist = SWModel(
+        _moist_config(
+            total_integration_days=4,
+            ny=21,
+            output_path=str(tmp_path / "m.nc"),
+            restart_output_dir=str(tmp_path),
+        ),
+        _sin2_profile(),
+    )
+    with pytest.raises(ValueError, match="w_init"):
+        moist.load_from_restart(restart_file)
+
+    # with --w-init: W freshly initialized, run completes
+    moist2 = SWModel(
+        _moist_config(
+            total_integration_days=4,
+            ny=21,
+            w_init=45.0,
+            output_path=str(tmp_path / "m2.nc"),
+            restart_output_dir=str(tmp_path),
+        ),
+        _sin2_profile(),
+    )
+    moist2.restart_day = moist2.load_from_restart(restart_file)
+    np.testing.assert_array_equal(moist2.w, np.full(21, 45.0))
+    moist2.run_sim()
+    assert np.all(np.isfinite(moist2.w))
+
+
+def test_dry_run_from_moist_restart_refused(tmp_path):
+    """A restart file carrying moisture state cannot silently continue as a
+    dry run: the moisture state would be dropped."""
+    moist_config = _moist_config(
+        total_integration_days=2,
+        ny=21,
+        output_path=str(tmp_path / "m.nc"),
+        restart_output_dir=str(tmp_path),
+    )
+    _, restart_file = _restart_file_for(moist_config, _sin2_profile())
+
+    dry = SWModel(
+        SWConfig(
+            total_integration_days=4,
+            ny=21,
+            dt=1800,
+            output_path=str(tmp_path / "d.nc"),
+            restart_output_dir=str(tmp_path),
+        ),
+        _sin2_profile(),
+    )
+    with pytest.raises(ValueError, match="moisture"):
+        dry.load_from_restart(restart_file)

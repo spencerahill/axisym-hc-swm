@@ -58,6 +58,13 @@ class RestartState:
     grid: str = "collocated"
     y_v: Optional[np.ndarray] = None
 
+    # Moist V1 state (format version 3): instantaneous W at timestep n and
+    # its filtered n-1 level. None on dry checkpoints (and all v1/v2 files,
+    # which predate moisture and carry no W variables).
+    enable_moisture: bool = False
+    w: Optional[np.ndarray] = None
+    w_prev: Optional[np.ndarray] = None
+
     def to_netcdf(self, filepath: str) -> None:
         """
         Write restart state to NetCDF file.
@@ -133,6 +140,30 @@ class RestartState:
                 })
             )
 
+        # Moist state: written only when present, so dry v3 files stay
+        # readable exactly as before (loaders detect moisture by the presence
+        # of the w variable, not by the format version).
+        if self.enable_moisture:
+            ds["w"] = xr.DataArray(
+                data=self.w,
+                dims=["y"],
+                attrs={
+                    "units": "kg m-2",
+                    "long_name": "Instantaneous column water vapor (timestep n)",
+                },
+            )
+            ds["w_prev"] = xr.DataArray(
+                data=self.w_prev,
+                dims=["y"],
+                attrs={
+                    "units": "kg m-2",
+                    "long_name": (
+                        "Instantaneous column water vapor "
+                        "(timestep n-1, filtered)"
+                    ),
+                },
+            )
+
         # Add global attributes
         ds.attrs["title"] = "Shallow Water Model Restart File"
         ds.attrs["creation_time"] = datetime.now().isoformat()
@@ -140,9 +171,10 @@ class RestartState:
         ds.attrs["description"] = "Contains instantaneous state for exact simulation continuation"
         # Grid tag + format version so a loader can tell the v-grid layout and
         # refuse (or knowingly migrate) a mismatched restart. Version 1 files
-        # predate this and carry no "grid" attribute (read as collocated).
+        # predate this and carry no "grid" attribute (read as collocated);
+        # version 3 adds the optional moist W state.
         ds.attrs["grid"] = self.grid
-        ds.attrs["restart_format_version"] = 2
+        ds.attrs["restart_format_version"] = 3
 
         # Add all config parameters as global attributes
         # Note: NetCDF doesn't support boolean type, convert to int
@@ -207,6 +239,12 @@ class RestartState:
         grid = str(ds.attrs.get("grid", "collocated"))
         y_v = ds["y_face"].values if "y_face" in ds.coords else y
 
+        # Moisture: detected by the presence of the w variable (absent on
+        # dry v3 checkpoints and all pre-v3 files).
+        has_moisture = "w" in ds.data_vars
+        w = ds["w"].values if has_moisture else None
+        w_prev = ds["w_prev"].values if has_moisture else None
+
         # Extract steady-state detector history
         kinetic_energy_history = ds["kinetic_energy_history"].values.tolist()
         temp_variance_history = ds["temp_variance_history"].values.tolist()
@@ -263,6 +301,9 @@ class RestartState:
             theta_e_config_snapshot=theta_e_config_snapshot,
             grid=grid,
             y_v=y_v,
+            enable_moisture=has_moisture,
+            w=w,
+            w_prev=w_prev,
         )
 
     def validate_compatibility(
@@ -302,6 +343,31 @@ class RestartState:
                     f"Grid mismatch: restart file is '{restart_grid}', run is "
                     f"'{current_grid}'. Re-run on the matching grid, or pass "
                     f"--migrate-restart to interpolate v between grids once."
+                )
+
+        # Moisture state must match the run: a moist checkpoint continuing
+        # dry would silently drop W; a moist run from a dry checkpoint has no
+        # W to restore, which is allowed only with an explicit fresh
+        # initialization (w_init).
+        run_moist = getattr(config, "enable_moisture", False)
+        if self.enable_moisture and not run_moist:
+            errors.append(
+                "Restart file carries moisture state (W) but the run has "
+                "enable_moisture=False; enable moisture or restart from a "
+                "dry checkpoint."
+            )
+        elif run_moist and not self.enable_moisture:
+            if getattr(config, "w_init", None) is None:
+                errors.append(
+                    "Run has enable_moisture=True but the restart file has "
+                    "no moisture state; pass --w-init to initialize W "
+                    "freshly (w_init must be explicit for a dry-to-moist "
+                    "start)."
+                )
+            else:
+                warnings.append(
+                    "Restart file has no moisture state; W will be freshly "
+                    f"initialized to the uniform w_init={config.w_init}."
                 )
 
         # Critical parameters that must match

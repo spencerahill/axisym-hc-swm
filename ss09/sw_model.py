@@ -189,12 +189,15 @@ class AuxiliaryVars(NamedTuple):
 class TempVars(NamedTuple):
     """
     Temporary storage of model variables for daily averages.
+    w and precip are populated only when moisture is enabled (else None).
     """
     u: np.ndarray
     v: np.ndarray
     theta: np.ndarray
     theta_e: np.ndarray
     time: np.ndarray
+    w: Optional[np.ndarray] = None
+    precip: Optional[np.ndarray] = None
 
 
 class SWModel:
@@ -234,7 +237,8 @@ class SWModel:
         )
         self.results = DailyResults(
             config.total_integration_days, config.ny,
-            store_theta_e=self.has_seasonal_forcing(), nv=nv
+            store_theta_e=self.has_seasonal_forcing(), nv=nv,
+            store_moisture=config.enable_moisture,
         )
         self.temp_vars = TempVars(
             u=np.zeros((0, config.ny)),
@@ -301,12 +305,15 @@ class SWModel:
     def init_temp_storage(self):
         """Initialize temporary storage for daily averages."""
         steps_per_day = int(SECONDS_PER_DAY / self.config.dt)
+        moist = self.config.enable_moisture
         self.temp_vars = TempVars(
             u=np.zeros([steps_per_day, self.config.ny]),
             v=np.zeros([steps_per_day, self.config.nv]),
             theta=np.zeros([steps_per_day, self.config.ny]),
             theta_e=np.zeros([steps_per_day, self.config.ny]),
             time=np.zeros(steps_per_day),
+            w=np.zeros([steps_per_day, self.config.ny]) if moist else None,
+            precip=np.zeros([steps_per_day, self.config.ny]) if moist else None,
         )
 
     def du_dy_upwind(self) -> np.ndarray:
@@ -458,6 +465,11 @@ class SWModel:
         self.temp_vars.theta[j - 1] = self.state.theta
         self.temp_vars.theta_e[j - 1] = self.current_theta_e()
         self.temp_vars.time[j - 1] = timestamp / SECONDS_PER_DAY
+        if self.config.enable_moisture:
+            # self.w is the just-stepped level, matching how the dry state is
+            # stored; _last_precip is the sink actually applied in that step.
+            self.temp_vars.w[j - 1] = self.w
+            self.temp_vars.precip[j - 1] = self._last_precip
 
     def store_daily_avgs(self, day: int):
         """Store daily averages."""
@@ -465,6 +477,13 @@ class SWModel:
             np.mean(self.temp_vars.theta_e, axis=0)
             if self.has_seasonal_forcing() else None
         )
+        w_avg = precip_avg = w_min = None
+        if self.config.enable_moisture:
+            w_avg = np.mean(self.temp_vars.w, axis=0)
+            precip_avg = np.mean(self.temp_vars.precip, axis=0)
+            # min over the day's instantaneous fields (a daily mean would
+            # hide a transient negative-W undershoot)
+            w_min = float(np.min(self.temp_vars.w))
         self.results.store_day(
             day,
             np.mean(self.temp_vars.time),
@@ -472,6 +491,9 @@ class SWModel:
             np.mean(self.temp_vars.v, axis=0),
             np.mean(self.temp_vars.theta, axis=0),
             theta_e_avg,
+            w=w_avg,
+            precip=precip_avg,
+            w_min=w_min,
         )
 
     def _daily_v_at_centers(self, v: np.ndarray) -> np.ndarray:
@@ -517,12 +539,15 @@ class SWModel:
 
     def reset_temp_storage(self):
         """Reset temporary storage arrays."""
+        moist = self.config.enable_moisture
         self.temp_vars = TempVars(
             u=np.zeros_like(self.temp_vars.u),
             v=np.zeros_like(self.temp_vars.v),
             theta=np.zeros_like(self.temp_vars.theta),
             theta_e=np.zeros_like(self.temp_vars.theta_e),
             time=np.zeros_like(self.temp_vars.time),
+            w=np.zeros_like(self.temp_vars.w) if moist else None,
+            precip=np.zeros_like(self.temp_vars.precip) if moist else None,
         )
 
     def calc_ind_within_day(self, current_step: int) -> int:
@@ -747,6 +772,10 @@ class SWModel:
             theta_e_config_snapshot=asdict(self.theta_e_profile.config),
             grid=self.config.grid,
             y_v=self.config.y_v.copy(),
+            # Moist state (format v3): instantaneous W at n and filtered n-1
+            enable_moisture=self.config.enable_moisture,
+            w=self.w.copy() if self.config.enable_moisture else None,
+            w_prev=self.w_prev.copy() if self.config.enable_moisture else None,
         )
 
         # Generate filepath using descriptive naming scheme (matches output file)
@@ -809,6 +838,23 @@ class SWModel:
         self.vars_prev_step = self.vars_prev_step._replace(
             u=restart_state.u_prev, v=v_prev, theta=restart_state.theta_prev
         )
+
+        # Restore (or freshly initialize) the moisture state. validate_
+        # compatibility already guaranteed the file/run moisture pairing is
+        # legal, including that a dry-to-moist start has an explicit w_init.
+        if self.config.enable_moisture:
+            if restart_state.enable_moisture:
+                self.w = restart_state.w
+                self.w_prev = restart_state.w_prev
+            else:
+                self.w = np.full(self.config.ny, float(self.config.w_init))
+                # Seed W's leapfrog history from the restored level-n state,
+                # exactly as a fresh start would.
+                self._seed_moisture_prev()
+                logging.info(
+                    "Restart file has no moisture state; W freshly "
+                    f"initialized to the uniform w_init={self.config.w_init}"
+                )
 
         # Restore steady-state detector state if enabled
         if self.config.enable_steady_state and restart_state.steady_state_enabled:
@@ -986,35 +1032,37 @@ class StaggeredSWModel(SWModel):
         monitor, whose job is grid-scale noise on that grid)."""
         return v
 
-    def moisture_tendency(self, w_adv: np.ndarray, w_lag: np.ndarray) -> np.ndarray:
-        """dW/dt at the current state: flux-form transport through the face
-        v, plus evaporation minus precipitation. The time-level split is the
-        caller's: w_adv feeds the advective flux (central level n), w_lag the
-        diffusive flux and the precipitation sink (lagged level n-1, an
-        effectively forward step that keeps both dissipative terms off the
-        Asselin stability budget)."""
+    def _moisture_rhs(
+        self, w_adv: np.ndarray, w_lag: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """(dW/dt, applied precipitation) at the current state: flux-form
+        transport through the face v, plus evaporation minus precipitation.
+        The time-level split is the caller's: w_adv feeds the advective flux
+        (central level n), w_lag the diffusive flux and the precipitation
+        sink (lagged level n-1, an effectively forward step that keeps both
+        dissipative terms off the Asselin stability budget). P is returned
+        so the daily output can record the sink actually applied."""
         cfg = self.config
+        p = precipitation(w_lag, cfg.w_crit, cfg.tau_c)
         transport = moisture_transport_tendency(
             w_adv, w_lag, self.state.v, cfg.cwv_frac, cfg.d_w, cfg.dy
         )
-        return transport + cfg.evap - precipitation(w_lag, cfg.w_crit, cfg.tau_c)
+        return transport + cfg.evap - p, p
 
     def _seed_moisture_prev(self):
         """Seed W's leapfrog history with a one-off backward step (the
         moisture analog of init_prev_step_vars); both levels are the initial
         field, so the lagged terms see the same state as the central ones."""
-        self.w_prev = self.w - self.config.dt * self.moisture_tendency(
-            self.w, self.w
-        )
+        tendency, self._last_precip = self._moisture_rhs(self.w, self.w)
+        self.w_prev = self.w - self.config.dt * tendency
 
     def _step_moisture(self):
         """Advance W one leapfrog step and Asselin-filter its history.
         Must run while self.state holds level n (the advective flux reads
         the level-n face v). Negative W is not clipped (clipping would break
         the mass budget); it is diagnosed with a one-shot warning."""
-        w_next = self.w_prev + 2 * self.config.dt * self.moisture_tendency(
-            self.w, self.w_prev
-        )
+        tendency, self._last_precip = self._moisture_rhs(self.w, self.w_prev)
+        w_next = self.w_prev + 2 * self.config.dt * tendency
         self.w_prev = self.asselin_filt(self.w_prev, w_next, self.w)
         self.w = w_next
         if not self._moisture_negative_warned and np.any(w_next < 0.0):
