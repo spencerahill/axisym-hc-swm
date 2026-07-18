@@ -459,6 +459,9 @@ Tests are organized by functionality:
 - `test_sw_model.py`: Unit tests for physics terms and numerical methods
 - `test_theta_e_profile.py`: Tests for theta_e profile implementations
 - `test_theta_e_config.py`: Configuration validation
+- `test_steady_state.py`: Steady-state detector unit tests, including the slow-drift gate
+- `test_daily_results.py`: Daily-average accumulation and NetCDF export
+- `test_read_output.py`: `load_centered` v-reconstruction for both grid layouts
 - `test_cli.py`: Command-line interface tests
 - `test_regression.py`: End-to-end regression tests against baseline output in `ss09/tests/baseline/`
 - `test_numba_backend.py`: Bitwise parity of the numba backend against the numpy reference (operator oracles, single-step planted-zeros, integration variants, restarts, early-stop paths, full dataset, CLI baseline reproduction)
