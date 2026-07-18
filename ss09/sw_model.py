@@ -759,7 +759,10 @@ class SWModel:
             **{
                 key: (
                     str(getattr(self.config, key))
+                    # netCDF attrs cannot hold bools or None (w_init's
+                    # "use w_crit" sentinel); store their str form.
                     if isinstance(getattr(self.config, key), bool)
+                    or getattr(self.config, key) is None
                     else getattr(self.config, key)
                 )
                 for key in self.config.__dataclass_fields__

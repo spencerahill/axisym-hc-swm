@@ -1,7 +1,13 @@
 from dataclasses import dataclass, field
+from typing import Optional
 import numpy as np
 
 SECONDS_PER_DAY = 86400
+
+# Moist V1 parameter fields, all inert unless enable_moisture. Used by the
+# validation that rejects a non-default moist parameter on a dry config
+# (repo style: a hard error, never a silent no-op).
+MOIST_PARAMS = ("cwv_frac", "d_w", "w_crit", "tau_c", "evap", "w_init")
 
 
 @dataclass
@@ -69,6 +75,18 @@ class SWConfig:
     # Restart/checkpoint parameters
     save_restart_every: int = 0  # Save restart file every N days (0 = only at end)
     restart_output_dir: str = "./model_output"  # Directory for restart files
+    # Moist V1: prognostic passive column water vapor W(y, t), one-way coupled
+    # to the circulation (guides/moist_axisymmetric_model_spec.pdf Eq. Q1).
+    # Defaults are the V1 plan's placeholders, to be replaced by the
+    # ERA5-calibrated values when they land. Staggered grid + numpy backend
+    # only (validated below).
+    enable_moisture: bool = False
+    cwv_frac: float = 0.85  # a: lower-layer CWV fraction; mean transport ~ (2a-1)
+    d_w: float = 1.0e6  # D: eddy moisture diffusivity (m^2/s)
+    w_crit: float = 50.0  # W_c: critical CWV for precipitation onset (kg/m^2)
+    tau_c: float = 14400.0  # convective relaxation time (s)
+    evap: float = 4.6e-5  # E_0: uniform evaporation (kg m^-2 s^-1)
+    w_init: Optional[float] = None  # uniform W(y, 0); None means w_crit
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)
@@ -131,6 +149,33 @@ class SWConfig:
                 "and restart resume assume an integer number of steps per "
                 f"day); got dt={self.dt}"
             )
+
+        if self.enable_moisture:
+            if self.backend == "numba":
+                raise ValueError(
+                    "enable_moisture=True is not supported on backend='numba' "
+                    "(the moisture step is not mirrored into the numba kernel "
+                    "yet; use the numpy reference backend)"
+                )
+            if self.grid == "collocated":
+                raise ValueError(
+                    "enable_moisture=True requires the staggered grid (the "
+                    "moisture fluxes live on the v faces); the collocated "
+                    "layout is the frozen Zhang et al. (2025) reproduction "
+                    "path"
+                )
+        else:
+            # A moist parameter on a dry config would be silently inert;
+            # refuse it instead (repo style, like --seas-conv without
+            # --stop-at-steady-state).
+            for name in MOIST_PARAMS:
+                default = type(self).__dataclass_fields__[name].default
+                if getattr(self, name) != default:
+                    raise ValueError(
+                        f"{name}={getattr(self, name)} has no effect without "
+                        "enable_moisture=True; pass --enable-moisture (or set "
+                        "enable_moisture=True) to run with moisture"
+                    )
 
         # The seasonal year-to-year convergence check reads the daily history
         # the steady-state detector records, and the detector records only

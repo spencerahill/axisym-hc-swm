@@ -340,6 +340,66 @@ def parse_arguments():
         dest="seasonal_convergence_threshold",
         help="Relative change threshold for year-to-year comparison (default: 0.01 = 1%%)",
     )
+    # Moist V1 arguments (passive column water vapor)
+    parser.add_argument(
+        "--enable-moisture",
+        action="store_true",
+        default=False,
+        dest="enable_moisture",
+        help=(
+            "Add the prognostic passive column-water-vapor field W (moist "
+            "V1); requires the staggered grid and the numpy backend "
+            "(default: disabled)"
+        ),
+    )
+    # The moist parameters default to None so that providing one without
+    # --enable-moisture can be detected and refused (it would otherwise be
+    # silently inert); SWConfig holds the real defaults.
+    parser.add_argument(
+        "--cwv-frac",
+        type=float,
+        default=None,
+        dest="cwv_frac",
+        help="Lower-layer CWV fraction a; mean transport ~ (2a-1) (default: 0.85)",
+    )
+    parser.add_argument(
+        "--dw",
+        type=float,
+        default=None,
+        dest="d_w",
+        help="Eddy moisture diffusivity D in m^2/s (default: 1e6)",
+    )
+    parser.add_argument(
+        "--w-crit",
+        type=float,
+        default=None,
+        dest="w_crit",
+        help="Critical CWV W_c for precipitation onset in kg/m^2 (default: 50)",
+    )
+    parser.add_argument(
+        "--tau-c",
+        type=float,
+        default=None,
+        dest="tau_c",
+        help="Convective relaxation timescale in seconds (default: 14400 = 4 h)",
+    )
+    parser.add_argument(
+        "--evap",
+        type=float,
+        default=None,
+        dest="evap",
+        help="Uniform evaporation E_0 in kg m^-2 s^-1 (default: 4.6e-5)",
+    )
+    parser.add_argument(
+        "--w-init",
+        type=float,
+        default=None,
+        dest="w_init",
+        help=(
+            "Uniform initial W in kg/m^2 (default: w_crit); required when "
+            "starting a moist run from a dry restart file"
+        ),
+    )
     # Restart/checkpoint arguments
     parser.add_argument(
         "--restart-from",
@@ -393,6 +453,27 @@ def parse_arguments():
             "steady-state detector records the daily history the seasonal "
             "convergence check compares year-to-year)."
         )
+
+    # A moist parameter without --enable-moisture would be silently inert;
+    # refuse it loudly instead.
+    if not args.enable_moisture:
+        moist_flags = {
+            "cwv_frac": "--cwv-frac",
+            "d_w": "--dw",
+            "w_crit": "--w-crit",
+            "tau_c": "--tau-c",
+            "evap": "--evap",
+            "w_init": "--w-init",
+        }
+        provided = [
+            flag for attr, flag in moist_flags.items()
+            if getattr(args, attr) is not None
+        ]
+        if provided:
+            raise SystemExit(
+                f"Error: {', '.join(provided)} requires --enable-moisture "
+                "(moist parameters have no effect on a dry run)."
+            )
 
     # Apply conditional default for ndays
     if args.total_integration_days is None:
@@ -464,6 +545,15 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         # Restart/checkpoint parameters
         save_restart_every=getattr(args, 'save_restart_every', 0),
         restart_output_dir=args.restart_output_dir,
+        # Moist V1 parameters: only forward values the user actually set, so
+        # SWConfig's own defaults (and its moist-params-without-moisture
+        # validation) stay authoritative.
+        enable_moisture=getattr(args, "enable_moisture", False),
+        **{
+            attr: val
+            for attr in ("cwv_frac", "d_w", "w_crit", "tau_c", "evap", "w_init")
+            if (val := getattr(args, attr, None)) is not None
+        },
     )
 
     # Fill in descriptive paths for any field the user left at its default.
