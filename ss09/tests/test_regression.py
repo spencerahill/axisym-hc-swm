@@ -17,12 +17,19 @@ def baseline_staggered_path():
 
 
 @pytest.fixture
+def baseline_moist_path():
+    return "ss09/tests/baseline/output_moist.nc"
+
+
+@pytest.fixture
 def test_path():
     with tempfile.TemporaryDirectory() as temp_dir:
         yield os.path.join(temp_dir, "test_output.nc")
 
 
-def run_model(output_path, grid: "str | None" = "collocated", legacy=False):
+def run_model(
+    output_path, grid: "str | None" = "collocated", legacy=False, moist=False
+):
     args = [
         "run-sw-model",
         "--ndays",
@@ -42,6 +49,8 @@ def run_model(output_path, grid: "str | None" = "collocated", legacy=False):
     # now that the production defaults are gate-on + mc.
     if legacy:
         args.extend(["--no-emfd-heaviside-gate", "--emfd-stencil", "centered"])
+    if moist:
+        args.append("--enable-moisture")
     try:
         subprocess.run(args, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
@@ -146,6 +155,26 @@ def test_regression_staggered(baseline_staggered_path, test_path):
     assert compare_outputs(
         baseline_staggered_path, test_path
     ), "Staggered regression test failed: Outputs differ."
+
+
+@pytest.mark.regression
+def test_regression_moist(baseline_moist_path, test_path):
+    """The production default path with --enable-moisture reproduces the
+    moist baseline: guards the W/P numerics (transport, precipitation,
+    lagged stepping) and, jointly with the dry-invariance test, that the
+    dry solution under moisture stays on the staggered baseline."""
+    run_model(test_path, grid=None, moist=True)
+    assert compare_outputs(
+        baseline_moist_path, test_path
+    ), "Moist regression test failed: Outputs differ."
+    # and the moisture fields themselves
+    baseline_ds = xr.open_dataset(baseline_moist_path)
+    test_ds = xr.open_dataset(test_path)
+    for var in ("W", "P", "W_mean", "W_min"):
+        assert var in test_ds, f"Missing moisture variable: {var}"
+        assert np.allclose(
+            baseline_ds[var], test_ds[var], atol=1e-6
+        ), f"Difference found in moisture variable: {var}"
 
 
 @pytest.mark.regression
