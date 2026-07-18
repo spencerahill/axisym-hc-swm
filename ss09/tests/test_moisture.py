@@ -390,3 +390,69 @@ def test_moisture_budget_matches_applied_sources():
     predicted = model.chain[1]
     actual = cwv_integral(model.w, config.dy)
     assert abs(actual - predicted) / actual < 1e-12
+
+
+# --- quiescent equilibrium, dry invariance, parity --------------------------
+
+def test_quiescent_equilibrium_relaxes_to_analytic_value():
+    """With a flat theta_e (delta_y = 0) the dry circulation stays exactly
+    zero, and W reduces to the pointwise ODE dW/dt = E_0 - (W - W_c)^+/tau_c,
+    whose fixed point is W_c + tau_c * E_0 exactly (the discrete scheme's
+    fixed point coincides with the analytical one). 4 days = 24 tau_c."""
+    config = _moist_config(total_integration_days=4, ny=21)
+    profile = Sin2Profile(
+        ThetaEConfig(
+            theta_00=330.0, y_0=0.0, y_one=9439e3, delta_y=0.0,
+            theta_e_type="sin2",
+        )
+    )
+    model = SWModel(config, profile)
+    model.run_sim()
+    assert np.max(np.abs(model.state.v)) == 0.0  # truly quiescent
+    assert np.max(model.w) == np.min(model.w)  # W stayed exactly uniform
+    w_eq = config.w_crit + config.tau_c * config.evap
+    np.testing.assert_allclose(
+        model.w, np.full(config.ny, w_eq), rtol=1e-10
+    )
+
+
+def test_moist_run_dry_fields_bitwise_identical_to_dry_twin():
+    """The V1 hard invariant: W is one-way coupled, so switching moisture on
+    leaves every dry field bit-for-bit unchanged, in the daily averages, the
+    final instantaneous state, and the filtered leapfrog history."""
+    dry_config = SWConfig(total_integration_days=5, ny=51, dt=1800)
+    moist_config = _moist_config(total_integration_days=5)
+    dry = SWModel(dry_config, _sin2_profile())
+    moist = SWModel(moist_config, _sin2_profile())
+    dry.run_sim()
+    moist.run_sim()
+    for name in ("u", "v", "theta"):
+        daily_dry = getattr(dry.results, name)
+        daily_moist = getattr(moist.results, name)
+        assert np.max(np.abs(daily_moist - daily_dry)) == 0.0, (
+            f"daily {name} differs between moist run and dry twin"
+        )
+        assert np.max(
+            np.abs(getattr(moist.state, name) - getattr(dry.state, name))
+        ) == 0.0, f"final {name} differs between moist run and dry twin"
+        assert np.max(
+            np.abs(
+                getattr(moist.vars_prev_step, name)
+                - getattr(dry.vars_prev_step, name)
+            )
+        ) == 0.0, f"filtered prev {name} differs between moist run and dry twin"
+
+
+def test_moist_symmetric_run_holds_w_parity_bitexact():
+    """From a symmetric state (y_0 = 0), the whole moist integration holds
+    W exactly even, bit-for-bit, alongside the dry mirror-parity invariant:
+    max|W(y) - W(-y)| == 0.0 on both leapfrog levels after 5 days."""
+    config = _moist_config(total_integration_days=5)
+    model = SWModel(config, _sin2_profile(y_0=0.0))
+    model.run_sim()
+    u = model.state.u
+    assert np.max(np.abs(u - u[::-1])) == 0.0  # dry invariant still holds
+    assert np.max(np.abs(model.w - model.w[::-1])) == 0.0
+    assert np.max(np.abs(model.w_prev - model.w_prev[::-1])) == 0.0
+    # and the field is nontrivial: the circulation has structured W by day 5
+    assert np.max(model.w) - np.min(model.w) > 0.1
