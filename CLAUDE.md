@@ -189,6 +189,7 @@ run-sw-model --restart-from ./model_output/restart_day0050.nc \
 - Restart files contain instantaneous snapshots at day boundaries, not daily-averaged output
 - Configuration parameters (ny, dt, domain-size, etc.) must match between restart file and new run
 - Steady-state detector history is preserved across restarts for continuous convergence monitoring
+- Moisture state must pair with the run: a moist checkpoint refuses `enable_moisture=False`, and a moist run from a dry checkpoint requires an explicit `--w-init` (see the Moist V1 section)
 - Output files contain only the days simulated in that run (filtered automatically)
 - **Seasonal forcing requires SB08 profile**: The `--y0-seas-amp` parameter only works with `--theta-e-type SB08`. Using seasonal parameters with SS09 or sin2 profiles will raise an error.
 
@@ -401,7 +402,7 @@ run-sw-model --grid collocated
 
 **Collocated (legacy).** `v` on the `ny` centers, the Zhang et al. (2025)-lineage layout. Kept intact and selectable as the bit-exact reproduction path: `--grid collocated --no-emfd-heaviside-gate --emfd-stencil centered` reproduces the pre-staggered regression baseline (`output.nc`) to the last bit. The 2026-07-12 default flip set all three defaults to the production formulation (staggered grid, gate on, `mc` stencil), so a bare `run-sw-model` produces it; the staggered regression baseline (`output_staggered.nc`) guards that default.
 
-**Output and restart formats are grid-aware.** Staggered output writes daily `v` on a `y_face` coordinate (`grid = "staggered_face"`); `u`, `T`, `theta_e` stay on `y`. `ss09.read_output.load_centered(path)` returns `(y, u, v, T)` with `v` reconstructed onto the centers for either layout, so analysis code has one grid. Restart files carry a `grid` tag and `restart_format_version = 2`; a grid mismatch between a restart file and the run is refused unless `--migrate-restart` is passed, which interpolates `v` between the center and face grids once (legacy restarts with no tag load as collocated). Diagnostics (Hadley latitudes, steady-state kinetic energy) consume center-reconstructed `v`; the v-smoothness monitor keeps the native face field.
+**Output and restart formats are grid-aware.** Staggered output writes daily `v` on a `y_face` coordinate (`grid = "staggered_face"`); `u`, `T`, `theta_e` stay on `y`. `ss09.read_output.load_centered(path)` returns `(y, u, v, T)` with `v` reconstructed onto the centers for either layout, so analysis code has one grid. Restart files carry a `grid` tag and `restart_format_version = 3` (version 3 adds the optional moist W state; dry v3 files read exactly as v2 did); a grid mismatch between a restart file and the run is refused unless `--migrate-restart` is passed, which interpolates `v` between the center and face grids once (legacy restarts with no tag load as collocated). Diagnostics (Hadley latitudes, steady-state kinetic energy) consume center-reconstructed `v`; the v-smoothness monitor keeps the native face field.
 
 **Dropbox sync.** `model_output/` is marked `com.dropbox.ignored` (via `xattr -w com.dropbox.ignored 1 model_output`) so run outputs do not churn Dropbox sync during a validation campaign; the measured per-day cost varied 0.55-0.9 s/day with sync load, so keep this attribute set.
 
@@ -422,6 +423,28 @@ run-sw-model --backend numba
 **numba.** `ss09/numba_backend.py` runs each model day as one `@njit` compiled call (`run_day`), preserving the reference's floating-point operation order exactly, so the integration is **bitwise identical** (max|Δ| == 0.0): the parity suite (`tests/test_numba_backend.py`) asserts this on daily outputs, restart-file contents (including the filtered prev state's wall values, observable nowhere else), NaN trajectories, and the full output dataset, and a `--backend numba` run at the production defaults reproduces the staggered regression baseline bit-for-bit. Measured speedup (solo timings, 2026-07-13): 12.8x at ny=801/dt=30 (0.67 -> 0.052 s/day, so a 15-yr production run takes ~4.7 min), 12.8x seasonal SB08, 7.8x at ny=1601/dt=15 (0.22 s/day). Constraints: staggered grid only (the collocated layout is the bit-exact Zhang et al. 2025 reproduction path and stays on the reference implementation), dt must divide 86400, and numba must be installed (`conda install -c conda-forge numba`; on Python 3.14 + Intel macOS use conda-forge, since PyPI has no stable wheel). First use pays a one-time JIT compile (~10 s), cached in `ss09/__pycache__` (gitignored) and reused across processes; editing `numba_backend.py` invalidates the cache and re-pays it once.
 
 **Editing the physics:** change the numpy reference first, then mirror the change in `numba_backend.py` preserving per-element operation order (see the module docstring's bitwise notes: the -0.0 semantics of added zero terms, the shared one-sided differences), and let the parity suite arbitrate; if the two implementations drift, the bitwise tests fail loudly. Cache caveat: constants the kernel imports from `sw_model.py` (`THETA_TO_TEMP`, `SECONDS_PER_DAY`) are frozen into the compiled artifact, and the JIT cache watches only `numba_backend.py` itself, so changing such a constant requires touching `numba_backend.py` (or deleting `ss09/__pycache__`) to force a recompile; a stale cache fails the parity suite loudly. Decision (Spencer, 2026-07-14): keep the two-implementation split at least through moist V1 (numpy for fast physics iteration and as the JAX transcription source, numba for production runs); reassess once the mirroring cost of one real physics change is measured.
+
+### Moist V1: Passive Column Water Vapor
+
+`--enable-moisture` adds the prognostic column-water-vapor field W(y, t) of the moist extension's Version 1 (spec: `guides/moist_axisymmetric_model_spec.pdf` Eq. Q1):
+
+```bash
+# Production moist run: W rides passively on the dry circulation
+run-sw-model --ndays 10 --ny 801 --dt 30 --enable-moisture
+
+# Moist parameters (defaults are V1-plan placeholders, ERA5 calibration pending)
+run-sw-model --enable-moisture --cwv-frac 0.85 --dw 1e6 --w-crit 50 --tau-c 14400 --evap 4.6e-5
+```
+
+dW/dt + d/dy[-(2a-1) v W - D dW/dy] = E_0 - P, with P = (W - W_c)^+/tau_c. W is **one-way coupled**: nothing feeds back on u/v/theta, and the dry fields of a moist run are bit-for-bit identical to the dry twin (tested; V2 will deliberately break this).
+
+**Discretization.** W lives on the ny centers; the transport is finite-volume flux form with fluxes on the ny-1 interior faces where the staggered v lives. Face values are MUSCL reconstructions with MC-limited slopes (upwinded on the sign of the transport velocity -(2a-1)v_f), so W stays non-oscillatory at the sharp ITCZ front; wall fluxes are zero with the half-cell divergence at the wall centers, so transport conserves total water to roundoff (tested against the applied-source budget). Advection is stepped at the central leapfrog level; the diffusion D and precipitation P are stepped at the lagged n-1 level, keeping both off the Asselin stability budget (lagged bounds 2*D*dt/dy^2 <= 0.5 and 2*dt/tau_c <= 1; at ny=801/dt=30 with D=2e6 the rate is 0.077, confirmed stable by 10-day smokes at D=1e6 and 2e6, 2026-07-18). Negative W is never clipped (that would break the mass budget); it triggers a one-shot warning, and the daily `W_min` output records undershoot.
+
+**Constraints** (hard errors in `SWConfig`): moist parameters without `--enable-moisture`; `--backend numba` (the kernel is not mirrored yet, deferred until V1 physics freezes per the 2026-07-14 decision); `--grid collocated` (the frozen Zhang et al. 2025 reproduction path).
+
+**Output.** Daily `W` and `P` fields plus scalars `W_mean` (FV cell-weighted) and `W_min` (minimum instantaneous value each day); all moist parameters land in the global attrs. Regression baseline: `ss09/tests/baseline/output_moist.nc`.
+
+**Restart.** Format version 3 adds `w`/`w_prev`, written only for moist runs, so dry v3 files read exactly as v2 did. A moist checkpoint refuses to continue dry; a moist run from a dry checkpoint requires an explicit `--w-init` (W is freshly initialized, logged). Moist continuation is bit-exact, W included.
 
 ### Seasonal Cycle Types
 
@@ -458,6 +481,7 @@ Tests are organized by functionality:
 - `test_theta_e_profile.py`: Tests for theta_e profile implementations
 - `test_theta_e_config.py`: Configuration validation
 - `test_cli.py`: Command-line interface tests
+- `test_moisture.py`: Moist V1 (config validation, transport operators, budget/parity/dry-invariance invariants, moist output and restart v3)
 - `test_regression.py`: End-to-end regression tests against baseline output in `ss09/tests/baseline/`
 - `test_numba_backend.py`: Bitwise parity of the numba backend against the numpy reference (operator oracles, single-step planted-zeros, integration variants, restarts, early-stop paths, full dataset, CLI baseline reproduction)
 

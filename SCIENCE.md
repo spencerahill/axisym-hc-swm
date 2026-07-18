@@ -121,6 +121,16 @@ The default grid staggers $v$ onto the $ny-1$ interior cell faces $y_i + \Delta 
 
 The collocated layout remains available (`--grid collocated`) as the bit-exact reproduction path for the Zhang et al. (2025) lineage.
 
+### 3.5 Passive Column Moisture (Moist V1)
+
+With `--enable-moisture` the model carries a prognostic column water vapor $W(y,t)$ on the dry circulation (Version 1 of the moist extension; full derivation and parameter provenance in `guides/moist_axisymmetric_model_spec.pdf`):
+
+$$\partial_t W + \partial_y\big[-(2a-1)\,v\,W - D\,\partial_y W\big] = E_0 - P, \qquad P = \frac{(W-W_c)^+}{\tau_c}$$
+
+The mean transport velocity is $-(2a-1)v$: the lower branch of the overturning moves opposite to the upper-layer $v$, and with CWV fraction $a$ in the lower layer the column-integrated moisture flux reduces to this single coefficient. $-D\,\partial_y W$ is the downgradient eddy moisture flux (the ERA5-calibrated object of the moist program), $E_0$ uniform evaporation, and $P$ a quasi-equilibrium relaxation of $W$ to the critical value $W_c$ on the convective timescale $\tau_c$, the standard precipitating-shallow-water closure and the negative feedback that keeps $W$ bounded. In V1 the coupling is one-way: $W$ never enters the momentum or thermodynamic equations, so the dry solution is bit-for-bit that of a dry run (a tested invariant). The diagnostic eddy MSE flux is $-L_v D\,\partial_y W$, computed in analysis scripts.
+
+Discretely, $W$ lives on the cell centers and its transport is finite-volume in flux form through the $ny-1$ interior faces where the staggered $v$ lives: face values of $W$ are MUSCL reconstructions with monotonized-central limited slopes upwinded on the transport velocity's sign (non-oscillatory at the ITCZ front the precipitation kink creates), wall fluxes are zero (half-cell divergence at the wall centers), and total water is conserved by transport to roundoff. Advection is stepped at the central leapfrog level; $D$ and $P$ are stepped at the lagged $n-1$ level, an effectively forward step that keeps both dissipative terms off the Asselin filter's stability budget. The transport operators preserve mirror parity exactly, so a symmetric run holds $\max|W(y)-W(-y)| = 0$ bit-for-bit alongside the dry parity invariant.
+
 ## 4. Equilibrium Temperature Profiles ($\theta_E$)
 
 ### 4.1 SS09 Profile (Parabolic)
