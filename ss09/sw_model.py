@@ -170,6 +170,13 @@ def cwv_integral(w: np.ndarray, dy: float) -> float:
     return dy * (0.5 * w[0] + np.sum(w[1:-1]) + 0.5 * w[-1])
 
 
+def precipitation(w: np.ndarray, w_crit: float, tau_c: float) -> np.ndarray:
+    """P = (W - W_c)^+ / tau_c: quasi-equilibrium relaxation of CWV to the
+    critical value on the convective timescale, zero at or below W_c. The
+    only closure that keeps W bounded (a negative feedback for W > W_c)."""
+    return np.maximum(w - w_crit, 0.0) / tau_c
+
+
 class AuxiliaryVars(NamedTuple):
     """
     Values of u, v, and theta for the previous or future step.
@@ -242,6 +249,17 @@ class SWModel:
         self.vars_next_step = AuxiliaryVars(
             u=np.zeros(config.ny), v=np.zeros(nv), theta=np.zeros(config.ny)
         )
+        # Moist V1: prognostic column water vapor W on the ny centers, with
+        # its own leapfrog history (w_prev is the filtered n-1 level, seeded
+        # at run start or restored from a restart). None on a dry run.
+        if config.enable_moisture:
+            w0 = config.w_init if config.w_init is not None else config.w_crit
+            self.w = np.full(config.ny, float(w0))
+            self.w_prev = np.zeros(config.ny)
+            self._moisture_negative_warned = False
+        else:
+            self.w = None
+            self.w_prev = None
         self.steady_state_detector = SteadyStateDetector(
             enabled=config.enable_steady_state,
             window_size=config.steady_state_window_size,
@@ -528,6 +546,8 @@ class SWModel:
             starting_step = 0
             # Fresh start: seed the leapfrog scheme with a one-off backward step.
             self.vars_prev_step = AuxiliaryVars(*self.init_prev_step_vars())
+            if self.config.enable_moisture:
+                self._seed_moisture_prev()
 
         self.init_temp_storage()
         return day, starting_step
@@ -601,6 +621,20 @@ class SWModel:
             "SWConfig validation should have rejected this configuration"
         )
 
+    def _seed_moisture_prev(self):
+        raise RuntimeError(
+            "enable_moisture is implemented only for the staggered grid "
+            "(the moisture fluxes live on the v faces); SWConfig validation "
+            "should have rejected this configuration"
+        )
+
+    def _step_moisture(self):
+        raise RuntimeError(
+            "enable_moisture is implemented only for the staggered grid "
+            "(the moisture fluxes live on the v faces); SWConfig validation "
+            "should have rejected this configuration"
+        )
+
     def run_sim(self):
         """Run the S-S model simulation."""
         if getattr(self.config, "backend", "numpy") == "numba":
@@ -634,6 +668,13 @@ class SWModel:
                     self.state.theta,
                 ),
             )
+
+            # W advances in its own leapfrog + Asselin cycle, here while
+            # self.state still holds level n (its advective flux reads the
+            # level-n face v). One-way coupled: no dry field is touched, so
+            # the dry integration is bit-for-bit unchanged.
+            if self.config.enable_moisture:
+                self._step_moisture()
 
             self.state = self.state._replace(
                 u=self.vars_next_step.u,
@@ -944,6 +985,45 @@ class StaggeredSWModel(SWModel):
         """Daily-averaged v on its native face grid (for the smoothness
         monitor, whose job is grid-scale noise on that grid)."""
         return v
+
+    def moisture_tendency(self, w_adv: np.ndarray, w_lag: np.ndarray) -> np.ndarray:
+        """dW/dt at the current state: flux-form transport through the face
+        v, plus evaporation minus precipitation. The time-level split is the
+        caller's: w_adv feeds the advective flux (central level n), w_lag the
+        diffusive flux and the precipitation sink (lagged level n-1, an
+        effectively forward step that keeps both dissipative terms off the
+        Asselin stability budget)."""
+        cfg = self.config
+        transport = moisture_transport_tendency(
+            w_adv, w_lag, self.state.v, cfg.cwv_frac, cfg.d_w, cfg.dy
+        )
+        return transport + cfg.evap - precipitation(w_lag, cfg.w_crit, cfg.tau_c)
+
+    def _seed_moisture_prev(self):
+        """Seed W's leapfrog history with a one-off backward step (the
+        moisture analog of init_prev_step_vars); both levels are the initial
+        field, so the lagged terms see the same state as the central ones."""
+        self.w_prev = self.w - self.config.dt * self.moisture_tendency(
+            self.w, self.w
+        )
+
+    def _step_moisture(self):
+        """Advance W one leapfrog step and Asselin-filter its history.
+        Must run while self.state holds level n (the advective flux reads
+        the level-n face v). Negative W is not clipped (clipping would break
+        the mass budget); it is diagnosed with a one-shot warning."""
+        w_next = self.w_prev + 2 * self.config.dt * self.moisture_tendency(
+            self.w, self.w_prev
+        )
+        self.w_prev = self.asselin_filt(self.w_prev, w_next, self.w)
+        self.w = w_next
+        if not self._moisture_negative_warned and np.any(w_next < 0.0):
+            logging.warning(
+                "Negative W detected (min %.3g kg/m^2): the moisture "
+                "transport has undershot; consider a smaller dt or d_w.",
+                float(np.min(w_next)),
+            )
+            self._moisture_negative_warned = True
 
     def _run_sim_numba(self):
         """Day-granular driver around the fused numba kernel.

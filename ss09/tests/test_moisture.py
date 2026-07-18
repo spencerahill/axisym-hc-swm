@@ -21,10 +21,23 @@ import pytest
 from ss09.cli import parse_arguments, setup_sw_config, setup_theta_e_config
 from ss09.sw_config import SWConfig
 from ss09.sw_model import (
+    StaggeredSWModel,
+    SWModel,
     cwv_integral,
     mc_face_values,
     moisture_transport_tendency,
+    precipitation,
 )
+from ss09.theta_e import Sin2Profile, ThetaEConfig
+
+
+def _sin2_profile(y_0=0.0):
+    return Sin2Profile(
+        ThetaEConfig(
+            theta_00=330.0, y_0=y_0, y_one=9439e3, delta_y=50.0,
+            theta_e_type="sin2",
+        )
+    )
 
 
 def _even_centers(ny, seed):
@@ -282,3 +295,98 @@ def test_cwv_integral_trapezoid_weights():
     centers (half cells), dy in the interior."""
     w = np.array([2.0, 3.0, 5.0, 7.0])
     assert cwv_integral(w, 10.0) == 10.0 * (1.0 + 3.0 + 5.0 + 3.5)
+
+
+# --- precipitation ----------------------------------------------------------
+
+def test_precipitation_zero_at_or_below_w_crit():
+    w = np.array([0.0, 30.0, 49.999, 50.0])
+    np.testing.assert_array_equal(
+        precipitation(w, w_crit=50.0, tau_c=14400.0), np.zeros(4)
+    )
+
+
+def test_precipitation_relaxation_rate_above_w_crit():
+    # exactly representable values, so (w - w_crit) / tau_c is exact
+    w = np.array([57.25, 194.0])
+    np.testing.assert_array_equal(
+        precipitation(w, w_crit=50.0, tau_c=14400.0),
+        np.array([7.25 / 14400.0, 144.0 / 14400.0]),
+    )
+
+
+# --- W state and time stepping ----------------------------------------------
+
+def test_moist_model_initializes_w_uniform_at_w_crit():
+    config = _moist_config()
+    model = SWModel(config, _sin2_profile())
+    np.testing.assert_array_equal(model.w, np.full(config.ny, 50.0))
+
+
+def test_moist_model_initializes_w_uniform_at_explicit_w_init():
+    config = _moist_config(w_init=42.0)
+    model = SWModel(config, _sin2_profile())
+    np.testing.assert_array_equal(model.w, np.full(config.ny, 42.0))
+
+
+def test_dry_model_has_no_w_state():
+    config = SWConfig(total_integration_days=2, ny=51, dt=1800)
+    model = SWModel(config, _sin2_profile())
+    assert model.w is None
+    assert model.w_prev is None
+
+
+def test_moisture_conserved_without_sources():
+    """With E_0 = 0 and W held below W_c (so P = 0 identically), transport is
+    the only W tendency, and it moves no total water: the cell-weighted
+    integral of W is conserved to roundoff across a multi-day run with the
+    circulation spinning up through it."""
+    config = _moist_config(
+        total_integration_days=4, ny=21, evap=0.0, w_init=20.0
+    )
+    model = SWModel(config, _sin2_profile())
+    i0 = cwv_integral(model.w, config.dy)
+    model.run_sim()
+    assert np.all(model.w < config.w_crit)  # P stayed off, as constructed
+    i1 = cwv_integral(model.w, config.dy)
+    assert abs(i1 - i0) / i0 < 1e-11
+
+
+class _BudgetRecorder(StaggeredSWModel):
+    """Mirrors the model's own leapfrog + Asselin cycle on the scalar total
+    water, feeding it only the applied sources (E_0 - P at the lagged level).
+    Any transport contribution to total W would make the mirrored chain and
+    the model diverge at O(flux * dt) per step; agreement to roundoff proves
+    dInt(W) = IntInt(E_0 - P) exactly, the plan's budget identity."""
+
+    chain = None
+
+    def _step_moisture(self):
+        cfg = self.config
+        if self.chain is None:
+            # first call: both live levels exist (w_prev was seeded)
+            self.chain = (
+                cwv_integral(self.w_prev, cfg.dy),
+                cwv_integral(self.w, cfg.dy),
+            )
+        i_prev, i_now = self.chain
+        source = cwv_integral(
+            cfg.evap - precipitation(self.w_prev, cfg.w_crit, cfg.tau_c),
+            cfg.dy,
+        )
+        i_next = i_prev + 2.0 * cfg.dt * source
+        i_prev = i_now + cfg.asselin_filt_coef * (i_next + i_prev - 2.0 * i_now)
+        self.chain = (i_prev, i_next)
+        super()._step_moisture()
+
+
+def test_moisture_budget_matches_applied_sources():
+    """Multi-day budget: the change in total W equals the accumulated applied
+    source integral (E_0 - P), to roundoff, with precipitation active."""
+    config = _moist_config(total_integration_days=3, ny=21)
+    model = _BudgetRecorder(config, _sin2_profile())
+    model.run_sim()
+    assert np.any(model.w > config.w_crit)  # P actually fired
+    predicted = model.chain[1]
+    actual = cwv_integral(model.w, config.dy)
+    assert abs(actual - predicted) / actual < 1e-12
