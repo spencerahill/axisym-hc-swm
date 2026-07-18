@@ -400,3 +400,174 @@ class TestSteadyStateDetector:
         assert detector.check_seasonal_convergence(
             750, seasonal_period, window_size=window_size, threshold=0.01
         )
+
+
+class TestSlowDriftGate:
+    """The slow-drift gate: an opt-in additional convergence criterion
+    requiring the slow diagnostics (jet latitude, max |v|, equatorial
+    depression) to have a relative range below slow_threshold over a
+    trailing slow_window days. Motivated by runs 1a-1b (2026-07-17): the
+    KE/Tvar criteria fired at day ~960 with the jet still moving -0.69%
+    per 60 d on an oscillatory ~400-d tail."""
+
+    def _detector(self, slow_window=10, slow_threshold=0.002):
+        return SteadyStateDetector(
+            enabled=True,
+            window_size=5,
+            threshold=0.01,
+            slow_gate=True,
+            slow_window=slow_window,
+            slow_threshold=slow_threshold,
+        )
+
+    @staticmethod
+    def _feed(detector, ndays, jet_fn, v_fn=None, depr_fn=None):
+        u = np.ones(10) * 5.0
+        v = np.ones(10) * 3.0
+        theta = np.ones(10) * 300.0
+        for day in range(ndays):
+            detector.record_day(
+                day, u, v, theta,
+                jet_lat=jet_fn(day),
+                v_absmax=v_fn(day) if v_fn else 9e-3,
+                depression=depr_fn(day) if depr_fn else 0.6,
+            )
+
+    def test_slow_gate_blocks_convergence_when_jet_drifts(self):
+        det = self._detector(slow_window=10, slow_threshold=0.002)
+        # KE/Tvar constant (classic criteria pass); jet drifting 0.05%/day.
+        self._feed(det, 20, jet_fn=lambda d: 2.3e6 * (1 + 5e-4 * d))
+        assert not det.check_convergence(19)
+        assert det.ke_converged and det.tvar_converged
+        assert not det.slow_converged
+
+    def test_slow_gate_allows_convergence_when_all_flat(self):
+        det = self._detector(slow_window=10)
+        self._feed(det, 20, jet_fn=lambda d: 2.3e6)
+        assert det.check_convergence(19)
+        assert det.is_converged
+        assert det.slow_converged
+        info = det.get_convergence_info()
+        assert info["steady_state_slow_gate"] == 1
+        assert info["steady_state_slow_window"] == 10
+        assert info["steady_state_slow_converged"] == 1
+
+    def test_slow_gate_requires_full_window(self):
+        det = self._detector(slow_window=30)
+        self._feed(det, 20, jet_fn=lambda d: 2.3e6)  # flat but short
+        assert not det.check_convergence(19)
+        assert not det.slow_converged
+
+    def test_slow_gate_oscillation_at_turning_point_not_converged(self):
+        # The failure mode a trend criterion misses: an oscillating jet
+        # sampled near its crest has near-zero local slope but a range over
+        # the window far above threshold.
+        det = self._detector(slow_window=150, slow_threshold=0.002)
+        self._feed(
+            det, 300,
+            jet_fn=lambda d: 2.3e6 * (1 + 0.01 * np.cos(2 * np.pi * d / 300)),
+        )
+        assert not det.check_convergence(299)
+        assert not det.slow_converged
+
+    def test_slow_gate_v_absmax_drift_blocks(self):
+        det = self._detector(slow_window=10)
+        self._feed(det, 20, jet_fn=lambda d: 2.3e6,
+                   v_fn=lambda d: 9e-3 * (1 + 5e-4 * d))
+        assert not det.check_convergence(19)
+
+    def test_slow_gate_depression_drift_blocks(self):
+        det = self._detector(slow_window=10)
+        self._feed(det, 20, jet_fn=lambda d: 2.3e6,
+                   depr_fn=lambda d: 0.6 * (1 + 5e-4 * d))
+        assert not det.check_convergence(19)
+
+    def test_slow_gate_disabled_preserves_classic_behavior(self):
+        det = SteadyStateDetector(enabled=True, window_size=5, threshold=0.01)
+        u = np.ones(10) * 5.0
+        v = np.ones(10) * 3.0
+        theta = np.ones(10) * 300.0
+        for day in range(10):
+            det.record_day(day, u, v, theta)
+        assert det.check_convergence(9)
+
+
+class TestSlowDriftGateConfig:
+
+    def test_swconfig_slow_gate_requires_steady_state(self):
+        from ss09.sw_config import SWConfig
+        with pytest.raises(ValueError, match="slow_drift_gate"):
+            SWConfig(slow_drift_gate=True)
+
+    def test_swconfig_slow_gate_auto_window_from_epsilon_u(self):
+        from ss09.sw_config import SWConfig
+        config = SWConfig(
+            enable_steady_state=True, slow_drift_gate=True, epsilon_u=1e-8
+        )
+        # ceil(1 / (1e-8 * 86400)) = ceil(1157.4) = 1158 days
+        assert config.slow_drift_window == 1158
+
+    def test_swconfig_slow_gate_explicit_window_kept(self):
+        from ss09.sw_config import SWConfig
+        config = SWConfig(
+            enable_steady_state=True, slow_drift_gate=True,
+            slow_drift_window=500,
+        )
+        assert config.slow_drift_window == 500
+
+    def test_swconfig_slow_gate_auto_window_epsilon_zero_raises(self):
+        from ss09.sw_config import SWConfig
+        with pytest.raises(ValueError, match="slow-drift-window"):
+            SWConfig(
+                enable_steady_state=True, slow_drift_gate=True, epsilon_u=0.0
+            )
+
+    def test_swmodel_slow_gate_seasonal_raises(self):
+        from ss09.sw_config import SWConfig
+        from ss09.sw_model import SWModel
+        from ss09.theta_e import ThetaEConfig, SB08Profile
+        config = SWConfig(
+            enable_steady_state=True, slow_drift_gate=True, ny=51, dt=3600
+        )
+        te_config = ThetaEConfig(
+            theta_e_type="SB08", y_0_seasonal_amp=700e3
+        )
+        with pytest.raises(ValueError, match="seasonal"):
+            SWModel(config, SB08Profile(te_config))
+
+    def test_slow_gate_end_to_end_delays_stop(self):
+        """Classic criteria converge almost immediately for a near-rest
+        start with loose thresholds; the slow gate must hold the run until
+        its window fills."""
+        from ss09.sw_config import SWConfig
+        from ss09.sw_model import SWModel
+        from ss09.theta_e import ThetaEConfig, Sin2Profile
+
+        def run(with_gate):
+            # v_d = 0 and a small dt: a configuration that integrates
+            # quietly for the full 25 days (the ny=51/dt=3600 default NaNs
+            # out around day 5 from a cold start).
+            kwargs = dict(
+                total_integration_days=25,
+                ny=51,
+                dt=600,
+                v_d=0.0,
+                enable_steady_state=True,
+                steady_state_window_size=3,
+                steady_state_threshold=1e9,
+            )
+            if with_gate:
+                kwargs.update(slow_drift_gate=True, slow_drift_window=15,
+                              slow_drift_thresh=1e9)
+            config = SWConfig(**kwargs)
+            model = SWModel(config, Sin2Profile(ThetaEConfig()))
+            model.run_sim()
+            return model.steady_state_detector.convergence_day
+
+        assert run(with_gate=False) == 2
+        # With the gate, the stop must wait at least until the slow window
+        # holds 15 finite samples (>= day 14; later if early-day jet
+        # latitudes are NaN and must age out).
+        day_gated = run(with_gate=True)
+        assert day_gated is not None
+        assert day_gated >= 14

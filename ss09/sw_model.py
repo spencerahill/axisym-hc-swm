@@ -270,11 +270,21 @@ class SWModel:
             threshold=config.steady_state_threshold,
             check_both_metrics=config.steady_state_check_both,
             smoothness_threshold=config.smoothness_threshold,
+            slow_gate=config.slow_drift_gate,
+            slow_window=config.slow_drift_window,
+            slow_threshold=config.slow_drift_thresh,
         )
         self.hadley_diagnostics = HadleyDiagnostics(
             ny=config.ny,
             total_days=config.total_integration_days
         )
+        if config.slow_drift_gate and self.has_seasonal_forcing():
+            raise ValueError(
+                "slow_drift_gate does not support seasonal forcing: the "
+                "slow diagnostics (jet latitude, max |v|, equatorial "
+                "depression) oscillate with the seasonal cycle, so their "
+                "range never converges; use --seas-conv for seasonal runs"
+            )
 
     def has_seasonal_forcing(self) -> bool:
         """
@@ -520,14 +530,6 @@ class SWModel:
         """
         v_daily = self.results.v[day]
         v_centers = self._daily_v_at_centers(v_daily)
-        self.steady_state_detector.record_day(
-            day,
-            self.results.u[day],
-            v_centers,
-            self.results.theta[day],
-            self.config.dy,
-            v_faces=self._daily_v_faces(v_daily),
-        )
         self.hadley_diagnostics.record_day(
             day,
             self.results.u[day],
@@ -535,6 +537,27 @@ class SWModel:
             self.config.y,
             self.config.dy,
             self.config.beta,
+        )
+        # Slow-drift gate metrics (non-seasonal only, so theta_E is static
+        # and the daily jet latitude just computed above is the gated one).
+        slow_kwargs = {}
+        if self.steady_state_detector.slow_gate:
+            i0 = int(np.argmin(np.abs(self.config.y)))
+            slow_kwargs = dict(
+                jet_lat=float(self.hadley_diagnostics.north_jet_lat[day]),
+                v_absmax=float(np.max(np.abs(v_centers))),
+                depression=float(
+                    self.current_theta_e()[i0] - self.results.theta[day][i0]
+                ),
+            )
+        self.steady_state_detector.record_day(
+            day,
+            self.results.u[day],
+            v_centers,
+            self.results.theta[day],
+            self.config.dy,
+            v_faces=self._daily_v_faces(v_daily),
+            **slow_kwargs,
         )
 
     def reset_temp_storage(self):
@@ -607,10 +630,15 @@ class SWModel:
         elif not self.has_seasonal_forcing():
             # Traditional steady-state check (only for non-seasonal runs)
             if self.steady_state_detector.check_convergence(day):
+                slow_note = (
+                    f", slow-drift gate: {self.steady_state_detector.slow_converged}"
+                    if self.steady_state_detector.slow_gate else ""
+                )
                 logging.info(
                     f"Steady state reached at day {day}. "
                     f"KE converged: {self.steady_state_detector.ke_converged}, "
                     f"Tvar converged: {self.steady_state_detector.tvar_converged}"
+                    f"{slow_note}"
                 )
                 return day, True
         # If seasonal forcing but convergence disabled: no early stopping, run full integration

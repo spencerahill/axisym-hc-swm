@@ -316,6 +316,36 @@ def parse_arguments():
         dest="smoothness_threshold",
         help="Neighbor correlation threshold for v field smoothness warning (default: 0.5)",
     )
+    parser.add_argument(
+        "--slow-drift-gate",
+        action="store_true",
+        default=False,
+        dest="slow_drift_gate",
+        help=(
+            "Additionally require the slow diagnostics (jet latitude, "
+            "max |v|, equatorial depression) to have a relative range below "
+            "--slow-drift-thresh over the trailing --slow-drift-window days "
+            "before stopping; requires --stop-at-steady-state, non-seasonal "
+            "runs only (default: disabled)"
+        ),
+    )
+    parser.add_argument(
+        "--slow-drift-window",
+        type=int,
+        default=0,
+        dest="slow_drift_window",
+        help=(
+            "Trailing window in days for the slow-drift gate; 0 = auto: "
+            "the drag timescale 1/epsilon_u in days (default: 0)"
+        ),
+    )
+    parser.add_argument(
+        "--slow-drift-thresh",
+        type=float,
+        default=0.002,
+        dest="slow_drift_thresh",
+        help="Relative range threshold for the slow-drift gate (default: 0.002 = 0.2%%)",
+    )
     # Seasonal convergence arguments (for seasonally-varying forcing)
     parser.add_argument(
         "--seas-conv",
@@ -538,6 +568,9 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         steady_state_threshold=args.steady_state_threshold,
         steady_state_check_both=args.steady_state_check_both,
         smoothness_threshold=args.smoothness_threshold,
+        slow_drift_gate=getattr(args, "slow_drift_gate", False),
+        slow_drift_window=getattr(args, "slow_drift_window", 0),
+        slow_drift_thresh=getattr(args, "slow_drift_thresh", 0.002),
         # Seasonal convergence parameters (use getattr for backward compatibility with tests)
         seasonal_convergence_enabled=getattr(args, 'seasonal_convergence_enabled', False),
         seasonal_convergence_window=getattr(args, 'seasonal_convergence_window', 30),

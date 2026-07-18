@@ -1,0 +1,513 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\Ro}{\mathrm{Ro}}
+\newcommand{\Rb}{R_\beta}
+\newcommand{\dpar}[2]{\frac{\partial #1}{\partial #2}}
+
+\title{Fixed-$\Ro$ equal-area theory on the equatorial $\beta$ plane,\\
+for the SS09 shallow-water model}
+\author{pengcheng-ss09 suite, Tier 0 (A0 memo)}
+\date{2026-07-16}
+
+\begin{document}
+\maketitle
+
+\noindent
+Beta-plane translations of the closed forms in the fixed-$\Ro$ manuscript
+(\path|papers/fixed-ro-eq-area_ms-draft-v1.pdf|, ``ms'' below), derived
+against this model's exact equations. Every result carries a basis tag;
+``pending run'' tags get upgraded as the suite's runs confirm them.
+Section~\ref{sec:checks} lists the falsifying checks and their status, and
+the run record follows it.
+
+\section{Setup and notation}
+
+Steady state, hemispherically symmetric forcing ($y_0 = 0$), northern
+hemisphere ($y > 0$). The model's steady equations (\texttt{SCIENCE.md}
+section~2), with $T = \theta/1.6$ and the $v$ equation's factor of two
+multiplying only the time tendency (so it drops out of every steady
+balance):
+\begin{align}
+  v\left(\beta y - \dpar{u}{y}\right)
+    &= \mathcal{H}(\theta_E - \theta)\, u \dpar{v}{y}
+       + \epsilon_u u
+       + v_d\, \mathcal{H}(u)\, \mathrm{sgn}(y) \dpar{u}{y},
+    \label{eq:umom} \\
+  \beta y\, u
+    &= -\frac{g H}{T_0} \dpar{T}{y} + k_v \frac{\partial^2 v}{\partial y^2},
+    \label{eq:vmom} \\
+  \frac{\delta \Delta_z}{H} \dpar{v}{y}
+    &= \frac{\theta_E - \theta}{\tau}.
+    \label{eq:thermo}
+\end{align}
+Forcing (SS09 parabolic profile, the theory-matched choice):
+$\theta_E = \theta_{00} - \Delta_y (y/y_1)^2$ for $|y| < y_1$. In
+temperature units,
+\begin{equation}
+  T_E(y) = T_E(0) - b\, y^2,
+  \qquad b \equiv \frac{\Delta_T}{y_1^2},
+  \qquad \Delta_T \equiv \frac{\Delta_y}{1.6},
+\end{equation}
+with $T_0 = 300$~K. The small-angle limit of the ms is exact here: the
+$\beta$ plane has no $\cos\varphi$ factors, so no truncation enters any of
+the following.
+
+\section{The one-line mapping}
+
+Every ms result carries over with the substitutions
+\begin{equation}
+  \Ro_{\mathrm{th}} \;\to\; \Rb \equiv \frac{4 g H \Delta_T}{T_0 \beta^2 y_1^4},
+  \qquad
+  \Delta_h \theta_0 \;\to\; \Delta_T,
+  \qquad
+  a\varphi \;\to\; y,
+  \qquad
+  \varphi_{\Ro} \;\to\; Y_{\Ro}/y_1.
+\end{equation}
+\textbf{[derived]} $\Rb$ follows from the sphere definition
+$\Ro_{\mathrm{th}} = g H \Delta_h / (\Omega a)^2$ with $\Omega = \beta a/2$
+and $\Delta_h = \Delta_T a^2 / (T_0 y_1^2)$ (matching the forcing curvature
+at the equator); the planetary radius cancels, as it must on a $\beta$
+plane. At this repo's defaults ($g = 9.81$~m\,s$^{-2}$, $H = 16$~km,
+$\Delta_y = 50$~K so $\Delta_T = 31.25$~K, $T_0 = 300$~K,
+$\beta = 2\times 10^{-11}$~m$^{-1}$\,s$^{-1}$, $y_1 = 9439$~km):
+\begin{equation}
+  \boxed{\;\Rb = 0.0206.\;}
+\end{equation}
+
+\section{Wind and temperature}
+\label{sec:wind}
+
+\textbf{[derived: pending run confirmation]}
+Uniform $\Ro = (\partial_y u)/(\beta y)$ integrates to
+$u_{\Ro}(y) = \Ro\, \beta y^2/2$ (ascent at $y = 0$). Gradient balance
+(neglecting $k_v$) gives $\partial_y T = -(T_0 / g H)\, \Ro\, \beta^2 y^3/2$,
+so
+\begin{equation}
+  T_{\Ro}(y) = T_{\Ro}(0) - c\, y^4,
+  \qquad c \equiv \frac{\Ro\, T_0 \beta^2}{8 g H}.
+  \label{eq:TRo}
+\end{equation}
+
+\section{Equal-area edge and equatorial temperature}
+\label{sec:edge}
+
+\textbf{[derived: confirmed by runs 1a--1b at the equilibrated day-6000
+record: depression within 4\%, edge $-7$ to $-8\%$; at profile level the
+inner half of the cell agrees at the 10\% level and the terminus misfit
+is ${\sim}32$--$36\%$ of the depression; run-record addenda]}
+With $D(y) = T_{\Ro}(y) - T_E(y)$, imposing $D(Y) = 0$ and
+$\int_0^Y D\, \mathrm{d}y = 0$ (measure $\mathrm{d}y$; the Newtonian
+relaxation has uniform $\tau$) gives $\tfrac{2}{3} b Y^2 = \tfrac{4}{5} c
+Y^4$, i.e. $Y^2 = \tfrac{5}{6}\, b/c$, which in Section-2 variables is
+\begin{align}
+  Y_{\Ro} &= y_1 \left( \frac{5 \Rb}{3 \Ro} \right)^{1/2}
+  &&\text{[ms Eq.~13 analog]},
+  \label{eq:Yro} \\
+  T_E(0) - T_{\Ro}(0) &= \frac{5}{18} \frac{\Rb\, \Delta_T}{\Ro}
+  &&\text{[ms Eq.~15 analog]}.
+  \label{eq:depression}
+\end{align}
+Defaults, $\Ro = 1$: $Y_{\Ro} = 1.75\times 10^6$~m and equatorial
+depression $0.18$~K (in $T$; multiply by 1.6 for $\theta$ units). At
+$\Ro = 0.15$ the depression is 1.2~K ($T$) / 1.9~K ($\theta$).
+
+Consistency note: the analogous derivation for the sin$^2$ profile needs
+the numerical equal-area solver (puffins \texttt{equal\_area\_bouss} with
+$\Ro$-scaled \texttt{del\_h\_over\_ro}, verified in puffins PR~\#46). Near
+the equator $\sin^2\!\big(\pi y/(2 y_1)\big) = \big(\pi y/(2 y_1)\big)^2 +
+O(y^4)$, so sin$^2$ behaves like a parabola with curvature enhanced by
+$(\pi/2)^2 = 2.47$; Section~\ref{sec:closure}'s postdiction check uses
+exactly this factor.
+
+\section{Meridional wind, heat flux, momentum flux}
+\label{sec:v}
+
+\textbf{[derived: confirmed by runs 1a--1b at the equilibrated day-6000
+record: $v_{\max}$ within 2--7\% and its location within 4--5\%; at
+profile level the inner flank agrees at the 3--8\% level and the terminus
+flank misfit is ${\sim}44$--$45\%$ of $v_{\max}$; run-record addenda]}
+The steady thermodynamic balance \eqref{eq:thermo} integrates to the
+model's $v$ profile directly, using $\theta_E - \theta = 1.6\,(T_E - T) =
+-1.6\, D$:
+\begin{equation}
+  v(y)
+  = -\frac{1.6 H}{\delta \Delta_z \tau} \int_0^y D\, \mathrm{d}y'
+  = \frac{1.6 H}{\delta \Delta_z \tau}\,
+    \frac{5}{18} \frac{\Rb \Delta_T}{\Ro}\,
+    Y_{\Ro} \left( x - 2x^3 + x^5 \right),
+  \qquad x \equiv \frac{y}{Y_{\Ro}}.
+  \label{eq:v}
+\end{equation}
+The bracket is exactly the ms Eq.~(16) shape; it peaks at $x = 5^{-1/2} =
+0.447$ with value $0.286$, and $v_{\max} \propto \Ro^{-3/2}$ (ms Eq.~20
+analog). Defaults, $\Ro = 1$: $v_{\max} = 3.0\times 10^{-3}$~m\,s$^{-1}$ at
+$y = 0.78\times 10^6$~m.
+
+Column fluxes, using the two-layer reading (upper slab of depth $\delta$
+with velocity $+v$ and potential temperature $\theta_{\mathrm{top}}$,
+return slab of depth $\delta$ with $-v$ and $\theta_{\mathrm{bot}}$,
+$\theta_{\mathrm{top}} - \theta_{\mathrm{bot}} = \Delta_z$; return-flow $u$
+negligible):
+\begin{align}
+  \text{heat flux:} \quad
+    &\int v\, \theta\, \mathrm{d}z = \delta\, \Delta_z\, v(y)
+    &&\text{[ms Eq.~16]}, \\
+  \text{momentum flux:} \quad
+    &\int v\, u\, \mathrm{d}z = \delta\, v(y)\, u_{\Ro}(y)
+    &&\text{[ms Eq.~17]}, \\
+  \text{vertical velocity:} \quad
+    &w = \delta \dpar{v}{y}, \qquad w_{\max} \propto \Ro^{-1}
+    &&\text{[ms sec.~3f]}.
+\end{align}
+The ms's counterintuitive momentum-flux result carries over: expanding
+$\delta v u_{\Ro}$, the leading term in $y$ is $\Ro$-independent (the
+$\Ro^{-1}$ strengthening of $v$ cancels the $\Ro$ weakening of $u$ in the
+product) and $\partial(\text{flux})/\partial \Ro < 0$ strictly inside the
+cell, exactly as verified for the sphere forms in puffins
+\texttt{test\_eq\_area.py}.
+
+\section{Diagnosed quantities: conventions for the suite}
+\label{sec:diag}
+
+\begin{itemize}
+  \item \textbf{Full-profile scorecard (the confirmation standard for
+    every suite run):} the simulated $u$, $T$, and $v$ profiles are
+    compared against the zero-free-parameter theory profiles at the
+    diagnosed (regression) cell-mean $\Ro$, reporting $\max|\Delta|$ and
+    its location both over the cell $[0, Y_{\Ro}]$ and over its inner half,
+    each scaled by the field's theory amplitude (cell-edge $u$, the
+    equatorial depression, and $v_{\max}$ respectively). The temperature
+    comparison is visualized as the equal-area lobes $D(y) = T - T_E$,
+    which removes the ${\sim}200$~K shared background. Implemented in
+    \path|scripts/fixed_ro_scorecard.py| (one four-panel figure per run;
+    fields are means over the final 30 days). Scalar anchors (depression,
+    $v_{\max}$, edge) are by-products of the same tool, not the
+    confirmation standard: runs 1a--1b passed the scalars at the 1--8\%
+    level while the profile misfit at the terminus is ${\sim}35$--$45\%$ of
+    scale (see the profile addendum in the run record).
+  \item \textbf{Run duration (budget-grade):} the steady-state detector's
+    KE and $T$-variance metrics are nearly blind to the slow jet-position
+    mode: in runs 1a--1b the detector fired at day ${\sim}960$ with the
+    jet latitude still moving ${\sim}0.7\%$ per 60~d (measured over the
+    final 120~d). Scorecard-grade runs therefore use a fixed length of at
+    least five times the slowest damping timescale, the drag time
+    $1/\epsilon_u$ (1157~d at the default $\epsilon_u = 10^{-8}$~s$^{-1}$,
+    so 6000~d), with no early stop. The scorecard enforces this after the
+    fact: it fits the jet-latitude trend over the final 120~d and warns
+    unless the implied remaining drift (trend $\times$ $1/\epsilon_u$, the
+    exponential-tail estimate) is below 0.2\%. The detector remains fine
+    for smokes and exploratory runs.
+  \item \textbf{Local $\Ro(y)$:} $(\partial_y u)/(\beta y)$, the model's
+    existing diagnostic (NaN within $|y| < \Delta y_{\mathrm{grid}}$ of the
+    equator).
+  \item \textbf{Cell-mean $\Ro$, two definitions, both reported, one
+    fixed interval:} both are computed over $[y_5,\, y_{\mathrm{jet}}]$
+    with $y_5 \equiv a \times 5^\circ = 5.56\times 10^5$~m, the beta-plane
+    analog of Hill et al.\ (2025)'s convention (average from the
+    descending edge to whichever of the ascending edge or $5^\circ$ is
+    closer, $\Ro$ being ill-defined near the equator; for the symmetric
+    cells here the $5^\circ$ cutoff binds). (i) The area mean of local
+    $\Ro$; (ii) the best-fit $\Ro$ regressing $u(y)$ against $\beta
+    y^2/2$, the \emph{primary} definition (insensitive to the interval).
+    The earlier inner anchor $y_{\Ro\text{-max}}$ (argmax of the $\Ro$
+    profile) was retired 2026-07-17: an argmax is a discontinuous
+    functional of a smooth profile, and it jumped $1.1\times 10^6$~m
+    between epochs of run 1a when the profile's two gentle extrema traded
+    rank, moving the area mean 0.476 $\to$ 0.355. On the fixed interval
+    the two equilibrated runs' area means nearly coincide (0.429, 0.424).
+  \item \textbf{Cell edge, three definitions, all reported:} the
+    $v$-threshold edge ($|v|$ below 10\% of its extremum, existing
+    diagnostic; see run 1a for its failure mode at small $v_d$), the jet
+    latitude (existing spline diagnostic), and the $\theta$-merge latitude
+    (where $\theta$ rejoins $\theta_E$ within a tolerance, searched
+    poleward of the \emph{jet}; see run 1a). The theory says they coincide;
+    their splitting is itself a result.
+  \item \textbf{Momentum-budget shares:} each steady term of
+    \eqref{eq:umom} evaluated from output; the drag share $\epsilon_u u$
+    and the vertical-advection share quantify the accuracy of the
+    EMFD--Coriolis balance underlying Zhang et al.\ (2025) Eq.~24,
+    $\Ro = v/(v + v_d)$.
+\end{itemize}
+
+\section{Emergent cell-mean $\Ro$ closure}
+\label{sec:closure}
+
+\textbf{[derived: pending run confirmation]}
+Combining Zhang's Eq.~24 at the cell-mean level with
+Section~\ref{sec:v}'s $v$ magnitude (the cell mean of the bracket over
+$[0,1]$ is $1/6$):
+\begin{equation}
+  \bar{\Ro} = \frac{\bar v}{\bar v + v_d},
+  \qquad
+  \bar v(\bar{\Ro})
+  = \frac{1.6 H}{\delta \Delta_z \tau}\,
+    \frac{5}{18} \frac{\Rb \Delta_T}{\bar{\Ro}}\,
+    \frac{Y_{\Ro}(\bar{\Ro})}{6},
+  \label{eq:closure}
+\end{equation}
+a transcendental equation for $\bar{\Ro}(v_d)$ with no simulation input.
+This is the suite's analysis~G; it extends Zhang et al.\ (2025) section~4
+(their max-$\Ro$ scalings $v_d^{-2/5}$, $v_d^{-1/4}$) to the cell-mean
+variable the ms uses.
+
+Postdiction check \textbf{[computed]}: Section~\ref{sec:v}'s $v$ with the
+sin$^2$ profile's larger near-equator curvature ($(\pi/2)^2 = 2.47$ in
+$b$, entering $v$ through $b^2 Y/c$ as a factor $\sim 9.6$) predicts
+$v_{\max} \sim 0.03$~m\,s$^{-1}$ for the published defaults, matching
+Zhang et al.\ (2025) Figs.~2--3 magnitudes within $\sim$1.5$\times$.
+
+\section{Falsifying checks and status}
+\label{sec:checks}
+
+Every run in the checks below also gets the Section~\ref{sec:diag}
+full-profile scorecard on $u$, $T$, and $v$; the tier-specific items are
+the additional, targeted comparisons.
+
+\begin{enumerate}
+  \item \textbf{Full $u$/$T$/$v$ profiles, edge, and equatorial depression
+    vs theory at diagnosed $\Ro$ (the most-falsifying single check):}
+    SS09-parabolic forcing, $v_d = 0$. Framing correction from the first run: with the default
+    vertical momentum advection on, $v_d = 0$ is \emph{not} the $\Ro = 1$
+    limit (Zhang et al.\ 2025: $u \sim \beta y^2/3$ near the ascent, and
+    drag lowers it further); the theory must be evaluated at the run's
+    diagnosed cell-mean $\Ro$. The $\Ro \to 1$ anchor requires
+    \texttt{-{}-no-vert-advec-u} \emph{and} reduced drag (run 1b). Status:
+    runs 1a--1b below, scalar level and profile level (addendum).
+  \item \textbf{Edge collapse:} $Y_{\mathrm{edge}} (\Ro/\Rb)^{1/2}/y_1 =
+    (5/3)^{1/2}$ flat across the $v_d$, $\Delta_y$, $\beta$, and radius
+    ladders. Status: pending Tiers 1--2.
+  \item \textbf{Radius-ladder null:} dimensional $Y_{\mathrm{edge}}$
+    invariant under $(\beta \to \beta/k,\; y_1 \to k y_1,\; L \to k L)$.
+    Status: pending Tier 2.
+  \item \textbf{$v$-profile shape and $\Ro^{-3/2}$ magnitude scaling}
+    (Section~\ref{sec:v}). Status: shape checked at profile level in runs
+    1a--1b (addendum); the $\Ro^{-3/2}$ scaling pending Tier 1.
+  \item \textbf{Momentum flux increases as $\Ro$ decreases}
+    (Section~\ref{sec:v}). Status: pending Tier 1.
+  \item \textbf{Emergent $\bar{\Ro}(v_d)$} (Section~\ref{sec:closure}).
+    Status: pending Tier 1 + analysis G.
+\end{enumerate}
+
+\section*{Run record}
+
+Each confirming or refuting run gets an entry: configuration, output path,
+measured vs predicted.
+
+\subsection*{2026-07-16, check 1a: $v_d = 0$, default physics (vertical advection on)}
+
+Config: SS09 parabolic forcing, $v_d = 0$, $n_y = 801$, $\Delta t = 30$~s,
+numba backend, steady-state stop (window 30~d, threshold $10^{-4}$),
+converged day 959. Output:
+\path|model_output/fixed_ro_suite/tier0_amc_edge/amc_ss09_ny801_dt30_vd0.nc|.
+Steadiness caveat \textbf{[computed]}: the jet was still drifting
+$+0.4\%$ per 60~d at stop (drag-timescale tail), so numbers carry roughly
+a 2\% allowance.
+
+Diagnosed: cell-mean $\Ro$ 0.469 (area mean) / 0.470 ($u$ regression);
+local $\Ro(y)$ is \emph{not} uniform: ${\sim}0.68$ at the ascent (the
+vertical-advection $2/3$ of Zhang et al.\ 2025, drag-reduced), declining
+through ${\sim}0.6$ mid-cell to ${\sim}0.2$ approaching the jet, i.e.\ the
+ms's linear-$\Ro$ motivation in miniature.
+
+Theory at diagnosed $\Ro = 0.470$ vs run \textbf{[computed]}:
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+quantity & predicted & measured & rel.\ gap \\
+\midrule
+equatorial depression $T_E(0) - T(0)$ & 0.381~K & 0.379~K & 0.5\% \\
+$v_{\max}$ & $9.28\times 10^{-3}$~m/s & $9.39\times 10^{-3}$~m/s & 1.2\% \\
+$y$ of $v_{\max}$ ($0.447\, Y_{\Ro}$) & $1.14\times 10^6$~m & $1.18\times 10^6$~m & 3.5\% \\
+cell edge $Y_{\Ro}$ (vs jet latitude) & $2.55\times 10^6$~m & $2.36\times 10^6$~m & $-7.4\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Sections \ref{sec:edge}--\ref{sec:v} upgraded to \textbf{[confirmed at the
+1--8\% level, single run]} for these observables at this $\Ro$. Additional
+findings: the $u$ plateau outside the cell is the parabolic forcing's RCE
+gradient wind,
+\begin{equation}
+  u_{\mathrm{RCE}} = \frac{2 g H \Delta_T}{T_0 \beta y_1^2} = 18.35~\text{m/s},
+\end{equation}
+constant out to $y_1$ (verified to 3 digits); the $v$-threshold edge
+diagnostic is unusable at small $v_d$ because the drag circulation
+$v = \epsilon_u u_{\mathrm{RCE}}/(\beta y) \sim 2\times 10^{-3}$~m/s
+exceeds 10\% of $v_{\max}$ out to $\sim 9.3\times 10^6$~m; the
+$\theta$-merge diagnostic must search poleward of the jet, not of the $v$
+max, to avoid the equal-area lobe crossing.
+
+\subsection*{2026-07-16, check 1b: $v_d = 0$, vertical advection off}
+
+Config: as 1a plus \texttt{-{}-no-vert-advec-u}; converged day 971.
+Output: \path|.../tier0_amc_edge/amc_ss09_ny801_dt30_vd0_novert.nc|.
+
+Removing vertical advection left the cell-mean $\Ro$ essentially unchanged
+(fit 0.473 vs 0.470; area mean 0.536 vs 0.469), because \textbf{the
+Rayleigh drag, at its default $\epsilon_u = 10^{-8}$~s$^{-1}$, is the
+leading-order non-AMC agent for this forcing} \textbf{[computed]}: the
+steady zonal momentum balance over the cell interior is
+\begin{equation}
+  v \left( \beta y - \dpar{u}{y} \right) = \epsilon_u u
+  \quad \text{to within ${\sim}5$--$10\%$}
+\end{equation}
+(median ratio 1.05 over $0.3 \times 10^6 < y < 2.2\times 10^6$~m). The
+parabolic forcing's weak circulation ($v_{\max} \sim 9\times
+10^{-3}$~m/s) makes $(1 - \Ro) \sim \epsilon_u u / (v \beta y)$ order
+one. Local $\Ro(y)$ declines monotonically from ${\sim}1$ at the ascent to
+${\sim}0.2$ at the jet.
+
+Theory at diagnosed $\Ro = 0.473$ vs run \textbf{[computed]}: depression
+0.378 predicted vs 0.358~K measured (5.3\%); $v_{\max}$ $9.18\times
+10^{-3}$ vs $8.81\times 10^{-3}$~m/s (4.2\%); edge $2.54\times 10^6$ vs
+jet $2.36\times 10^6$~m ($-7.1\%$).
+
+Consequences for the suite: (i) the $\Ro \to 1$ anchor needs reduced
+$\epsilon_u$, so the Tier-3 drag ladder is load-bearing rather than
+optional; (ii) at the sin$^2$ forcing the circulation is ${\sim}3\times$
+stronger, so the drag share is ${\sim}3\times$ smaller but still
+non-negligible at $v_d = 0$ (consistent with Zhang et al.\ 2025 Fig.~4's
+max $\Ro \sim 0.9$ there); (iii) the steady-state detector (window 30~d,
+$10^{-4}$) fires while the jet still drifts ${\sim}0.4\%$ per 60~d on the
+drag timescale, so budget-grade runs need a stricter threshold or a fixed
+post-detection extension.
+
+\subsection*{2026-07-16, profile-level addendum to runs 1a--1b}
+
+The tables above are endpoint checks (the equatorial depression and
+$v_{\max}$ are, respectively, the $y = 0$ anchor of $T$ and a single point
+of $v$). The suite standard is now the full-profile scorecard
+(Section~\ref{sec:diag}), applied retroactively to both runs: final-30-day means, theory at the
+fitted cell-mean $\Ro$ of 0.479 (1a) and 0.473 (1b). Under this
+standardized window 1b's fit reproduces the value quoted above exactly,
+while 1a's shifts from 0.470 to 0.479, within run 1a's stated ${\sim}2\%$
+drift allowance. Profile results \textbf{[computed]}:
+
+\begin{center}
+\begin{tabular}{llcccc}
+\toprule
+run & field & $\max|\Delta|$ (cell) & at $y$ [$10^6$ m] & \% of scale
+  & inner half \\
+\midrule
+1a & $u$ & 10.4~m/s & 2.52 & 34 & 2.3~m/s (7.5\%) \\
+1a & $T$ & 0.133~K & 2.01 & 36 & 0.038~K (10\%) \\
+1a & $v$ & 4.0~mm/s & 2.44 & 45 & 0.49~mm/s (5.5\%) \\
+1b & $u$ & 10.2~m/s & 2.52 & 33 & 3.2~m/s (10\%) \\
+1b & $T$ & 0.152~K & 2.01 & 40 & 0.042~K (11\%) \\
+1b & $v$ & 3.9~mm/s & 2.44 & 43 & 0.48~mm/s (5.2\%) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Scales: cell-edge $u_{\Ro}(Y_{\Ro})$, the equatorial depression, and
+$v_{\max}$. Reading: the inner half of the cell agrees at the 5--11\%
+level in all three fields, and the misfit concentrates at the terminus in
+all three, consistent with the diagnosed local $\Ro(y)$ declining to
+${\sim}0.2$ at the jet: a single cell-mean $\Ro$ is furthest from the
+local value exactly there. The simulated subtropical warm lobe of $D(y)$
+peaks at 0.17~K (1a) against the predicted 0.30~K and is smeared poleward
+across the edge ($D$ stays ${\sim}{+}0.015$~K out to at least $4.5\times
+10^6$~m), suggesting the sharp-edge equal-area closure, not the quartic
+interior shape, is the limiting idealization. The $u$ misfit sits at the
+theory's terminus discontinuity (the jump to the RCE plateau). The ms's
+linear-$\Ro$ variant targets exactly this regime and is testable against
+these same stored profiles (suite extension, not yet scheduled).
+
+\subsection*{2026-07-17, drift fix: runs 1a--1b extended to day 6000}
+
+The detector-stop states above were drift-contaminated: at the day
+${\sim}960$ stop the jet latitude was still moving $-0.69\%$ per 60~d
+(fit over the final 120~d; equatorward), which the exponential-tail
+estimate turns into ${\sim}13\%$ remaining drift. (This measurement
+supersedes the ``$+0.4\%$ per 60~d'' figure quoted in the 1a entry, which
+came from a different ad-hoc check.) Both runs were therefore restarted
+from their day-959/971 checkpoints and integrated to day 6000, about five
+drag timescales, with a fixed length and no early stop, per the
+Section~\ref{sec:diag} duration policy. The
+\path|..._day6000.nc| outputs are now the citable record for checks
+1a--1b; both pass the drift gate with a flat jet trend ($+0.0000\%$ per
+60~d) and the fitted $\Ro$ stable to $<0.001\%$ between consecutive 30-d
+windows.
+
+What the contamination had been hiding \textbf{[computed]} (numbers
+restated 2026-07-17 under the fixed $[y_5, y_{\mathrm{jet}}]$ interval of
+Section~\ref{sec:diag}): the jet settled equatorward (1a: $2.36 \to 2.33$;
+1b: $2.38 \to 2.33 \times 10^6$~m), so the edge gap vs $Y_{\Ro}$
+\emph{widens} to $-7.7\%$ (1a) / $-7.2\%$ (1b); 1b's fitted $\Ro$ rises
+0.473 $\to$ 0.485 ($+2.5\%$, the largest single shift; 1a's is 0.480);
+the depression gaps become $+3.5\%$ (1a: measured 0.385 vs predicted
+0.372~K) and $-0.8\%$ (1b: 0.366 vs 0.369~K); and $v_{\max}$ gaps become
+$6.8\%$ (1a: 9.58 vs 8.97~mm/s) and $2.0\%$ (1b: 9.03 vs 8.85~mm/s).
+Equilibrated profile metrics, superseding the table above:
+
+\begin{center}
+\begin{tabular}{llcccc}
+\toprule
+run & field & $\max|\Delta|$ (cell) & at $y$ [$10^6$ m] & \% of scale
+  & inner half \\
+\midrule
+1a & $u$ & 10.2~m/s & 2.52 & 33 & 1.8~m/s (6.0\%) \\
+1a & $T$ & 0.121~K & 2.01 & 32 & 0.037~K (9.8\%) \\
+1a & $v$ & 3.9~mm/s & 2.44 & 44 & 0.72~mm/s (8.0\%) \\
+1b & $u$ & 9.6~m/s & 2.48 & 31 & 2.5~m/s (8.1\%) \\
+1b & $T$ & 0.133~K & 1.97 & 36 & 0.039~K (10.5\%) \\
+1b & $v$ & 3.9~mm/s & 2.40 & 45 & 0.25~mm/s (2.9\%) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The profile-level story is unchanged in character: inner half at the
+3--11\% level, terminus at 31--45\% of scale, in all three fields of both
+runs. During the slow tail, 1a's local-$\Ro$ profile also exposed a
+fragility in the then-current area-mean interval anchor; that finding and
+the resulting convention change are in the next entry.
+
+\subsection*{2026-07-17, settling analysis, slow-drift gate, and
+cell-mean-$\Ro$ convention update}
+
+\textbf{Settling [computed]:} every quoted quantity (jet latitude, fitted
+$\Ro$, depression, $v_{\max}$) is within 0.1\% of its final value by day
+${\sim}2400$--2600 (1a) / 2700--3200 (1b), and within 0.02\% by day
+${\sim}3000$--3550 / 3450--3970, so the fixed 6000-d length is
+${\sim}2\times$ conservative. The tail is an underdamped oscillation:
+envelope timescale 394~d (1a) / 436~d (1b), about a third of the drag
+time, with the jet overshooting its final latitude (deviation lobes near
+days 1600, 3200, 4500 in 1a). The stop-time ``${\sim}13\%$ remaining''
+drag-timescale estimate above was therefore conservative by ${\sim}3
+\times$; the realized post-stop movement was 1--3\% per quantity.
+Reproduce with \path|scripts/tier0_settling_analysis.py|.
+
+\textbf{Slow-drift gate:} a trend-based stopping criterion fails on this
+tail: replayed on run 1a it fires at day 1629, the crest of the first
+overshoot lobe, where the 120-d trend is ${\sim}0$ while the jet is still
+1.4\% from its final position. The detector therefore gained an opt-in
+range criterion (\texttt{-{}-slow-drift-gate}): converged only when jet
+latitude, $\max|v|$, and the equatorial depression each have relative
+range $< 0.2\%$ over the trailing $1/\epsilon_u$ (1158~d at default
+drag). Exact replay on the full 1a/1b histories
+(\path|scripts/tier0_gate_replay.py|): fires at day 3683 (1a; jet
+binding) / 3912 (1b; $v_{\max}$ binding), saving 39\%/35\% vs the fixed
+6000~d with every gated quantity settled below 0.02\%. Confirmed by a
+gated cold-start run of the 1a configuration
+(\path|..._gatecheck.nc|): it stopped at day 3683 exactly (the gated
+trajectory is bitwise-identical to the recorded one), and its scorecard
+matches the day-6000 record to display precision in every reported
+quantity, with the drift gate passing at 0.06\% implied remaining.
+
+\textbf{Convention update:} the cell-mean-$\Ro$ interval anchor
+$y_{\Ro\text{-max}}$ was retired for the fixed $[y_5, y_{\mathrm{jet}}]$
+interval (Section~\ref{sec:diag}): 1a's smooth $\Ro(y)$ has a
+near-equator spike (1.00 at day 960, relaxing to 0.62) and a mid-cell
+bump (0.65 $\to$ 0.64 at $y \approx 1.15\times 10^6$~m), and when they
+traded rank the argmax anchor jumped $1.1\times 10^6$~m, moving the area
+mean 0.476 $\to$ 0.355 from a 0.03 relative-height flip. On the fixed
+interval: area means 0.429 (1a) / 0.424 (1b), fitted 0.480 / 0.485.
+
+\end{document}

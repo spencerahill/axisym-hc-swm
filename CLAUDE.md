@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Python implementation of the Sobel-Schneider single-layer shallow water model for simulating Hadley circulation with parameterized eddy momentum forcing, based on Sobel and Schneider (2009, 2013). The model integrates momentum and thermodynamic equations on an equatorial beta plane using a leapfrog time-stepping scheme with Asselin filtering.
 
-See **SCIENCE.md** for detailed physics background (governing equations, parameterizations, dynamical regimes).
+See **SCIENCE.md** for detailed physics background (governing equations, parameterizations, dynamical regimes). See **docs/fixed_ro_beta_plane_theory.pdf** (source: the `.tex` beside it; rebuild with `latexmk -pdf -output-directory=docs docs/fixed_ro_beta_plane_theory.tex`) for the fixed-Ro suite's beta-plane theory memo and its run record.
 
 ## Git Workflow
 
@@ -144,14 +144,16 @@ pip install -e .
 
 ### Running the Model
 ```bash
-# Run with default parameters
-run-sw-model
+# Run at the default resolution (pass an explicit dt; see warning below)
+run-sw-model --dt 1800
 
 # Run with custom parameters
-run-sw-model --ndays 250 --ny 51 --dt 3600 --theta-e-type sin2 --output-path ./model_output/output.nc
+run-sw-model --ndays 250 --ny 51 --dt 1800 --theta-e-type sin2 --output-path ./model_output/output.nc
 ```
 
-**Smoke-test new configurations.** Before launching any run projected to take more than ~30 minutes, run the same configuration for ~10 days first. Instabilities surface within days and cost seconds to catch (a y0≠0 cold start at small k_v goes NaN by day 9; catching that inside a 15-year launch wastes hours).
+**The default dt=3600 is unstable at the default ny=51** (measured 2026-07-17, production formulation, sin2 forcing, default v_d): a bare `run-sw-model` goes NaN by day 5, and dt=2700 diverges by day 6, while dt=2400 completes 250 days and dt=1800 completes 1000 days cleanly (86400 has no divisors between 2400 and 2700, so the divisor-lattice edge is fully resolved). Use dt=1800 at ny=51 for a ~25% margin. The config default stays 3600 because the bit-exact regression baselines were generated with it; see KNOWN_ISSUES.
+
+**Smoke-test new configurations.** Before launching any run projected to take more than ~30 minutes, run the same configuration for ~10 days first. Instabilities surface within days and cost seconds to catch (a y0≠0 cold start at small k_v goes NaN by day 9; catching that inside a 15-year launch wastes hours). Judge a smoke or stability probe by inspecting its output file (days completed, all-finite fields, gross amplitude), never by grepping the run log: log text can be truncated or mis-piped, and an empty grep is not evidence of stability.
 
 ### Restart/Checkpoint Functionality
 
@@ -188,6 +190,7 @@ run-sw-model --restart-from ./model_output/restart_day0050.nc \
 **Important notes:**
 - Restart files contain instantaneous snapshots at day boundaries, not daily-averaged output
 - Configuration parameters (ny, dt, domain-size, etc.) must match between restart file and new run
+- Restart filenames encode only the day, so concurrent runs sharing `--restart-dir` overwrite each other's same-day checkpoints; give parallel runs separate restart directories (2026-07-17: parallel tier-0 extensions both wrote `restart_day6000.nc` and the second clobbered the first)
 - Steady-state detector history is preserved across restarts for continuous convergence monitoring
 - Moisture state must pair with the run: a moist checkpoint refuses `enable_moisture=False`, and a moist run from a dry checkpoint requires an explicit `--w-init` (see the Moist V1 section)
 - Output files contain only the days simulated in that run (filtered automatically)
@@ -480,6 +483,9 @@ Tests are organized by functionality:
 - `test_sw_model.py`: Unit tests for physics terms and numerical methods
 - `test_theta_e_profile.py`: Tests for theta_e profile implementations
 - `test_theta_e_config.py`: Configuration validation
+- `test_steady_state.py`: Steady-state detector unit tests, including the slow-drift gate
+- `test_daily_results.py`: Daily-average accumulation and NetCDF export
+- `test_read_output.py`: `load_centered` v-reconstruction for both grid layouts
 - `test_cli.py`: Command-line interface tests
 - `test_moisture.py`: Moist V1 (config validation, transport operators, budget/parity/dry-invariance invariants, moist output and restart v3)
 - `test_regression.py`: End-to-end regression tests against baseline output in `ss09/tests/baseline/`
@@ -506,8 +512,10 @@ run-sw-model --stop-at-steady-state --steady-state-window 15 --steady-state-thre
 # Require only one metric to converge instead of both
 run-sw-model --stop-at-steady-state --steady-state-either
 
-# Run for up to 500 days but stop early if steady state reached
-run-sw-model --ndays 500 --stop-at-steady-state
+# NOTE: --ndays and --stop-at-steady-state are mutually exclusive (the
+# CLI refuses the combination). A convergence run carries an internal
+# 200000-day ceiling; the detector does the stopping.
+run-sw-model --stop-at-steady-state
 ```
 
 ### Parameters
@@ -517,6 +525,16 @@ run-sw-model --ndays 500 --stop-at-steady-state
 - `--steady-state-thresh X`: Relative change threshold (default: 0.001 = 0.1%)
 - `--steady-state-either`: Require only one metric to converge instead of both
 - `--v-smooth-thresh X`: Neighbor correlation threshold for v field smoothness (default: 0.5)
+
+### Slow-Drift Gate (budget-grade convergence runs)
+
+The KE/T-variance metrics are nearly blind to the slow jet-position mode, which approaches equilibrium as a decaying oscillation (envelope ~400 d at default drag): runs 1a/1b of the fixed-Ro suite "converged" at day ~960 with the jet still moving −0.7% per 60 d. For runs whose diagnosed numbers must be drift-free, add the slow-drift gate:
+
+```bash
+run-sw-model --stop-at-steady-state --slow-drift-gate
+```
+
+The gate additionally requires the slow diagnostics (northern jet latitude, max |v|, equatorial theta_E − theta) to each have a relative range below `--slow-drift-thresh` (default 0.002 = 0.2%) over the trailing `--slow-drift-window` days (default 0 = auto: the drag timescale 1/epsilon_u in days, 1158 at the default drag; epsilon_u = 0 requires an explicit window). The criterion is a range over a drag-timescale window, deliberately: a trend test false-fires at the oscillation's turning points, where the local slope vanishes while the amplitude does not. Validated 2026-07-17: exact replay on runs 1a/1b fires at day 3683/3912 (vs the contaminated day-960 stop; 35-39% cheaper than a fixed 6000-d run) with every gated quantity settled below 0.02%, and a gated cold-start run reproduced day 3683 exactly. Constraints: requires `--stop-at-steady-state`; non-seasonal runs only (the slow diagnostics oscillate with the seasonal cycle); after `--restart-from` the gate re-fills its window before it can fire (slow histories are not persisted in restart files). The simple alternative for suite runs remains a fixed `--ndays` of at least 5 drag timescales.
 
 ### Convergence Metrics
 

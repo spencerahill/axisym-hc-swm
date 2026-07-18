@@ -68,6 +68,19 @@ class SWConfig:
     steady_state_threshold: float = 0.001
     steady_state_check_both: bool = True
     smoothness_threshold: float = 0.5  # Neighbor correlation threshold for v field smoothness
+    # Slow-drift gate: opt-in additional convergence criterion requiring the
+    # slow diagnostics (jet latitude, max |v|, equatorial depression) to have
+    # a relative range below slow_drift_thresh over a trailing
+    # slow_drift_window days. The KE/Tvar metrics are nearly blind to the
+    # slow jet-position mode (runs 1a-1b, 2026-07-17: the detector fired at
+    # day ~960 with the jet still moving -0.69%/60 d on an oscillatory
+    # ~400-d tail), and the range criterion over a drag-timescale window
+    # sees the ringing amplitude a trend test misses at turning points.
+    # Non-seasonal runs only (the slow diagnostics oscillate with the
+    # seasonal cycle; enforced by SWModel).
+    slow_drift_gate: bool = False
+    slow_drift_window: int = 0  # days; 0 = auto: ceil(1/epsilon_u) in days
+    slow_drift_thresh: float = 0.002
     # Seasonal convergence parameters (for seasonally-varying forcing)
     seasonal_convergence_enabled: bool = False  # Disabled by default - user must opt-in
     seasonal_convergence_window: int = 30  # Days that must match year-to-year
@@ -205,6 +218,29 @@ class SWConfig:
                 "the daily history the seasonal convergence check compares "
                 "year-to-year); pass --stop-at-steady-state alongside "
                 "--seas-conv"
+            )
+
+        if self.slow_drift_gate and not self.enable_steady_state:
+            raise ValueError(
+                "slow_drift_gate=True requires enable_steady_state=True "
+                "(the gate is an additional criterion of the steady-state "
+                "detector); pass --stop-at-steady-state alongside "
+                "--slow-drift-gate"
+            )
+        if self.slow_drift_window < 0:
+            raise ValueError(
+                f"slow_drift_window must be >= 0 (0 = auto); got "
+                f"{self.slow_drift_window}"
+            )
+        if self.slow_drift_gate and self.slow_drift_window == 0:
+            if self.epsilon_u <= 0:
+                raise ValueError(
+                    "the slow-drift window defaults to the drag timescale "
+                    "1/epsilon_u, which needs epsilon_u > 0; pass "
+                    "--slow-drift-window explicitly for a drag-free run"
+                )
+            self.slow_drift_window = int(
+                np.ceil(1.0 / (self.epsilon_u * SECONDS_PER_DAY))
             )
 
         # Validate steady-state parameters
