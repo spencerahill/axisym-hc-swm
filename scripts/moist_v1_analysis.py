@@ -33,6 +33,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from ss09.read_output import load_centered
+
 # Spec-pinned column constants (guides/moist_axisymmetric_model_spec.pdf).
 C_COLUMN = 5.2e6  # J m^-2 K^-1, column heat capacity c_p Pi Dp / g
 L_V = 2.5e6  # J kg^-1, latent heat; C * Lambda_conv with Lambda_conv = 0.48
@@ -63,16 +65,38 @@ def load_equilibrium(path, last_n=10):
         days = int(ds["time"].values[-1])
     finally:
         ds.close()
+    # v reconstructed at the centers (last-n-day mean), for the mean MSE flux.
+    _, _, v_all, _ = load_centered(path)
+    v = v_all[max(0, n - last_n):n].mean(axis=0)
     shat = C_COLUMN * delta * delta_z / height
     dy = y[1] - y[0]
     hhat = shat - L_V * (2.0 * a - 1.0) * w
     eddy_flux = -L_V * d_w * np.gradient(w, dy)
+    mean_flux = v * hhat
     return dict(
-        y=y, w=w, p=p, a=a, d_w=d_w, w_crit=w_crit, tau_c=tau_c, evap=evap,
-        shat=shat, hhat=hhat, eddy_flux=eddy_flux, days=days,
+        y=y, w=w, p=p, v=v, a=a, d_w=d_w, w_crit=w_crit, tau_c=tau_c, evap=evap,
+        shat=shat, hhat=hhat, eddy_flux=eddy_flux, mean_flux=mean_flux, days=days,
         w_collar=w_crit + tau_c * evap,
         w_hhat_zero=shat / (L_V * (2.0 * a - 1.0)),
     )
+
+
+def load_timeseries(path):
+    """Return the daily-scalar time series for a convergence figure."""
+    ds = xr.open_dataset(path, decode_timedelta=False)
+    try:
+        out = dict(
+            t=ds["time"].values,
+            ke=ds["steady_state_kinetic_energy"].values,
+            tvar=ds["steady_state_temp_variance"].values,
+            jet_lat=ds["north_jet_lat"].values / 1e6,
+            w_mean=ds["W_mean"].values,
+            w_min=ds["W_min"].values,
+            gate_day=int(ds["time"].values[-1]),
+        )
+    finally:
+        ds.close()
+    return out
 
 
 def scorecard(runs):
@@ -132,12 +156,84 @@ def make_figure(runs, out_png):
     print(f"\nWrote {out_png}")
 
 
+def make_convergence_figure(ts, gate_day, out_png):
+    """Time series showing the run reaching steady state and the slow-drift
+    gate firing. The dry metrics are identical across the ladder (W passive),
+    so one run (D=1e6) represents them all."""
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True)
+    t = ts["t"]
+    axes[0, 0].plot(t, ts["ke"], color="#4477AA")
+    axes[0, 0].set_ylabel("KE (m$^2$ s$^{-2}$)")
+    axes[0, 0].set_title("Domain kinetic energy")
+    axes[0, 1].plot(t, ts["tvar"], color="#4477AA")
+    axes[0, 1].set_ylabel(r"std($\theta$) (K)")
+    axes[0, 1].set_title("Temperature variance")
+    axes[1, 0].plot(t, ts["jet_lat"], color="#EE6677")
+    axes[1, 0].set_ylabel("north jet latitude (Mm)")
+    axes[1, 0].set_title("Slow jet-position mode (drift gate)")
+    axes[1, 1].plot(t, ts["w_mean"], color="#228833", label=r"$\langle W\rangle$")
+    axes[1, 1].plot(t, ts["w_min"], color="#CCBB44", label="min $W$")
+    axes[1, 1].set_ylabel("W (kg m$^{-2}$)")
+    axes[1, 1].set_title("Column moisture spin-up")
+    axes[1, 1].legend(fontsize=8)
+    for ax in axes.flat:
+        ax.axvline(gate_day, ls="--", c="gray", lw=1)
+        ax.grid(alpha=0.3)
+    for ax in axes[1, :]:
+        ax.set_xlabel("day")
+    axes[0, 0].annotate(f"gate fires\nday {gate_day}", xy=(gate_day, axes[0, 0].get_ylim()[1]),
+                        xytext=(-90, -14), textcoords="offset points", fontsize=8, color="gray")
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=130)
+    print(f"Wrote {out_png}")
+
+
+def make_dsensitivity_figure(runs, out_png):
+    """The D leverage on W (hidden by the overlay), the eddy-flux D-scaling,
+    the equilibrium overturning that sets the mean flux, and the MSE-flux
+    decomposition into mean (v Hhat) and eddy (-L_v D dW/dy) parts."""
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+    colors = ("#4477AA", "#EE6677", "#228833")
+    y = runs[0]["y"] / 1e6
+    for lab, r, c in zip(D_LABELS[1:], runs[1:], colors[1:]):
+        axes[0, 0].plot(y, r["w"] - runs[0]["w"], color=c, label=f"{lab} - D=0")
+    axes[0, 0].set_title("D leverage on W: W(D) - W(D=0)")
+    axes[0, 0].set_ylabel(r"$\Delta W$ (kg m$^{-2}$)")
+    for lab, r, c in zip(D_LABELS, runs, colors):
+        axes[0, 1].plot(y, r["eddy_flux"] / 1e6, color=c, label=lab)
+    axes[0, 1].set_title(r"Eddy MSE flux $-L_v D\,\partial_y W$")
+    axes[0, 1].set_ylabel("MW m$^{-1}$")
+    r1 = runs[1]  # dry circulation is identical across the ladder
+    axes[1, 0].plot(y, r1["v"], color="#4477AA")
+    axes[1, 0].set_title("Equilibrium overturning v (weak: |v|$_{max}$ %.2f m s$^{-1}$)"
+                         % np.max(np.abs(r1["v"])))
+    axes[1, 0].set_ylabel("v (m s$^{-1}$)")
+    axes[1, 1].plot(y, r1["mean_flux"] / 1e6, color="#4477AA", label=r"mean $v\hat H$")
+    axes[1, 1].plot(y, r1["eddy_flux"] / 1e6, color="#EE6677",
+                    label=r"eddy $-L_vD\partial_yW$ (D=1e6)")
+    axes[1, 1].set_title("MSE flux decomposition (mean dominates)")
+    axes[1, 1].set_ylabel("MW m$^{-1}$")
+    for ax in axes.flat:
+        ax.axhline(0, ls=":", c="gray", lw=1)
+        ax.set_xlabel("y (Mm)")
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(fontsize=8)
+        ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=130)
+    print(f"Wrote {out_png}")
+
+
 def main():
     run_dir = sys.argv[1] if len(sys.argv) > 1 else "model_output/moist_v1_validation"
     out_png = sys.argv[2] if len(sys.argv) > 2 else os.path.join(run_dir, "moist_v1_ladder.png")
     runs = [load_equilibrium(os.path.join(run_dir, d, "out.nc")) for d in D_DIRS]
     scorecard(runs)
     make_figure(runs, out_png)
+    base, ext = os.path.splitext(out_png)
+    ts = load_timeseries(os.path.join(run_dir, "D1", "out.nc"))
+    make_convergence_figure(ts, ts["gate_day"], base + "_convergence" + ext)
+    make_dsensitivity_figure(runs, base + "_dsensitivity" + ext)
 
 
 if __name__ == "__main__":
