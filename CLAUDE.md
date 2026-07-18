@@ -153,7 +153,7 @@ run-sw-model --ndays 250 --ny 51 --dt 1800 --theta-e-type sin2 --output-path ./m
 
 **The default dt=3600 is unstable at the default ny=51** (measured 2026-07-17, production formulation, sin2 forcing, default v_d): a bare `run-sw-model` goes NaN by day 5, and dt=2700 diverges by day 6, while dt=2400 completes 250 days and dt=1800 completes 1000 days cleanly (86400 has no divisors between 2400 and 2700, so the divisor-lattice edge is fully resolved). Use dt=1800 at ny=51 for a ~25% margin. The config default stays 3600 because the bit-exact regression baselines were generated with it; see KNOWN_ISSUES.
 
-**Smoke-test new configurations.** Before launching any run projected to take more than ~30 minutes, run the same configuration for ~10 days first. Instabilities surface within days and cost seconds to catch (a y0≠0 cold start at small k_v goes NaN by day 9; catching that inside a 15-year launch wastes hours).
+**Smoke-test new configurations.** Before launching any run projected to take more than ~30 minutes, run the same configuration for ~10 days first. Instabilities surface within days and cost seconds to catch (a y0≠0 cold start at small k_v goes NaN by day 9; catching that inside a 15-year launch wastes hours). Judge a smoke or stability probe by inspecting its output file (days completed, all-finite fields, gross amplitude), never by grepping the run log: log text can be truncated or mis-piped, and an empty grep is not evidence of stability.
 
 ### Restart/Checkpoint Functionality
 
@@ -190,6 +190,7 @@ run-sw-model --restart-from ./model_output/restart_day0050.nc \
 **Important notes:**
 - Restart files contain instantaneous snapshots at day boundaries, not daily-averaged output
 - Configuration parameters (ny, dt, domain-size, etc.) must match between restart file and new run
+- Restart filenames encode only the day, so concurrent runs sharing `--restart-dir` overwrite each other's same-day checkpoints; give parallel runs separate restart directories (2026-07-17: parallel tier-0 extensions both wrote `restart_day6000.nc` and the second clobbered the first)
 - Steady-state detector history is preserved across restarts for continuous convergence monitoring
 - Output files contain only the days simulated in that run (filtered automatically)
 - **Seasonal forcing requires SB08 profile**: The `--y0-seas-amp` parameter only works with `--theta-e-type SB08`. Using seasonal parameters with SS09 or sin2 profiles will raise an error.
