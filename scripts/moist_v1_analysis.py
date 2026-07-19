@@ -218,7 +218,7 @@ def make_dsensitivity_figure(runs, out_png):
     axes[0, 1].set_ylabel("MW m$^{-1}$")
     r1 = runs[1]  # dry circulation is identical across the ladder
     axes[1, 0].plot(y, r1["v"], color="#4477AA")
-    axes[1, 0].set_title("Equilibrium overturning v (weak: |v|$_{max}$ %.2f m s$^{-1}$)"
+    axes[1, 0].set_title(r"Equilibrium overturning v (|v|$_{max}$ %.2f m s$^{-1}$, set by $v_d$)"
                          % np.max(np.abs(r1["v"])))
     axes[1, 0].set_ylabel("v (m s$^{-1}$)")
     axes[1, 1].plot(y, r1["mean_flux"] / 1e6, color="#4477AA", label=r"mean MSE $v\hat H$")
