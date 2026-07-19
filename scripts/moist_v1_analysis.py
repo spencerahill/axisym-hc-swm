@@ -12,7 +12,7 @@ evaluates the diagnostic MSE-budget quantities the V1 spec calls for
 with Shat = C d Dz / H the gross dry stability and the spec's pinned
 column constants C = 5.2e6 J/m^2/K, L_v = C * Lambda_conv = 2.5e6 J/kg.
 
-Checks the equilibria against the plan's expectations: quiescent collars at
+Checks the equilibria against the plan's expectations: quiescent plateaus at
 W_c + tau_c E_0, precipitation localized at the ITCZ with W there pinned near
 W_c, subtropical W minima, and Hhat < 0 wherever W exceeds Shat/(L_v(2a-1)).
 
@@ -90,7 +90,7 @@ def load_equilibrium(path, last_n=10):
         delta=delta, delta_z=delta_z, height=height,
         shat=shat, hhat=hhat, dse_flux=dse_flux, lvq_flux=lvq_flux,
         eddy_flux=eddy_flux, mean_flux=mean_flux, fv=fv, emfd=emfd, drag=drag,
-        days=days, w_collar=w_crit + tau_c * evap,
+        days=days, w_plateau=w_crit + tau_c * evap,
         w_hhat_zero=shat / (L_V * (2.0 * a - 1.0)),
     )
 
@@ -116,18 +116,18 @@ def load_timeseries(path):
 def scorecard(runs):
     """Print the plan's expectation checks for each run."""
     print(f"{'':6} {'days':>5} {'W(eq)':>8} {'W_min':>8} {'y_min':>8} "
-          f"{'W_collar':>9} {'collar':>8} {'Pmax':>10} {'y_Pmax':>8} "
+          f"{'W_q_pred':>9} {'plateau':>8} {'Pmax':>10} {'y_Pmax':>8} "
           f"{'Hhat(0)':>10} {'W>zero%':>8}")
     for lab, r in zip(D_LABELS, runs):
         y_mm = r["y"] / 1e6
         i_eq = int(np.argmin(np.abs(r["y"])))
         i_wmin = int(np.argmin(r["w"]))
         i_pmax = int(np.argmax(r["p"]))
-        collar = 0.5 * (r["w"][0] + r["w"][-1])
+        plateau = 0.5 * (r["w"][0] + r["w"][-1])
         frac_super = float(np.mean(r["w"] > r["w_hhat_zero"])) * 100
         print(f"{lab:6} {r['days']:>5} {r['w'][i_eq]:>8.2f} "
               f"{r['w'][i_wmin]:>8.2f} {y_mm[i_wmin]:>8.2f} "
-              f"{r['w_collar']:>9.3f} {collar:>8.3f} "
+              f"{r['w_plateau']:>9.3f} {plateau:>8.3f} "
               f"{r['p'][i_pmax]*86400:>10.4f} {y_mm[i_pmax]:>8.2f} "
               f"{r['hhat'][i_eq]:>10.3e} {frac_super:>8.1f}")
     r0 = runs[0]
@@ -148,7 +148,7 @@ def make_figure(runs, out_png):
         axes[1, 1].plot(y, r["eddy_flux"] / 1e6, color=c, label=lab)
     r0 = runs[0]
     axes[0, 0].axhline(r0["w_crit"], ls=":", c="gray", lw=1, label="W_c")
-    axes[0, 0].axhline(r0["w_collar"], ls="--", c="gray", lw=1,
+    axes[0, 0].axhline(r0["w_plateau"], ls="--", c="gray", lw=1,
                        label="W_c+tau_c E_0")
     axes[0, 0].set_ylabel("W (kg m$^{-2}$)")
     axes[0, 0].set_title("Column water vapor")

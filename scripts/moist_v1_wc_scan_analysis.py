@@ -55,22 +55,22 @@ def scorecard(runs):
     y_star = r0["y"][i_star] / 1e6
     print(f"Signed northward fluxes evaluated at y* = {y_star:.2f} Mm "
           f"(northern max |v| of the shared dry circulation)\n")
-    print(f"{'W_c':>5} {'days':>5} {'W(0)':>7} {'collar':>7} {'pred':>7} "
+    print(f"{'W_c':>5} {'days':>5} {'W(0)':>7} {'plateau':>7} {'pred':>7} "
           f"{'Pmax':>7} {'Pmin':>7} {'Hhat(0)':>9} {'Hh<0%':>6} "
           f"{'DSE*':>8} {'Lvq*':>8} {'net*':>8} {'eddy*':>8}")
     for r in runs:
         i_eq = int(np.argmin(np.abs(r["y"])))
-        collar = 0.5 * (r["w"][0] + r["w"][-1])
+        plateau = 0.5 * (r["w"][0] + r["w"][-1])
         frac_neg = float(np.mean(r["hhat"] < 0.0)) * 100
         print(f"{r['w_crit']:>5.0f} {r['days']:>5} {r['w'][i_eq]:>7.2f} "
-              f"{collar:>7.3f} {r['w_collar']:>7.3f} "
+              f"{plateau:>7.3f} {r['w_plateau']:>7.3f} "
               f"{r['p'].max()*86400:>7.3f} {r['p'].min()*86400:>7.3f} "
               f"{r['hhat'][i_eq]/1e6:>9.2f} {frac_neg:>6.1f} "
               f"{r['dse_flux'][i_star]/1e6:>8.2f} {r['lvq_flux'][i_star]/1e6:>8.2f} "
               f"{r['mean_flux'][i_star]/1e6:>8.2f} {r['eddy_flux'][i_star]/1e6:>8.2f}")
     print(f"\nW(Hhat=0) = {r0['w_hhat_zero']:.2f} kg/m^2; predicted crossover "
           f"W_c* = {r0['w_hhat_zero'] - r0['tau_c'] * r0['evap']:.2f} kg/m^2.")
-    print("W and collar in kg/m^2, P in mm/day, Hhat in MJ/m^2, fluxes in MW/m.")
+    print("W and plateau in kg/m^2, P in mm/day, Hhat in MJ/m^2, fluxes in MW/m.")
 
 
 def make_ladder_figure(runs, colors, out_png):
@@ -146,12 +146,12 @@ def make_crossover_figure(runs, colors, out_png):
 
     ax = axes[1, 0]
     for r, c in zip(runs, colors):
-        ax.plot(r["y"] / 1e6, r["w"] - r["w_collar"], color=c,
+        ax.plot(r["y"] / 1e6, r["w"] - r["w_plateau"], color=c,
                 label=f"$W_c$={r['w_crit']:.0f}")
     ax.axhline(0, ls=":", c="gray", lw=1)
     ax.set_xlabel("y (Mm)")
     ax.set_ylabel(r"$W - (W_c + \tau_c E_0)$ (kg m$^{-2}$)")
-    ax.set_title("Transport-driven W structure (collar removed)")
+    ax.set_title("Transport-driven W structure (quiescent plateau removed)")
 
     ax = axes[1, 1]
     for r, c in zip(runs, colors):

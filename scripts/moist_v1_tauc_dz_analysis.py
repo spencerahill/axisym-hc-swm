@@ -6,12 +6,20 @@ point (tau_c = 14400 s, Delta_z = 60 K, W_c = 50, D = 1e6):
 
 tau_c ladder (tc1800/tc7200/tc57600/tc172800). Moist-only: W is passive and
 tau_c enters nothing dry, so the dry fields must be bit-identical to D1 (the
-script checks every daily u field). tau_c sets the quiescent collar
-W = W_c + tau_c E_0, the linear deepening of Hhat = Shat - L_v(2a-1)W with
-tau_c, and the amplitude of the transport-driven W departures from the
-collar (relaxation time tau_c times the local moisture-flux convergence).
+script checks every daily u field). tau_c sets the quiescent-plateau W level
+W_q = W_c + tau_c E_0 (P = E_0 there requires W to sit tau_c E_0 above
+threshold: slower convective removal means a moister column at the same
+rain rate), and hence the linear deepening of Hhat = Shat - L_v(2a-1)W.
+The transport departures W - W_q scale ~linearly with tau_c while their
+shape, (W - W_q)/tau_c = P - E_0 = -div(F), stays fixed: the moisture-flux
+convergence is set by the (tau_c-independent) dry v and the nearly-fixed W.
+At W_c = 50 > W* the plateau starts above the crossover and tau_c -> 0 only
+brings Hhat up to Shat - L_v(2a-1)W_c < 0, so no tau_c reaches the
+crossover; the wc40tc1800/wc40tc172800 pair demonstrates that at
+W_c = 40 < W* the same dial does cross it, at the predicted
+tau_c* = (W* - W_c)/E_0.
 
-Delta_z ladder (dz45/dz68p2/dz75/dz90). Delta_z sits in the dry theta
+Delta_z ladder (dz30/dz45/dz68p2/dz75/dz90). Delta_z sits in the dry theta
 equation's vertical-advection term (vert_advec_theta), so these runs change
 the dry circulation itself as well as the diagnosed gross stabilities:
 Shat = C delta Delta_z / H, hence the crossover W* = Shat/(L_v(2a-1)) moves
@@ -22,7 +30,7 @@ The dz68p2 rung sits at that predicted crossover.
 Usage:
     python scripts/moist_v1_tauc_dz_analysis.py [scan_dir] [d1_path]
 
-scan_dir defaults to model_output/moist_v1_tauc_dz (subdirs tc*/dz*);
+scan_dir defaults to model_output/moist_v1_tauc_dz (subdirs tc*/dz*/wc40*);
 d1_path defaults to model_output/moist_v1_validation/D1/out.nc.
 Figures are written into scan_dir.
 """
@@ -42,11 +50,15 @@ from moist_v1_analysis import load_equilibrium, C_COLUMN, L_V
 
 TC_VALUES = (1800.0, 7200.0, 14400.0, 57600.0, 172800.0)
 TC_DIRS = ("tc1800", "tc7200", None, "tc57600", "tc172800")  # None -> D1
-DZ_VALUES = (45.0, 60.0, 68.2, 75.0, 90.0)
-DZ_DIRS = ("dz45", None, "dz68p2", "dz75", "dz90")
+DZ_VALUES = (30.0, 45.0, 60.0, 68.2, 75.0, 90.0)
+DZ_DIRS = ("dz30", "dz45", None, "dz68p2", "dz75", "dz90")
+WC40_VALUES = (1800.0, 172800.0)
+WC40_DIRS = ("wc40tc1800", "wc40tc172800")
 
-# Flux-decomposition colors (validated categorical triple + black net).
+# Flux-decomposition colors (validated categorical triple + black net);
+# the W_c pair in the crossover panel uses the Tol vibrant blue/orange pair.
 C_DSE, C_LVQ, C_EDDY = "#CC6677", "#0077BB", "#999933"
+C_WC50, C_WC40 = "#0077BB", "#EE7733"
 
 
 def run_paths(scan_dir, d1_path, dirs):
@@ -80,27 +92,40 @@ def dz_star_of_w(r, w):
     return L_V * (2.0 * r["a"] - 1.0) * np.asarray(w) / ds_dz
 
 
-def scorecard_tc(runs, extras, u_ref):
-    print("=== tau_c ladder (Delta_z=60; dry fields must be bit-identical "
-          "to D1) ===")
-    print(f"{'tau_c':>7} {'days':>5} {'collar':>8} {'pred':>8} {'|c-p|':>8} "
+def tauc_star_of(r):
+    """The tau_c at which the plateau W_q reaches the crossover W*."""
+    return (r["w_hhat_zero"] - r["w_crit"]) / r["evap"]
+
+
+def scorecard_tc(runs, extras, u_ref, wc40_runs, wc40_extras):
+    print("=== tau_c ladder (W_c=50, Delta_z=60; dry fields must be "
+          "bit-identical to D1) ===")
+    print(f"{'tau_c':>7} {'days':>5} {'plateau':>8} {'pred':>8} {'|p-p|':>8} "
           f"{'dW+':>7} {'dW-':>7} {'Pmax':>7} {'Pmin':>7} {'Hhat(0)':>9} "
           f"{'Hh<0%':>6} {'Wdrift':>8} {'max|du|':>8} {'max|dP|':>8}")
     p_ref = runs[2]["p"]
-    for r, ex in zip(runs, extras):
-        collar = 0.5 * (r["w"][0] + r["w"][-1])
+
+    def row(r, ex):
+        plateau = 0.5 * (r["w"][0] + r["w"][-1])
         i_eq = int(np.argmin(np.abs(r["y"])))
         du = (np.abs(ex["u_daily"] - u_ref).max()
               if ex["u_daily"].shape == u_ref.shape else np.nan)
         dp = np.abs(r["p"] - p_ref).max() * 86400
-        print(f"{r['tau_c']:>7.0f} {r['days']:>5} {collar:>8.3f} "
-              f"{r['w_collar']:>8.3f} {abs(collar - r['w_collar']):>8.1e} "
-              f"{r['w'].max() - collar:>7.3f} {collar - r['w'].min():>7.3f} "
+        print(f"{r['tau_c']:>7.0f} {r['days']:>5} {plateau:>8.3f} "
+              f"{r['w_plateau']:>8.3f} {abs(plateau - r['w_plateau']):>8.1e} "
+              f"{r['w'].max() - plateau:>7.3f} {plateau - r['w'].min():>7.3f} "
               f"{r['p'].max() * 86400:>7.3f} {r['p'].min() * 86400:>7.3f} "
               f"{r['hhat'][i_eq] / 1e6:>9.2f} "
               f"{np.mean(r['hhat'] < 0) * 100:>6.1f} {ex['w_drift']:>8.1e} "
               f"{du:>8.1e} {dp:>8.4f}")
-    print("collar/pred/dW in kg/m^2, P in mm/day, Hhat in MJ/m^2; Wdrift = "
+
+    for r, ex in zip(runs, extras):
+        row(r, ex)
+    print("\n--- W_c=40 pair: the same dial crosses the GMS boundary when "
+          f"W_c < W* (predicted tau_c* = {tauc_star_of(wc40_runs[0]):.0f} s) ---")
+    for r, ex in zip(wc40_runs, wc40_extras):
+        row(r, ex)
+    print("plateau/pred/dW in kg/m^2, P in mm/day, Hhat in MJ/m^2; Wdrift = "
           "range of W_mean over the trailing 100 d; max|du| vs D1 over all "
           "daily fields (0.0 = bit-identical dry circulation); max|dP| vs "
           "D1 equilibrium P in mm/day.")
@@ -124,10 +149,10 @@ def scorecard_dz(runs, extras):
               f"{r['lvq_flux'][i_s] / 1e6:>8.2f} "
               f"{r['mean_flux'][i_s] / 1e6:>8.2f} "
               f"{r['eddy_flux'][i_s] / 1e6:>8.2f} {ex['w_drift']:>8.1e}")
-    r0 = runs[1]
+    r0 = runs[2]
     print(f"Predicted crossover Delta_z* = "
-          f"{dz_star_of_w(r0, r0['w_collar']):.2f} K (collar W = "
-          f"{r0['w_collar']:.3f}); Shat in J/m^2, W in kg/m^2, u/v in m/s, "
+          f"{dz_star_of_w(r0, r0['w_plateau']):.2f} K (plateau W = "
+          f"{r0['w_plateau']:.3f}); Shat in J/m^2, W in kg/m^2, u/v in m/s, "
           f"Hhat in MJ/m^2, fluxes (at each run's own y*) in MW/m.")
 
 
@@ -136,13 +161,13 @@ def make_tc_ladder_figure(runs, colors, out_png):
     for r, c in zip(runs, colors):
         y = r["y"] / 1e6
         lab = f"$\\tau_c$={r['tau_c']:.0f} s"
-        collar = 0.5 * (r["w"][0] + r["w"][-1])
+        plateau = 0.5 * (r["w"][0] + r["w"][-1])
         axes[0, 0].plot(y, r["w"], color=c, label=lab)
         axes[0, 1].plot(y, r["p"] * 86400, color=c, label=lab)
         axes[1, 0].plot(y, r["hhat"] / 1e6, color=c, label=lab)
-        axes[1, 1].plot(y, r["w"] - collar, color=c, label=lab)
+        axes[1, 1].plot(y, r["w"] - plateau, color=c, label=lab)
     axes[0, 0].set_ylabel("W (kg m$^{-2}$)")
-    axes[0, 0].set_title(r"W: collar rises as $W_c + \tau_c E_0$")
+    axes[0, 0].set_title(r"W: quiescent plateau rises as $W_c + \tau_c E_0$")
     axes[0, 1].set_ylabel("P (mm day$^{-1}$)")
     axes[0, 1].set_title(r"P: equilibrium profile nearly $\tau_c$-independent")
     axes[1, 0].axhline(0, ls=":", c="gray", lw=1)
@@ -150,7 +175,7 @@ def make_tc_ladder_figure(runs, colors, out_png):
     axes[1, 0].set_title(r"$\hat H$ deepens linearly with $\tau_c$ "
                          "(all moisture-mode at $W_c$=50)")
     axes[1, 1].axhline(0, ls=":", c="gray", lw=1)
-    axes[1, 1].set_ylabel(r"$W -$ collar (kg m$^{-2}$)")
+    axes[1, 1].set_ylabel(r"$W - W_q$ (kg m$^{-2}$)")
     axes[1, 1].set_title(r"Transport departures grow with $\tau_c$")
     for ax in axes[1, :]:
         ax.set_xlabel("y (Mm)")
@@ -162,49 +187,55 @@ def make_tc_ladder_figure(runs, colors, out_png):
     print(f"Wrote {out_png}")
 
 
-def make_tc_summary_figure(runs, out_png):
+def make_tc_summary_figure(runs, wc40_runs, colors, out_png):
     tc = np.array([r["tau_c"] for r in runs])
     r0 = runs[2]
     i_s = i_star_of(r0)
-    collar = np.array([0.5 * (r["w"][0] + r["w"][-1]) for r in runs])
-    pred = np.array([r["w_collar"] for r in runs])
-    dwp = np.array([r["w"].max() - c for r, c in zip(runs, collar)])
-    dwm = np.array([c - r["w"].min() for r, c in zip(runs, collar)])
-    h0 = np.array([r["hhat"][int(np.argmin(np.abs(r["y"])))]
-                   for r in runs]) / 1e6
-    hmin = np.array([r["hhat"].min() for r in runs]) / 1e6
-    hmax = np.array([r["hhat"].max() for r in runs]) / 1e6
+    plateau = np.array([0.5 * (r["w"][0] + r["w"][-1]) for r in runs])
+    dwp = np.array([r["w"].max() - c for r, c in zip(runs, plateau)])
+    dwm = np.array([c - r["w"].min() for r, c in zip(runs, plateau)])
     tc_fine = np.geomspace(tc[0], tc[-1], 200)
-    h_pred = (r0["shat"] - L_V * (2 * r0["a"] - 1)
-              * (r0["w_crit"] + tc_fine * r0["evap"])) / 1e6
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
 
     ax = axes[0, 0]
-    ax.semilogx(tc_fine, r0["w_crit"] + tc_fine * r0["evap"], "-", c="gray",
-                lw=1, label=r"predicted $W_c + \tau_c E_0$")
-    ax.semilogx(tc, collar, "o", c="#0077BB", label="measured collar")
-    ax.set_ylabel("collar W (kg m$^{-2}$)")
-    ax.set_title("Quiescent collar tracks the local balance "
-                 f"(max dev {np.abs(collar - pred).max():.1e})")
+    for r, c in zip(runs, colors):
+        wq = 0.5 * (r["w"][0] + r["w"][-1])
+        ax.plot(r["y"] / 1e6, (r["w"] - wq) / r["tau_c"] * 86400, color=c,
+                label=f"$\\tau_c$={r['tau_c']:.0f} s")
+    ax.axhline(0, ls=":", c="gray", lw=1)
+    ax.set_xlabel("y (Mm)")
+    ax.set_ylabel(r"$(W - W_q)/\tau_c$ (kg m$^{-2}$ day$^{-1}$)")
+    ax.set_title(r"Departure shape $= P - E_0 = -\partial_y F$: "
+                 r"$\tau_c$-invariant transport convergence")
 
     ax = axes[0, 1]
-    ax.loglog(tc, dwp, "o-", c="#CC6677", label=r"ITCZ bump max$(W)-$collar")
-    ax.loglog(tc, dwm, "o-", c="#0077BB", label=r"subtrop deficit collar$-$min$(W)$")
+    ax.loglog(tc, dwp, "o-", c="#CC6677", label=r"ITCZ bump max$(W)-W_q$")
+    ax.loglog(tc, dwm, "o-", c="#0077BB", label=r"subtrop deficit $W_q-$min$(W)$")
     ax.loglog(tc, dwp[2] * tc / tc[2], "--", c="gray", lw=1,
               label=r"slope 1 ($\propto\tau_c$)")
-    ax.set_ylabel(r"$|W -$ collar$|$ (kg m$^{-2}$)")
+    ax.set_xlabel(r"$\tau_c$ (s)")
+    ax.set_ylabel(r"$|W - W_q|$ (kg m$^{-2}$)")
     ax.set_title(r"Departure amplitude scales $\sim\tau_c$")
 
     ax = axes[1, 0]
-    ax.semilogx(tc_fine, h_pred, "-", c="gray", lw=1,
-                label=r"predicted $\hat S - L_v(2a{-}1)(W_c+\tau_c E_0)$")
-    ax.fill_between(tc, hmin, hmax, color="#BBBBBB", alpha=0.5,
-                    label="domain range")
-    ax.semilogx(tc, h0, "o", c="#0077BB", label=r"$\hat H(0)$ (ITCZ)")
+    for wc, pts, col in ((50.0, runs, C_WC50), (40.0, wc40_runs, C_WC40)):
+        h_pred = (r0["shat"] - L_V * (2 * r0["a"] - 1)
+                  * (wc + tc_fine * r0["evap"])) / 1e6
+        ax.semilogx(tc_fine, h_pred, "-", c=col, lw=1, alpha=0.5,
+                    label=f"$\\hat H(W_q)$ prediction, $W_c$={wc:.0f}")
+        h0 = np.array([r["hhat"][int(np.argmin(np.abs(r["y"])))]
+                       for r in pts]) / 1e6
+        ax.semilogx([r["tau_c"] for r in pts], h0, "o", c=col,
+                    label=f"$\\hat H(0)$, $W_c$={wc:.0f}")
+    tc_star = tauc_star_of(wc40_runs[0])
+    ax.axvline(tc_star, ls="--", c=C_WC40, lw=1,
+               label=f"predicted $\\tau_c^*$({40:.0f}) = {tc_star:.0f} s")
     ax.axhline(0, ls=":", c="gray", lw=1)
+    ax.set_xlabel(r"$\tau_c$ (s)")
     ax.set_ylabel(r"$\hat H$ (MJ m$^{-2}$)")
-    ax.set_title(r"$\hat H$ deepens with $\tau_c$; no sign change at $W_c=50$")
+    ax.set_title(r"$\tau_c$ crosses the GMS boundary iff $W_c < W^*$: "
+                 r"$W_c$=50 saturates, $W_c$=40 flips sign")
 
     ax = axes[1, 1]
     dse = np.array([r["dse_flux"][i_s] for r in runs]) / 1e6
@@ -216,12 +247,12 @@ def make_tc_summary_figure(runs, out_png):
     ax.semilogx(tc, net, "o-", c="k", lw=2, label=r"net mean $v\hat H$")
     ax.semilogx(tc, eddy, "o--", c=C_EDDY, label=r"eddy $-L_vD\partial_yW$")
     ax.axhline(0, ls=":", c="gray", lw=1)
+    ax.set_xlabel(r"$\tau_c$ (s)")
     ax.set_ylabel(f"northward flux at y*={r0['y'][i_s] / 1e6:.2f} Mm "
                   "(MW m$^{-1}$)")
     ax.set_title("Mean-flux components (dry v fixed across the ladder)")
 
     for ax in axes.flat:
-        ax.set_xlabel(r"$\tau_c$ (s)")
         ax.legend(fontsize=8)
         ax.grid(alpha=0.3, which="both")
     fig.tight_layout()
@@ -239,7 +270,7 @@ def make_dz_ladder_figure(runs, colors, out_png):
         axes[1, 0].plot(y, r["hhat"] / 1e6, color=c, label=lab)
         axes[1, 1].plot(y, r["mean_flux"] / 1e6, color=c, label=lab)
     axes[0, 0].set_ylabel("W (kg m$^{-2}$)")
-    axes[0, 0].set_title(r"W: collar pinned by $W_c+\tau_c E_0$, structure "
+    axes[0, 0].set_title(r"W: plateau pinned by $W_c+\tau_c E_0$, structure "
                          "by the changing dry v")
     axes[0, 1].set_ylabel("P (mm day$^{-1}$)")
     axes[0, 1].set_title("Precipitation")
@@ -262,11 +293,11 @@ def make_dz_ladder_figure(runs, colors, out_png):
 
 def make_dz_summary_figure(runs, tc_runs, out_png):
     dz = np.array([r["delta_z"] for r in runs])
-    r0 = runs[1]
+    r0 = runs[2]
     dz_fine = np.linspace(dz[0], dz[-1], 200)
     h_pred = (C_COLUMN * r0["delta"] * dz_fine / r0["height"]
-              - L_V * (2 * r0["a"] - 1) * r0["w_collar"]) / 1e6
-    dz_star = dz_star_of_w(r0, r0["w_collar"])
+              - L_V * (2 * r0["a"] - 1) * r0["w_plateau"]) / 1e6
+    dz_star = dz_star_of_w(r0, r0["w_plateau"])
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
 
@@ -276,7 +307,7 @@ def make_dz_summary_figure(runs, tc_runs, out_png):
     hmin = np.array([r["hhat"].min() for r in runs]) / 1e6
     hmax = np.array([r["hhat"].max() for r in runs]) / 1e6
     ax.plot(dz_fine, h_pred, "-", c="gray", lw=1,
-            label=r"predicted $\hat S(\Delta_z) - L_v(2a{-}1)\,$collar")
+            label=r"predicted $\hat S(\Delta_z) - L_v(2a{-}1)\,W_q$")
     ax.fill_between(dz, hmin, hmax, color="#BBBBBB", alpha=0.5,
                     label="domain range")
     ax.plot(dz, h0, "o", c="#0077BB", label=r"$\hat H(0)$ (ITCZ)")
@@ -305,10 +336,10 @@ def make_dz_summary_figure(runs, tc_runs, out_png):
     ax = axes[1, 0]
     ujet = np.array([r["u"].max() for r in runs])
     vmax = np.array([np.abs(r["v"]).max() for r in runs])
-    ax.plot(dz, 100 * ujet / ujet[1], "o-", c="#CC6677",
-            label=f"jet max u (100% = {ujet[1]:.1f} m/s)")
-    ax.plot(dz, 100 * vmax / vmax[1], "o-", c="#0077BB",
-            label=f"max |v| (100% = {vmax[1]:.2f} m/s)")
+    ax.plot(dz, 100 * ujet / ujet[2], "o-", c="#CC6677",
+            label=f"jet max u (100% = {ujet[2]:.1f} m/s)")
+    ax.plot(dz, 100 * vmax / vmax[2], "o-", c="#0077BB",
+            label=f"max |v| (100% = {vmax[2]:.2f} m/s)")
     ax.axhline(100, ls=":", c="gray", lw=1)
     ax.set_xlabel(r"$\Delta_z$ (K)")
     ax.set_ylabel(r"% of $\Delta_z=60$ value")
@@ -320,7 +351,7 @@ def make_dz_summary_figure(runs, tc_runs, out_png):
     ax.semilogx(tc_fine,
                 dz_star_of_w(r0, r0["w_crit"] + tc_fine * r0["evap"]),
                 "-", c="k", lw=1.5,
-                label=r"$\hat H_{collar}=0$: $\Delta_z^*(\tau_c)$")
+                label=r"$\hat H(W_q)=0$: $\Delta_z^*(\tau_c)$")
     band_lo = dz_star_of_w(r0, np.array([r["w"].min() for r in tc_runs]))
     band_hi = dz_star_of_w(r0, np.array([r["w"].max() for r in tc_runs]))
     ax.fill_between(tc, band_lo, band_hi, color="#CCBB44", alpha=0.5,
@@ -339,7 +370,8 @@ def make_dz_summary_figure(runs, tc_runs, out_png):
     ax.plot([], [], "o", mfc="none", mec="k", label="run: mixed sign")
     ax.set_xlabel(r"$\tau_c$ (s)")
     ax.set_ylabel(r"$\Delta_z$ (K)")
-    ax.set_title(r"Regime diagram: the scans cross one boundary")
+    ax.set_title(r"Regime diagram at $W_c$=50: one boundary, "
+                 r"$\Delta_z^*(\tau_c)$")
 
     for ax in axes.flat:
         ax.legend(fontsize=8)
@@ -357,8 +389,10 @@ def main():
 
     tc_paths = run_paths(scan_dir, d1_path, TC_DIRS)
     dz_paths = run_paths(scan_dir, d1_path, DZ_DIRS)
+    wc40_paths = run_paths(scan_dir, d1_path, WC40_DIRS)
     tc_runs = [load_equilibrium(p) for p in tc_paths]
     dz_runs = [load_equilibrium(p) for p in dz_paths]
+    wc40_runs = [load_equilibrium(p) for p in wc40_paths]
     for r, tc in zip(tc_runs, TC_VALUES):
         assert r["tau_c"] == tc, f"run has tau_c={r['tau_c']}, expected {tc}"
         assert r["delta_z"] == 60.0 and r["w_crit"] == 50.0 and r["d_w"] == 1e6
@@ -366,12 +400,16 @@ def main():
         assert r["delta_z"] == dzv, \
             f"run has delta_z={r['delta_z']}, expected {dzv}"
         assert r["tau_c"] == 14400.0 and r["w_crit"] == 50.0 and r["d_w"] == 1e6
+    for r, tc in zip(wc40_runs, WC40_VALUES):
+        assert r["tau_c"] == tc and r["w_crit"] == 40.0
+        assert r["delta_z"] == 60.0 and r["d_w"] == 1e6
 
     tc_extras = [load_extras(p) for p in tc_paths]
     dz_extras = [load_extras(p) for p in dz_paths]
+    wc40_extras = [load_extras(p) for p in wc40_paths]
     u_ref = tc_extras[2]["u_daily"]
 
-    scorecard_tc(tc_runs, tc_extras, u_ref)
+    scorecard_tc(tc_runs, tc_extras, u_ref, wc40_runs, wc40_extras)
     scorecard_dz(dz_runs, dz_extras)
 
     # Ordered parameter -> sequential ramp (CVD-safe), dark = large value.
@@ -380,7 +418,8 @@ def main():
     make_tc_ladder_figure(
         tc_runs, tc_colors, os.path.join(scan_dir, "moist_v1_tauc_scan.png"))
     make_tc_summary_figure(
-        tc_runs, os.path.join(scan_dir, "moist_v1_tauc_scan_summary.png"))
+        tc_runs, wc40_runs, tc_colors,
+        os.path.join(scan_dir, "moist_v1_tauc_scan_summary.png"))
     make_dz_ladder_figure(
         dz_runs, dz_colors, os.path.join(scan_dir, "moist_v1_dz_scan.png"))
     make_dz_summary_figure(
