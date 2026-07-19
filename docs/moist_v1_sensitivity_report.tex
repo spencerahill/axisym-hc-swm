@@ -1,0 +1,540 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\PassOptionsToPackage{obeyspaces,spaces}{url}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\graphicspath{{model_output/moist_v1_tauc_dz/}}
+
+\newcommand{\py}{\partial_y}
+\newcommand{\Shat}{\hat S}
+\newcommand{\Hhat}{\hat H}
+\newcommand{\Wq}{W_q}
+\newcommand{\Wstar}{W^*}
+\newcommand{\Hv}{\mathcal{H}}
+
+\title{Moist V1 status report: the parameter-sensitivity program\\
+and the gross-moist-stability regime boundary}
+\date{2026-07-19}
+
+\begin{document}
+\maketitle
+
+\section*{Summary}
+
+Moist V1 (a passive column-water-vapor field $W$ riding on the dry
+Sobel--Schneider circulation) is implemented, validated, and its full
+placeholder-parameter sensitivity program is complete: four scans covering
+the eddy moisture diffusivity $D$, the precipitation threshold $W_c$, the
+convective timescale $\tau_c$, and the stratification depth $\Delta_z$,
+eighteen steady-state runs in all. One result organizes everything
+(Fig.~\ref{fig:regime}): because the equilibrium overturning is weak, $W$ is
+nearly uniform at the value $\Wq = W_c + \tau_c E_0$ set by the local
+evaporation--precipitation balance, so the sign of the gross moist stability
+$\Hhat = \Shat - L_v(2a{-}1)W$, and with it the direction of the mean
+meridional MSE flux, is decided by a single comparison: $\Wq$ against
+$\Wstar = \Shat/(L_v(2a{-}1))$. Every crossover this comparison predicts in
+closed form is confirmed by the runs. At the
+boundary the mean MSE flux vanishes by exact cancellation of its dry-static
+and latent parts, leaving the diagnostic eddy flux $-L_v D\,\py W$ as the
+only meridional MSE transport: the regime the eddy-diffusion program is
+aimed at, now locatable exactly. Remaining before V2: the ERA5 calibration
+of $a$ and $D$ (Spencer), then latent heating.
+
+\section{Where the moist model stands}
+
+V1 adds one prognostic equation to the dry model: column water vapor
+$W(y,t)$, transported by the lower-branch flow and mixed down-gradient,
+with uniform evaporation $E_0$ and a quasi-equilibrium precipitation sink
+$P = (W - W_c)^+/\tau_c$ (Appendix~\ref{app:eqs} has the full equation
+set). The coupling is strictly one-way: $W$ feeds back on nothing, and the
+dry fields of a moist run are bit-for-bit identical to a dry twin, a tested
+invariant that also holds across every run discussed here. V2 will close
+the loop by letting $P$ heat the temperature equation.
+
+Implementation status: merged to \texttt{main}, 338 tests, with exact
+invariants (moisture mass conservation to roundoff, mirror parity, bit-exact
+restarts, dry invariance) and a regression baseline. The moist parameters
+are placeholders pending an ERA5 calibration of the lower-layer moisture
+fraction $a$ and the diffusivity $D$; that calibration is the only open
+pre-V2 task besides V2 itself.
+
+The sensitivity program ran on the production dry formulation (staggered
+grid, EMFD gate on, MC-limited stencil; \texttt{ny}=801, $\Delta t=30$~s,
+equinoctial $\sin^2$ forcing) with every run integrated to a slow-drift-gated
+statistical steady state (gate firings: day 1772--1896). The four scans:
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+scan & values & runs & center point \\
+\midrule
+$D$ & $\{0, 1, 2\}\times10^6$ m$^2$/s & 3 & shared: the default run \\
+$W_c$ & 35, 40, 44, 50, 55 kg/m$^2$ & 4 (+center) & ($W_c$=50) \\
+$\tau_c$ & 0.5, 2, 4, 16, 48 h; pair at $W_c$=40 & 6 (+center) & ($\tau_c$=4 h) \\
+$\Delta_z$ & 30, 45, 60, 68.2, 75, 90 K & 5 (+center) & ($\Delta_z$=60 K) \\
+\bottomrule
+\end{tabular}
+\end{center}
+All other parameters sit at their defaults (Appendix~\ref{app:params});
+the default run (\mbox{$W_c$=50}, $\tau_c$=4~h, $\Delta_z$=60~K, $D$=$10^6$)
+is the shared center of every ladder.
+
+\section{One boundary organizes all four dials}
+\label{sec:boundary}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=0.8\linewidth]{moist_v1_regime_plane.png}
+\caption{Every scanned run placed by what its parameters set: the quiescent
+plateau $\Wq = W_c + \tau_c E_0$ (the $W$ the moist closure relaxes to where
+the circulation is weak) against the crossover $\Wstar = \Shat/(L_v(2a{-}1))$
+(the $W$ at which $\Hhat$ changes sign, proportional to $\Delta_z$). Fill
+color gives the measured sign of $\Hhat(y)$ over the whole domain. Runs sit
+on the predicted side of the diagonal in every case; the one mixed-sign run
+($\Delta_z$=68.2~K) sits on it. The $D$ ladder collapses onto the shared
+center point: $D$ moves neither coordinate.}
+\label{fig:regime}
+\end{figure}
+
+The equilibrium overturning is weak because it is eddy-driven: the zonal
+momentum balance is $\beta y\,v \approx$ EMFD (drag is two orders down),
+giving $|v|_{\max} = 0.37$~m/s at the default $v_d = 2.5$~m/s. Weak
+transport means the moisture equation is nearly in local balance
+everywhere: $P \approx E_0$, so $W$ sits within 0.01--1.4~kg/m$^2$ of the
+\emph{quiescent plateau}
+\begin{equation}
+\Wq \;=\; W_c + \tau_c E_0,
+\end{equation}
+the value at which the precipitation closure removes exactly what
+evaporation supplies. (Measured: plateau matches this to $\le 7.5\times
+10^{-8}$~kg/m$^2$ in every run.)
+
+With $W$ pinned near $\Wq$, the gross moist stability
+$\Hhat(y) = \Shat - L_v(2a{-}1)\,W(y)$ has, to the accuracy of those small
+departures, one sign for the whole domain, decided by $\Wq$ against
+\begin{equation}
+\Wstar \;=\; \frac{\Shat}{L_v(2a{-}1)}
+      \;=\; \frac{C\,\delta\,\Delta_z/H}{L_v(2a{-}1)}
+      \;=\; 44.57~\text{kg/m}^2 \times \frac{\Delta_z}{60~\text{K}} .
+\end{equation}
+$\Hhat > 0$ ($\Wq < \Wstar$): the mean overturning exports MSE from the
+ITCZ, the familiar dry-side regime. $\Hhat < 0$: the mean MSE flux is
+up-gradient (into the ITCZ), the moisture-mode side. Figure~\ref{fig:regime}
+shows the runs in the $(\Wq, \Wstar)$ plane; the diagonal is the
+regime boundary, and each dial moves the system along exactly one axis:
+$W_c$ and $\tau_c$ move $\Wq$, $\Delta_z$ moves $\Wstar$, $D$ moves
+neither.
+
+Three crossover predictions follow, and the runs confirm each
+(all numbers are $\Hhat$ at the ITCZ in MJ/m$^2$):
+\begin{itemize}
+\item \textbf{In $W_c$} at fixed $\tau_c$: $W_c^* = \Wstar - \tau_c E_0 =
+43.91$. Measured ladder $+15.5, +6.7, -0.3, -10.8, -19.6$ across
+$W_c = 35 \ldots 55$; the $W_c$=44 run is in effect the boundary run.
+\item \textbf{In $\Delta_z$}: $\Delta_z^* = 68.20$~K at the default $\Wq$.
+The run placed at 68.2~K lands mixed-sign with $\Hhat(0) = -0.16$.
+\item \textbf{In $\tau_c$}: only reachable if $W_c < \Wstar$, at
+$\tau_c^* = (\Wstar - W_c)/E_0$. At $W_c$=40 that is $9.94\times10^4$~s
+(1.15~d), and the run pair at $\tau_c$ = 0.5~h / 2~d brackets it:
+$\Hhat(0) = +7.84 \to -7.88$. At the default $W_c$=50 the plateau starts
+above $\Wstar$, so shrinking $\tau_c$ only saturates $\Hhat(0)$ at
+$\Shat - L_v(2a{-}1)W_c = -9.5$; no $\tau_c$ crosses.
+\end{itemize}
+
+\textbf{At the boundary the eddy flux is the only MSE transport.} The mean
+flux $v\Hhat$ is the residual of two large opposing parts, the poleward
+dry-static flux $\Shat v$ and the equatorward latent flux $-L_v(2a{-}1)Wv$.
+At $\Delta_z$=68.2 these are $+30.18$ and $-30.18$~MW/m at the flux
+latitude: the net is $0.00$, and the diagnostic eddy flux
+($0.13$~MW/m) carries everything. The $W_c$ scan found the same at its
+crossover (eddy twice the net). Away from the boundary the mean part
+dominates by factors of 20--60.
+
+\textbf{The mixed-sign window is as narrow as the $W$ field is flat.} The
+spatial spread of $\Hhat$ is $L_v(2a{-}1)$ times the spatial spread of $W$
+($\approx 0.17$~kg/m$^2$ at default $\tau_c$), about $0.3$~MJ/m$^2$.
+Turning any dial slides the nearly flat $\Hhat(y)$ rigidly through zero, so
+both signs coexist over only $\sim$0.17~kg/m$^2$ of $W_c$ or
+$\sim$0.23~K of $\Delta_z$: the domain changes regime almost as a unit.
+The window widens in proportion to the transport departures, hence linearly
+in $\tau_c$ ($\sim$3~K of $\Delta_z$ at $\tau_c$=2~d).
+
+Finally, every scanned configuration precipitates everywhere
+($P_{\min} \ge 3.4$~mm/d against $E_0 = 3.97$~mm/d): with uniform
+evaporation and departures this small, $W$ never falls below $W_c$
+anywhere. A subtropical dry zone would need either structured evaporation
+or a much stronger circulation.
+
+\section{The convective timescale $\tau_c$}
+\label{sec:tauc}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\linewidth]{moist_v1_tauc_scan.png}
+\caption{$\tau_c$ ladder at $W_c$=50 (green $\to$ purple: 0.5~h $\to$ 2~d).
+Clockwise from top left: $W$ (the plateau climbs as $W_c + \tau_c E_0$);
+$P$ (nearly unchanged: it is fixed by the moisture budget); departures
+$W - \Wq$ (amplitude grows with $\tau_c$, shape fixed); $\Hhat$ (deepens,
+no sign change at this $W_c$).}
+\label{fig:tauc-ladder}
+\end{figure}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\linewidth]{moist_v1_tauc_scan_summary.png}
+\caption{$\tau_c$ summary. Top left: the departure shape
+$(W-\Wq)/\tau_c = P - E_0 = -\py F$ collapses across the ladder: the
+transport convergence is $\tau_c$-invariant while the departure amplitude
+scales with $\tau_c$. Top right: that amplitude scaling (log--log, slope-1
+guide). Bottom left: $\Hhat(0)$ against $\tau_c$ for $W_c$=50 (saturates)
+and $W_c$=40 (crosses zero at the predicted $\tau_c^*$, dashed); points sit
+below the plateau-based curves by the ITCZ-bump contribution
+$L_v(2a{-}1)\,\Delta W$. Bottom right: mean-flux decomposition at the flux
+latitude.}
+\label{fig:tauc-summary}
+\end{figure}
+
+$\tau_c$ has one trivial role and one dynamical role.
+
+\textbf{Trivial: it sets the plateau.} A column raining at rate $P$ must
+hold $P\tau_c$ of water above threshold, so where $P = E_0$ the column
+holds $W_c + \tau_c E_0$. Slower convective removal means a moister column
+at the same rain rate. This is a single-point balance with no dynamics in
+it; the runs track it to $\le 7.5\times10^{-8}$~kg/m$^2$ over a
+$\times$96 range of $\tau_c$ (0.5~h to 2~d).
+
+\textbf{Dynamical: it is the gain on the transport structure.} At steady
+state $(W - \Wq)/\tau_c = P - E_0 = -\py F$ exactly, where $F$ is the total
+meridional moisture flux. The measured departure profiles collapse under
+this scaling (Fig.~\ref{fig:tauc-summary}, top left): the moisture-flux
+convergence is set by the dry circulation and the nearly fixed $W$, and is
+therefore $\tau_c$-invariant, while the $W$ departures needed to convert
+that convergence into extra or reduced rain scale with $\tau_c$. Measured:
+the ITCZ bump grows $0.013 \to 1.359$~kg/m$^2$ across the ladder, with
+$(\max W - \Wq)/\tau_c$ constant to within 11\% (the excess tracks the
+plateau's own growth, since $F \propto W$). Equilibrium $P$ itself moves by
+at most $0.09$~mm/d across the whole ladder. Consequences: $\Hhat(0)$
+deepens linearly, $-9.7 \to -25.8$~MJ/m$^2$ at $W_c$=50, and the mixed-sign
+window of Sec.~\ref{sec:boundary} widens linearly.
+
+\textbf{Regime reach.} As shown in Sec.~\ref{sec:boundary}: crossing in
+$\tau_c$ requires $W_c < \Wstar$ (confirmed at $W_c$=40); at the default
+$W_c$=50 the dial saturates on the moisture-mode side.
+
+\textbf{Numerics.} $D$ and $P$ are stepped at the lagged $n{-}1$ level, so
+the precipitation stability bound is $2\Delta t/\tau_c \le 1$, i.e.\
+$\tau_c \ge 60$~s at $\Delta t$=30. Ten-day smokes at $\tau_c = 60$, 120,
+300~s (bound ratios 1.0, 0.5, 0.2) all ran clean, so the bound is not a
+practical constraint for any physical $\tau_c$. The dry fields of every
+$\tau_c$ run (including the $W_c$=40 pair) are bit-identical to the center
+run ($\max|\Delta u| = 0$ over all 1855 daily fields; all gate day 1855),
+as passivity requires.
+
+\section{The stratification depth $\Delta_z$}
+\label{sec:dz}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\linewidth]{moist_v1_dz_scan.png}
+\caption{$\Delta_z$ ladder (green $\to$ purple: 30 $\to$ 90~K). $W$ and $P$
+keep the same plateau (the moist closure does not see $\Delta_z$) with
+structure amplitude following the weakening dry $v$; $\Hhat$ slides through
+zero; the mean MSE flux $v\Hhat$ reverses direction across the ladder.}
+\label{fig:dz-ladder}
+\end{figure}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\linewidth]{moist_v1_dz_scan_summary.png}
+\caption{$\Delta_z$ summary. Top left: $\Hhat(0)$ crosses zero at the
+predicted $\Delta_z^* = 68.2$~K. Top right: flux decomposition; the DSE
+flux rises with $\Shat$ but sublinearly (the circulation weakens), the
+latent flux shrinks with $v$, the net reverses at the crossover, the eddy
+flux stays at 0.1--0.25 MW/m throughout. Bottom left: dry-circulation response (percent of
+the $\Delta_z$=60 values). Bottom right: the regime diagram at $W_c$=50 in
+the $(\tau_c, \Delta_z)$ plane with the boundary
+$\Delta_z^*(\tau_c)$ and the mixed-sign band from the measured $W$ ranges.}
+\label{fig:dz-summary}
+\end{figure}
+
+$\Delta_z$ is the one dial with a dual role: it sits in the dry
+thermodynamic equation (the adiabatic term $(\delta\Delta_z/H)\py v$), so it
+changes the circulation itself, and it sets the gross dry stability
+$\Shat = C\delta\Delta_z/H$, so it moves the crossover $\Wstar$
+proportionally. The moist closure does not see it: the plateau stays at
+$\Wq = 50.66$ across the whole ladder (measured ITCZ $W$: 50.74--50.83 over
+a $\times$3 range of $\Delta_z$).
+
+\textbf{Energetics.} $\Hhat(0)$ runs from $-49.9$~MJ/m$^2$ at 30~K to
+$+28.2$ at 90~K, crossing zero at the predicted 68.20~K; the mean MSE flux
+at the flux latitude runs $-26.5 \to +8.3$~MW/m, reversing there. The DSE
+component grows only 63\% ($20.9 \to 34.1$~MW/m) over a $\times$3 growth in
+$\Shat$ because the circulation weakens at the same time; the latent
+component shrinks with $|v|$ ($-47.4 \to -25.8$~MW/m) at fixed $W$.
+
+\textbf{Dry response.} Over 30~$\to$~90~K the jet weakens $31.9 \to
+25.9$~m/s ($-19$\%) and $|v|_{\max}$ falls $0.53 \to 0.29$~m/s ($-45$\%),
+with the flux latitude moving poleward ($2.56 \to 3.03$~Mm) and the
+convergence gate firing progressively later (day 1772 $\to$ 1896).
+Mechanism: the steady thermodynamic balance
+$(\delta\Delta_z/H)\py v = (\theta_E - \theta)/\tau$ requires less
+divergence per unit diabatic heating when the stratification is deeper,
+so $v$ weakens with $\Delta_z$. The measured response is shallower than the
+fixed-heating $1/\Delta_z$ scaling ($\times$1.8 over a $\times$3 range)
+because the disequilibrium $\theta_E - \theta$ adjusts as well.
+
+\section{The other two dials: $W_c$ and $D$}
+\label{sec:wcd}
+
+The $W_c$ and $D$ scans (runs and figures in
+\path|model_output/moist_v1_wc_scan/| and
+\path|model_output/moist_v1_validation/|):
+
+\textbf{$W_c$ (35--55).} Shifts $\Wq$ one-for-one. The $\Hhat(0)$ ladder
+runs from $+15.5$ to $-19.6$~MJ/m$^2$ across $W_c = 35 \ldots 55$, crossing
+at $W_c^* = 43.91$; the $W_c$=44 run sits at the boundary
+($\Hhat(0) = -0.32$, net mean flux $-0.06$~MW/m, eddy flux $0.12$, i.e.\
+twice the net).
+
+\textbf{$D$ (0, 1, 2 $\times 10^6$~m$^2$/s).} In V1, $D$ is the eddy-flux
+dial and nothing else: the eddy MSE flux scales with it (0, 0.28,
+0.46~MW/m), while its leverage on $W$ itself is negligible
+($\max|W_{D2} - W_{D0}| = 0.015$~kg/m$^2$), because the departures $D$
+would smooth are already tiny. $D$ moves neither coordinate of
+Fig.~\ref{fig:regime}.
+
+\section{Implications for V2}
+\label{sec:implications}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+dial & sets & crossover & independent leverage \\
+\midrule
+$W_c$ & $\Wq$ level & $W_c^* = \Wstar - \tau_c E_0 = 43.91$ & none beyond $\Wq$ \\
+$\tau_c$ & $\Wq$ offset $\tau_c E_0$ & $\tau_c^* = (\Wstar{-}W_c)/E_0$, iff $W_c{<}\Wstar$ & departure amplitude, window width \\
+$\Delta_z$ & $\Wstar$ ($\propto$) & $\Delta_z^* = 68.20$~K at default $\Wq$ & dry circulation strength \\
+$D$ & (neither) & none & eddy MSE flux magnitude \\
+$v_d$ & (neither) & none & overturning $\Rightarrow$ departures, mean flux \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{enumerate}
+\item \textbf{Regime placement is now a closed-form choice.} To start V2 in
+a chosen GMS regime, pick $\Wq - \Wstar$ directly; the boundary-adjacent
+states already exist as runs with restart files ($W_c$=44 and
+$\Delta_z$=68.2).
+\item \textbf{$W_c$ and $\tau_c$ are degenerate for the regime.} Only their
+combination $\Wq = W_c + \tau_c E_0$ decides the sign of $\Hhat$; they are
+not independent regime dials. $\tau_c$'s independent role is the departure
+amplitude (and, in V2, the stiffness of the precipitation coupling).
+\item \textbf{V1's energetic blandness at the defaults is placement, not
+structure.} At the default parameters the system sits $\sim$6~kg/m$^2$ deep
+on the moisture-mode side, with the mean flux dominating the eddy flux
+$\sim$25-fold. At the boundary that inverts: the eddy flux, the object the
+ERA5-calibrated $D$ is meant to represent, becomes the entire MSE
+transport.
+\item \textbf{Expect the picture to deform under V2 coupling.} Everything
+here is one-way; V2's latent heating lets $P$ anomalies drive the
+circulation. On the $\Hhat < 0$ side that closes a positive feedback loop
+(moisture-mode amplification), so the whole-domain-flips-as-a-unit behavior
+and the narrow mixed-sign window of Sec.~\ref{sec:boundary} need not
+survive coupling [speculative]. The near-boundary states are the natural V2 starting points
+precisely because there the mean-flow feedback is weakest. The V2 gate
+decision (kinematic $\Hv(\py v)$, validated dry) is already made.
+\item \textbf{Costs.} A gated moist steady-state run is $\sim$1855 days,
+measured at 27--45 min on the numpy backend ($\sim$0.9--1.4~s/day across
+contention states); the numba kernel does not yet cover moisture (deferred
+until V1 physics froze, which it now has).
+\end{enumerate}
+
+\appendix
+
+\section{Model equations}
+\label{app:eqs}
+
+Upper-layer fields $u(y,t)$, $v(y,t)$, $\theta(y,t)$ on an equatorial
+$\beta$-plane channel $|y| \le L$, walls at $\pm L$; moist V1 adds
+$W(y,t)$. $\Hv$ is the Heaviside function.
+
+\textbf{Zonal momentum} (SS09 Eq.~2.1 with the thermodynamic gate):
+\begin{equation}
+\frac{\partial u}{\partial t}
+= v\big(\beta y - \py u\big)
+\;-\; \Hv(\theta_E - \theta)\,(\py v)\,u
+\;-\; \varepsilon_u u
+\;-\; \underbrace{v_d\,\Hv(u)\,\mathrm{sgn}(y)\,\py u}_{\text{EMFD}} .
+\end{equation}
+The second term is vertical exchange with the lower layer where convection
+is active (ascending air carries zero zonal momentum); the gate argument is
+$\theta_E - \theta$ where SS09 use $\Hv(\py v)$, a deviation that suppresses
+a grid-scale artifact of the original collocated grid (the two arguments
+coincide in steady state through the thermodynamic balance; the kinematic
+gate is validated on the staggered grid and will land with V2). The EMFD
+(SS09 Eq.~2.5) represents extratropical eddies depositing easterly momentum
+inside the westerly Hadley cell; it acts as poleward advection of $u$ at
+speed $v_d$ where $u > 0$.
+
+\textbf{Meridional momentum} (SS13 corrigendum form; the factor 2 is
+intentional):
+\begin{equation}
+2\frac{\partial v}{\partial t} + \beta y\,u
+= -\frac{gH}{T_0}\,\py T + k_v\,\partial_y^2 v,
+\qquad T = \theta\,(p_t/p_s)^{R/c_p} = \theta/1.6 .
+\end{equation}
+
+\textbf{Thermodynamic}:
+\begin{equation}
+\frac{\partial \theta}{\partial t}
++ \frac{\delta\,\Delta_z}{H}\,\py v
+= \frac{\theta_E - \theta}{\tau}
+\;\big(+\,\kappa_\theta \partial_y^2 \theta,\ \kappa_\theta = 0\ \text{by
+default}\big),
+\end{equation}
+with the equinoctial $\sin^2$ radiative-convective profile
+\begin{equation}
+\theta_E(y) = \theta_{00} - \Delta_y \sin^2\!\Big(\frac{\pi y}{2 y_1}\Big)
+\quad (|y| < y_1), \qquad
+\theta_E = \theta_{00} - \Delta_y \quad (|y| \ge y_1).
+\end{equation}
+
+\textbf{Moisture (V1, passive)}:
+\begin{equation}
+\frac{\partial W}{\partial t}
++ \py\big[\underbrace{-(2a{-}1)\,v\,W}_{\text{mean transport}}
+\;\underbrace{-\,D\,\py W}_{\text{eddy mixing}}\big]
+= E_0 - P,
+\qquad P = \frac{(W - W_c)^+}{\tau_c}.
+\end{equation}
+The transport velocity is $-(2a{-}1)v$: the lower branch moves opposite the
+upper-layer $v$, and with fraction $a$ of the column water in the lower
+layer the column-integrated flux reduces to this coefficient. Nothing feeds
+back on $u$, $v$, $\theta$.
+
+\textbf{Column energetics} (derivations in
+\path|docs/moist_v1_mse_budget.pdf|): with column heat capacity
+$C = c_p \Pi \Delta p / g$ and $L_v = C\,\Lambda_{\mathrm{conv}}$,
+\begin{equation}
+\Shat = C\,\frac{\delta\,\Delta_z}{H}, \qquad
+\Hhat = \Shat - L_v(2a{-}1)W, \qquad
+\Wstar = \frac{\Shat}{L_v(2a{-}1)},
+\end{equation}
+and the steady column-MSE budget carries the three fluxes used throughout
+this report: mean DSE $\Shat v$, mean latent $-L_v(2a{-}1)Wv$ (their sum is
+the net mean flux $v\Hhat$), and eddy $-L_v D\,\py W$.
+
+\textbf{Numerics.} Arakawa-C staggered grid ($v$ on the $\mathrm{ny}{-}1$
+interior faces; $u$, $\theta$, $W$ on centers); leapfrog with Asselin
+filter 0.04; upwind meridional advection of $u$; MC-limited one-sided EMFD
+stencil (the gate-on production formulation); $W$ transport in
+finite-volume flux form with MUSCL-MC face reconstruction (conserves total
+water to roundoff); the moist diffusion $D$ and sink $P$ stepped at the
+lagged $n{-}1$ level (stability bounds $2D\Delta t/\Delta y^2 \le 0.5$,
+$2\Delta t/\tau_c \le 1$). Steady-state stopping: KE and $\theta$-variance
+convergence plus the slow-drift gate (jet latitude, $|v|_{\max}$,
+equatorial disequilibrium each flat to 0.2\% over a drag-timescale window).
+
+\section{Parameter values}
+\label{app:params}
+
+Dry defaults (the Zhang et al.\ 2025 lineage; $k_v$ is $100\times$ SS09's
+printed value, following their code):
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+symbol & value & & meaning \\
+\midrule
+$\beta$ & $2\times10^{-11}$ & m$^{-1}$s$^{-1}$ & planetary vorticity gradient \\
+$\varepsilon_u$ & $10^{-8}$ & s$^{-1}$ & Rayleigh drag on $u$ \\
+$v_d$ & 2.5 & m/s & EMFD coefficient \\
+$k_v$ & $7.786\times10^{5}$ & m$^2$/s & eddy viscosity on $v$ \\
+$\tau$ & 37 & d & Newtonian cooling timescale \\
+$H$ & 16\,000 & m & tropopause height \\
+$\delta$ & 4\,000 & m & upper-layer thickness \\
+$\Delta_z$ & 60 & K & vertical stability (scanned 30--90) \\
+$T_0$ & 300 & K & reference temperature \\
+$\theta_{00}$ & 330 & K & background $\theta_E$ \\
+$\Delta_y$ & 50 & K & equator--pole $\theta_E$ contrast \\
+$y_1$ & $9.439\times10^{6}$ & m & forcing half-width \\
+$L$ & $1.5751\times10^{7}$ & m & channel half-width \\
+$g$ & 9.81 & m/s$^2$ & gravity \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Moist V1 (\textbf{placeholders} pending the ERA5 calibration of $a$ and
+$D$) and column constants:
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+symbol & value & & meaning \\
+\midrule
+$a$ & 0.85 & & column-water-vapor fraction in the lower layer \\
+$D$ & $10^{6}$ & m$^2$/s & eddy moisture diffusivity (scanned 0--2$\times10^6$) \\
+$W_c$ & 50 & kg/m$^2$ & precipitation threshold (scanned 35--55) \\
+$\tau_c$ & 14\,400 & s & convective timescale (scanned 1\,800--172\,800) \\
+$E_0$ & $4.6\times10^{-5}$ & kg\,m$^{-2}$s$^{-1}$ & evaporation ($=3.97$ mm/d) \\
+$C$ & $5.2\times10^{6}$ & J\,m$^{-2}$K$^{-1}$ & column heat capacity \\
+$L_v$ & $2.5\times10^{6}$ & J/kg & latent heat ($= C\Lambda_{\mathrm{conv}}$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Numerics: $\mathrm{ny} = 801$ ($\Delta y = 39.4$~km), $\Delta t = 30$~s,
+Asselin 0.04, numpy backend (numba does not yet cover moisture). Derived at
+the defaults:
+\begin{equation*}
+\Shat = 7.8\times10^{7}~\mathrm{J/m^2},\quad
+\Wstar = 44.57,\quad
+\Wq = 50.66~\mathrm{kg/m^2},\quad
+W_c^* = 43.91,\quad
+\Delta_z^* = 68.20~\mathrm{K}.
+\end{equation*}
+
+\section{Run inventory and regeneration}
+\label{app:runs}
+
+All eighteen runs use
+\begin{center}
+\path|run-sw-model --ny 801 --dt 30 --enable-moisture --dw 1e6|\\
+\path|--stop-at-steady-state --slow-drift-gate|
+\end{center}
+plus the dial flag(s)
+(\path|--w-crit|, \path|--tau-c|, \path|--delta-z|), each in its own output
+directory with its final restart file.
+
+\begin{center}
+\small
+\begin{tabular}{lllr}
+\toprule
+scan & runs (directory) & dial values & gate day \\
+\midrule
+$D$ ladder & \path|moist_v1_validation/D{0,1,2}| & $D = \{0,1,2\}\times10^6$ & 1855 \\
+$W_c$ scan & \path|moist_v1_wc_scan/wc{35,40,44,55}| & $W_c$ & 1855 \\
+$\tau_c$ ladder & \path|moist_v1_tauc_dz/tc{1800,7200,57600,172800}| & $\tau_c$ & 1855 \\
+$W_c$=40 pair & \path|moist_v1_tauc_dz/wc40tc{1800,172800}| & $W_c$, $\tau_c$ & 1855 \\
+$\Delta_z$ ladder & \path|moist_v1_tauc_dz/dz{30,45,68p2,75,90}| & $\Delta_z$ & 1772--1896 \\
+\bottomrule
+\end{tabular}
+\end{center}
+(Directories relative to \path|model_output/|; every $\Delta_z$=60,
+$\tau_c$=14\,400, $W_c$=50 slot reuses \path|moist_v1_validation/D1|. The
+$\tau_c$ and $W_c$ runs share the D1 dry solution bit-for-bit, so gate day
+1855 is exact; the $\Delta_z$ gate days are 1772, 1823, 1876, 1882, 1896
+for 30, 45, 68.2, 75, 90~K.)
+
+Analysis scripts (repo \path|scripts/|; each regenerates its figures from
+the run directories): \path|moist_v1_analysis.py| ($D$ ladder + budget
+figures), \path|moist_v1_wc_scan_analysis.py|,
+\path|moist_v1_tauc_dz_analysis.py| (both ladders here, the scorecards,
+Figs.~\ref{fig:tauc-ladder}--\ref{fig:dz-summary}), and
+\path|moist_v1_regime_figure.py| (Fig.~\ref{fig:regime}). This report:
+\path|latexmk -pdf -output-directory=docs docs/moist_v1_sensitivity_report.tex|
+from the repo root.
+
+\end{document}
