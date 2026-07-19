@@ -1,0 +1,141 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+
+\newcommand{\py}{\partial_y}
+\newcommand{\Shat}{\hat S}
+\newcommand{\Hhat}{\hat H}
+\newcommand{\col}[1]{\langle #1\rangle}
+
+\title{Moist V1: gross dry stability, mean DSE flux, and gross moist stability,\\
+with the equilibrium MSE-flux decomposition}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+This spells out, from the spec (\texttt{guides/moist\_axisymmetric\_model\_spec}),
+the definitions of $\Shat$, the mean DSE flux, and $\Hhat$, evaluates them at the
+V1 equilibrium (\texttt{ny}=801, $\Delta t{=}30$, sin$^2$ $y_0{=}0$, slow-drift-gated,
+day 1855, $D{=}10^6$), and resolves why the mean flow carries a small
+\emph{equatorward} MSE flux while its DSE part is poleward.
+
+\section{Column accounting}
+
+Write the layer thermodynamic and moisture equations of V1 (spec Eqs.~T1, Q1):
+\begin{equation}
+\partial_t\theta + \frac{d\,\Delta_z}{H}\,\py v = \frac{\theta_E-\theta}{\tau},
+\qquad
+\partial_t W + \py\!\big[-(2a{-}1)vW - D\,\py W\big] = E_0 - P .
+\end{equation}
+The column heat capacity that turns a $\theta$-tendency into a column-energy
+tendency, and the column dry static energy, are
+\begin{equation}
+C \equiv \frac{c_p\,\Pi\,\Delta p}{g},
+\qquad \col{s}\equiv C\theta .
+\end{equation}
+With the SS13 Exner factor $\Pi=1/1.6=0.625$, $\Delta p = p_s-p_t = 807$~hPa, and
+$c_p=1004~\mathrm{J\,kg^{-1}K^{-1}}$,
+\begin{equation}
+C = \frac{1004\times 0.625\times 8.07\times10^{4}}{9.81}
+  \approx 5.2\times10^{6}~\mathrm{J\,m^{-2}\,K^{-1}} .
+\end{equation}
+The latent-heating constant is pinned to the \emph{same} $C$ by requiring
+$C\Lambda_{\rm conv}=L_v$, i.e.\ $\Lambda_{\rm conv}=L_v/C\approx0.48~\mathrm{K/(kg\,m^{-2}s^{-1})}$
+for $L_v=2.5\times10^{6}~\mathrm{J\,kg^{-1}}$.
+
+\section{Gross dry stability and the mean DSE flux}
+
+Multiply the thermodynamic equation by $C$. Since $C$ and the coefficient
+$d\Delta_z/H$ are constant, the adiabatic term becomes a flux divergence:
+\begin{equation}
+\partial_t\col{s} + \py\!\Big[\underbrace{C\,\frac{d\,\Delta_z}{H}}_{\displaystyle \Shat}\,v\Big]
+= \frac{C}{\tau}(\theta_E-\theta).
+\end{equation}
+So the \textbf{gross dry stability} is $\Shat \equiv C\,d\Delta_z/H$ and the
+\textbf{mean DSE flux} is $\Shat\,v$. Numerically, with the model's
+$d=4000$~m, $\Delta_z=60$~K, $H=1.6\times10^{4}$~m,
+\begin{equation}
+\frac{d\,\Delta_z}{H}=\frac{4000\times60}{16000}=15~\mathrm{K},
+\qquad
+\boxed{\;\Shat = C\,\frac{d\Delta_z}{H}=5.2\times10^{6}\times15
+      = 7.8\times10^{7}~\mathrm{J\,m^{-2}}\;}
+\end{equation}
+$\Shat>0$: a poleward $v$ (upper branch, $v>0$ in the NH) exports dry static
+energy poleward, cooling the deep tropics, exactly as expected.
+
+\section{Gross moist stability and the MSE budget}
+
+Add $L_v\times$(moisture equation) to $C\times$(thermodynamic equation). Using
+$C\Lambda_{\rm conv}=L_v$ the latent heating $\Lambda_{\rm conv}P$ and the
+precipitation sink $L_v P$ cancel, leaving a pure column-MSE budget with
+$\col{h}=C\theta+L_v W$:
+\begin{equation}
+\partial_t\col{h}
++\py\!\Big[\underbrace{\Shat v}_{\text{DSE}}
+\;\underbrace{-\,L_v(2a{-}1)Wv}_{L_v q}
+\;\underbrace{-\,L_v D\,\py W}_{\text{eddy}}\Big]
+= \frac{C}{\tau}(\theta_E-\theta) + L_v E_0 .
+\end{equation}
+The mean (advective) part groups into $v\,\Hhat$ with the \textbf{gross moist
+stability}
+\begin{equation}
+\boxed{\;\Hhat \equiv \Shat - L_v(2a{-}1)\,W\;}
+\end{equation}
+At the equilibrium equatorial $W\approx50.76~\mathrm{kg\,m^{-2}}$ and $a=0.85$
+(so $2a-1=0.7$),
+\begin{equation}
+\Hhat = 7.8\times10^{7} - (2.5\times10^{6})(0.7)(50.76)
+      = 7.8\times10^{7} - 8.88\times10^{7}
+      = -1.08\times10^{7}~\mathrm{J\,m^{-2}} .
+\end{equation}
+$\Hhat<0$: the latent term outweighs the dry stability, the moisture-mode side.
+The zero crossing is at $W=\Shat/[L_v(2a{-}1)]=44.6~\mathrm{kg\,m^{-2}}$, which the
+column exceeds everywhere, so $\Hhat<0$ across the whole domain.
+
+\section{Why the net mean MSE flux is small and equatorward}
+
+The mean MSE flux $\Shat v - L_v(2a{-}1)Wv = v\Hhat$ is the \emph{difference} of two
+large opposing fluxes. At the cell center ($|y|\approx2.9$~Mm, $|v|=0.365~\mathrm{m\,s^{-1}}$):
+
+\begin{center}
+\begin{tabular}{lrl}
+\toprule
+term & MW\,m$^{-1}$ & direction \\
+\midrule
+DSE $\Shat v$              & $28.5$ & poleward \\
+$L_v q$ $-L_v(2a{-}1)Wv$   & $32.4$ & equatorward \\
+\midrule
+mean MSE $v\Hhat$          & $3.9$  & equatorward (residual) \\
+eddy $-L_v D\,\py W$       & $\lesssim 0.15$ & negligible \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The dry circulation exports $28.5$~MW\,m$^{-1}$ of DSE poleward; the moisture flux,
+carried mainly by the equatorward lower branch, returns $32.4$~MW\,m$^{-1}$
+equatorward. Their small residual, $3.9$~MW\,m$^{-1}$ up-gradient toward the
+ascending ITCZ, is the net MSE flux and the signature of $\Hhat<0$. Plotting only
+$v\Hhat$ (as the first diagnostic did) hides that it is the difference of two
+$\sim30$~MW\,m$^{-1}$ fluxes; the implied $L_v q$ flux is indeed large.
+
+\section{The overturning is eddy-driven}
+
+The overturning that sets these fluxes is weak, $|v|_{\max}=0.37~\mathrm{m\,s^{-1}}$,
+and follows the eddy-driven leading balance of the zonal-momentum equation,
+Coriolis against the eddy momentum flux divergence:
+\begin{equation}
+\beta y\,v \approx v_d\,\mathcal H(u)\,\mathrm{sgn}(y)\,\py u \equiv \text{EMFD},
+\qquad
+v \approx \frac{\text{EMFD}}{\beta y}.
+\end{equation}
+At the cell center $\beta y\,v = 2.1\times10^{-5}$ balances
+$\text{EMFD}=1.8\times10^{-5}~\mathrm{m\,s^{-2}}$ with Rayleigh drag
+$\varepsilon_u u = 8.5\times10^{-8}$ two orders of magnitude smaller; the
+$\sim13\%$ gap is the nonlinear advection. The overturning strength therefore
+scales with $v_d$ (fixed at $2.5$ across this $D$ ladder).
+
+\end{document}

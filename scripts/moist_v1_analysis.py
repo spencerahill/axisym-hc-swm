@@ -34,6 +34,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from ss09.read_output import load_centered
+from ss09.sw_model import muscl_mc_du_dy
 
 # Spec-pinned column constants (guides/moist_axisymmetric_model_spec.pdf).
 C_COLUMN = 5.2e6  # J m^-2 K^-1, column heat capacity c_p Pi Dp / g
@@ -54,11 +55,15 @@ def load_equilibrium(path, last_n=10):
         sl = slice(max(0, n - last_n), n)
         w = ds["W"].isel(time=sl).mean("time").values
         p = ds["P"].isel(time=sl).mean("time").values
+        u = ds["u"].isel(time=sl).mean("time").values
         a = float(ds.attrs["cwv_frac"])
         d_w = float(ds.attrs["d_w"])
         w_crit = float(ds.attrs["w_crit"])
         tau_c = float(ds.attrs["tau_c"])
         evap = float(ds.attrs["evap"])
+        v_d = float(ds.attrs["v_d"])
+        beta = float(ds.attrs["beta"])
+        eps_u = float(ds.attrs["epsilon_u"])
         delta = float(ds.attrs["delta"])
         delta_z = float(ds.attrs["delta_z"])
         height = float(ds.attrs["height"])
@@ -71,12 +76,20 @@ def load_equilibrium(path, last_n=10):
     shat = C_COLUMN * delta * delta_z / height
     dy = y[1] - y[0]
     hhat = shat - L_V * (2.0 * a - 1.0) * w
+    # Mean MSE flux and its two large opposing components (energy units).
+    dse_flux = shat * v                         # mean DSE flux  Shat v
+    lvq_flux = -L_V * (2.0 * a - 1.0) * w * v    # mean moisture flux -L_v(2a-1)Wv
+    mean_flux = v * hhat                         # = dse_flux + lvq_flux
     eddy_flux = -L_V * d_w * np.gradient(w, dy)
-    mean_flux = v * hhat
+    # Zonal-momentum balance terms (the eddy-driven overturning: f v ~ EMFD).
+    fv = beta * y * v
+    emfd = v_d * np.heaviside(u, 0.5) * np.sign(y) * muscl_mc_du_dy(u, dy, y)
+    drag = eps_u * u
     return dict(
-        y=y, w=w, p=p, v=v, a=a, d_w=d_w, w_crit=w_crit, tau_c=tau_c, evap=evap,
-        shat=shat, hhat=hhat, eddy_flux=eddy_flux, mean_flux=mean_flux, days=days,
-        w_collar=w_crit + tau_c * evap,
+        y=y, w=w, p=p, u=u, v=v, a=a, d_w=d_w, w_crit=w_crit, tau_c=tau_c, evap=evap,
+        shat=shat, hhat=hhat, dse_flux=dse_flux, lvq_flux=lvq_flux,
+        eddy_flux=eddy_flux, mean_flux=mean_flux, fv=fv, emfd=emfd, drag=drag,
+        days=days, w_collar=w_crit + tau_c * evap,
         w_hhat_zero=shat / (L_V * (2.0 * a - 1.0)),
     )
 
@@ -208,16 +221,49 @@ def make_dsensitivity_figure(runs, out_png):
     axes[1, 0].set_title("Equilibrium overturning v (weak: |v|$_{max}$ %.2f m s$^{-1}$)"
                          % np.max(np.abs(r1["v"])))
     axes[1, 0].set_ylabel("v (m s$^{-1}$)")
-    axes[1, 1].plot(y, r1["mean_flux"] / 1e6, color="#4477AA", label=r"mean $v\hat H$")
+    axes[1, 1].plot(y, r1["mean_flux"] / 1e6, color="#4477AA", label=r"mean MSE $v\hat H$")
     axes[1, 1].plot(y, r1["eddy_flux"] / 1e6, color="#EE6677",
                     label=r"eddy $-L_vD\partial_yW$ (D=1e6)")
-    axes[1, 1].set_title("MSE flux decomposition (mean dominates)")
+    axes[1, 1].set_title("Mean vs eddy MSE flux (both small; see budget fig)")
     axes[1, 1].set_ylabel("MW m$^{-1}$")
     for ax in axes.flat:
         ax.axhline(0, ls=":", c="gray", lw=1)
         ax.set_xlabel("y (Mm)")
         if ax.get_legend_handles_labels()[0]:
             ax.legend(fontsize=8)
+        ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=130)
+    print(f"Wrote {out_png}")
+
+
+def make_budget_figure(r, out_png):
+    """The eddy-driven momentum balance that sets the overturning, and the
+    mean MSE flux resolved into its large opposing DSE and moisture parts.
+    One run (D=1e6) represents the ladder; the dry circulation is identical."""
+    y = r["y"] / 1e6
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    # (a) zonal-momentum balance: f v ~ EMFD, drag negligible
+    axes[0].plot(y, r["fv"] * 1e5, color="#4477AA", label=r"$\beta y\,v$ (Coriolis)")
+    axes[0].plot(y, r["emfd"] * 1e5, color="#EE6677", ls="--",
+                 label=r"EMFD $v_d\mathcal{H}(u)\,\mathrm{sgn}(y)\,\partial_y u$")
+    axes[0].plot(y, r["drag"] * 1e5, color="#228833", label=r"$\varepsilon_u u$ (drag)")
+    axes[0].set_title(r"Zonal-momentum balance: $\beta y\,v \approx$ EMFD"
+                      f"  (|v|$_{{max}}$={np.max(np.abs(r['v'])):.2f} m/s)")
+    axes[0].set_ylabel(r"tendency ($\times10^{-5}$ m s$^{-2}$)")
+    # (b) mean MSE flux decomposition: DSE poleward, L_v q equatorward, small net
+    axes[1].plot(y, r["dse_flux"] / 1e6, color="#CC6677", label=r"DSE $\hat S v$")
+    axes[1].plot(y, r["lvq_flux"] / 1e6, color="#4477AA",
+                 label=r"$L_v q$ $-L_v(2a{-}1)Wv$")
+    axes[1].plot(y, r["mean_flux"] / 1e6, color="k", lw=2, label=r"MSE $\hat H v$ (net)")
+    axes[1].plot(y, r["eddy_flux"] / 1e6, color="#999933", ls=":",
+                 label=r"eddy $-L_vD\partial_yW$")
+    axes[1].set_title("Mean MSE flux = large poleward DSE + larger equatorward $L_vq$")
+    axes[1].set_ylabel("northward flux (MW m$^{-1}$)")
+    for ax in axes:
+        ax.axhline(0, ls=":", c="gray", lw=1)
+        ax.set_xlabel("y (Mm)")
+        ax.legend(fontsize=8)
         ax.grid(alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_png, dpi=130)
@@ -234,6 +280,7 @@ def main():
     ts = load_timeseries(os.path.join(run_dir, "D1", "out.nc"))
     make_convergence_figure(ts, ts["gate_day"], base + "_convergence" + ext)
     make_dsensitivity_figure(runs, base + "_dsensitivity" + ext)
+    make_budget_figure(runs[1], base + "_budget" + ext)
 
 
 if __name__ == "__main__":
