@@ -87,6 +87,7 @@ def load_equilibrium(path, last_n=10):
     drag = eps_u * u
     return dict(
         y=y, w=w, p=p, u=u, v=v, a=a, d_w=d_w, w_crit=w_crit, tau_c=tau_c, evap=evap,
+        delta=delta, delta_z=delta_z, height=height,
         shat=shat, hhat=hhat, dse_flux=dse_flux, lvq_flux=lvq_flux,
         eddy_flux=eddy_flux, mean_flux=mean_flux, fv=fv, emfd=emfd, drag=drag,
         days=days, w_collar=w_crit + tau_c * evap,
