@@ -238,7 +238,9 @@ cell, exactly as verified for the sphere forms in puffins
 \section{Emergent cell-mean $\Ro$ closure}
 \label{sec:closure}
 
-\textbf{[derived: pending run confirmation]}
+\textbf{[derived: confirmed by the Tier-1 $v_d$ ladder, 2026-07-20 run
+record: within 4\% of the diagnosed $\bar\Ro$ for $v_d \ge 0.05$, and
+within 5\% at every rung once the drag extension below is included]}
 Combining Zhang's Eq.~24 at the cell-mean level with
 Section~\ref{sec:v}'s $v$ magnitude (the cell mean of the bracket over
 $[0,1]$ is $1/6$):
@@ -254,7 +256,13 @@ $[0,1]$ is $1/6$):
 a transcendental equation for $\bar{\Ro}(v_d)$ with no simulation input.
 This is the suite's analysis~G; it extends Zhang et al.\ (2025) section~4
 (their max-$\Ro$ scalings $v_d^{-2/5}$, $v_d^{-1/4}$) to the cell-mean
-variable the ms uses.
+variable the ms uses. Because run 1b showed the default drag to be
+leading-order at this forcing, Tier~1 also evaluates a drag-extended
+variant \textbf{[derived: cell-midpoint drag]}: the steady balance with
+the drag term retained and $u = \Ro\,\beta y^2/2$ gives the pointwise
+relation $\Ro(y) = v/(v + v_d + \epsilon_u y/2)$, whose cell-mean analog
+with $y \to Y_{\Ro}/2$ is $\bar\Ro = \bar v/(\bar v + v_d + \epsilon_u
+Y_{\Ro}/4)$.
 
 Postdiction check \textbf{[computed]}: Section~\ref{sec:v}'s $v$ with the
 sin$^2$ profile's larger near-equator curvature ($(\pi/2)^2 = 2.47$ in
@@ -281,17 +289,31 @@ the additional, targeted comparisons.
     runs 1a--1b below, scalar level and profile level (addendum).
   \item \textbf{Edge collapse:} $Y_{\mathrm{edge}} (\Ro/\Rb)^{1/2}/y_1 =
     (5/3)^{1/2}$ flat across the $v_d$, $\Delta_y$, $\beta$, and radius
-    ladders. Status: pending Tiers 1--2.
+    ladders. Status: $v_d$ arm done (Tier 1, 2026-07-20): the jet-based
+    collapse constant is flat to 2.6\% across $\bar\Ro = 0.054$--$0.480$
+    but sits 6--8\% below $(5/3)^{1/2}$ (1.19--1.22 vs 1.291), i.e.\ the
+    scaling holds with a systematic offset. $\Delta_y$, $\beta$, radius
+    arms pending Tier 2.
   \item \textbf{Radius-ladder null:} dimensional $Y_{\mathrm{edge}}$
     invariant under $(\beta \to \beta/k,\; y_1 \to k y_1,\; L \to k L)$.
     Status: pending Tier 2.
   \item \textbf{$v$-profile shape and $\Ro^{-3/2}$ magnitude scaling}
     (Section~\ref{sec:v}). Status: shape checked at profile level in runs
-    1a--1b (addendum); the $\Ro^{-3/2}$ scaling pending Tier 1.
+    1a--1b (addendum); scaling confirmed by the Tier-1 ladder with a
+    growing deficit (2026-07-20): effective exponent $-1.40$ over $\bar\Ro =
+    0.054$--$0.480$, with the zero-free-parameter prediction
+    overpredicting $v_{\max}$ by 2\% at $v_d = 0.0125$ growing to 14\%
+    at $v_d = 2.5$.
   \item \textbf{Momentum flux increases as $\Ro$ decreases}
-    (Section~\ref{sec:v}). Status: pending Tier 1.
+    (Section~\ref{sec:v}). Status: confirmed (Tier 1, 2026-07-20): peak
+    $\delta v u$ rises monotonically from 511 to 8692 m$^3$\,s$^{-2}$
+    ($17\times$) as $\bar\Ro$ falls $0.480 \to 0.054$, with the theory
+    at fitted $\bar\Ro$ within 8\% for $v_d \ge 0.025$.
   \item \textbf{Emergent $\bar{\Ro}(v_d)$} (Section~\ref{sec:closure}).
-    Status: pending Tier 1 + analysis G.
+    Status: confirmed (Tier 1, 2026-07-20): the drag-free closure is
+    within 4\% of the diagnosed $\bar\Ro$ for $v_d \ge 0.05$ (and
+    $+11\%$ at $v_d = 0.0125$); the drag-extended variant is within 5\%
+    at every rung.
 \end{enumerate}
 
 \section*{Run record}
@@ -509,5 +531,117 @@ bump (0.65 $\to$ 0.64 at $y \approx 1.15\times 10^6$~m), and when they
 traded rank the argmax anchor jumped $1.1\times 10^6$~m, moving the area
 mean 0.476 $\to$ 0.355 from a 0.03 relative-height flip. On the fixed
 interval: area means 0.429 (1a) / 0.424 (1b), fitted 0.480 / 0.485.
+
+\subsection*{2026-07-20, Tier 1: the $v_d$ ladder (checks 2, 4, 5, 6)}
+
+Config: as run 1a (SS09 parabolic, $n_y = 801$, $\Delta t = 30$~s, numba,
+production formulation) with $v_d \in \{0.0125, 0.025, 0.05, 0.125,
+0.25, 0.5, 1.25, 2.5\}$~m/s, Zhang et al.\ (2025)'s exact Fig.~4 ladder;
+run 1a's day-6000 record serves as the $v_d = 0$ rung. Stopping:
+slow-drift gate (detector window 30~d, threshold $10^{-4}$; gate
+defaults), the policy validated by the 1a gate check. Gates fired at
+days 3138/2494/1944/1936/1926/1912/1875/1822 in ascending $v_d$; the
+eight runs took 6.1~min wall on a three-worker numba pool
+(0.06--0.08~s/day contended). Every run passes the scorecard drift gate
+with a flat jet trend, holds $\max_y|u(y)-u(-y)| = 0$ exactly, and its
+10-day smoke ran first. Whole-domain settling: $\max_y|\Delta u| \le
+1.4\times 10^{-3}$~m/s between the final two 30-d windows, largest at
+the far-field notch described below. Outputs, figures
+(\path|t1_ro_ladder.png|, \path|t1_closure.png|, \path|t1_scalings.png|,
+\path|t1_budget.png|, \path|t1_farfield.png|), per-run scorecards, and
+\path|t1_summary.json| live in
+\path|model_output/fixed_ro_suite/t1_vd_ladder/|; reproduce with
+\path|scripts/fixed_ro_t1_analysis.py|.
+
+Ladder \textbf{[computed]}, all quantities final-30-day means:
+
+\begin{center}
+\small
+\begin{tabular}{rrrrrrrrr}
+\toprule
+$v_d$ & $\bar\Ro$ fit & max $\Ro$ & $y_{\mathrm{jet}}$ & $v_{\max}$
+  & $v_{\max}$ pred & depr.\ & depr.\ pred & EMFD:drag \\
+$[$m/s$]$ & & (in cell) & [$10^6$ m] & [mm/s] & [mm/s] & [K] & [K] & \\
+\midrule
+0      & 0.480 & 0.639 & 2.33 & 9.6   & 9.0   & 0.385 & 0.372 & 0.00:0.95 \\
+0.0125 & 0.338 & 0.450 & 2.83 & 14.9  & 15.2  & 0.524 & 0.530 & 0.49:0.49 \\
+0.025  & 0.279 & 0.379 & 3.12 & 18.9  & 20.3  & 0.614 & 0.642 & 0.63:0.35 \\
+0.05   & 0.226 & 0.309 & 3.47 & 25.2  & 27.8  & 0.746 & 0.792 & 0.75:0.23 \\
+0.125  & 0.166 & 0.228 & 4.06 & 39.1  & 44.3  & 1.000 & 1.079 & 0.87:0.12 \\
+0.25   & 0.129 & 0.179 & 4.61 & 56.1  & 64.5  & 1.274 & 1.387 & 0.92:0.07 \\
+0.5    & 0.100 & 0.139 & 5.25 & 81.9  & 94.8  & 1.640 & 1.793 & 0.95:0.04 \\
+1.25   & 0.071 & 0.098 & 6.20 & 137.1 & 158.5 & 2.312 & 2.525 & 0.98:0.02 \\
+2.5    & 0.054 & 0.075 & 7.01 & 203.6 & 236.4 & 3.011 & 3.297 & 0.98:0.01 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Momentum-budget regimes [computed]:} the band-mean shares of
+$v(\beta y - u_y)$ over $[y_5, y_{\mathrm{jet}}]$ put the drag--EMFD
+crossover at $v_d = 0.0125$ exactly (shares 0.49:0.49); vertical
+advection contributes $\le 5\%$ at every rung. So Zhang Eq.~24's neglect
+of vertical advection is excellent throughout, and its neglect of drag
+fails only for $v_d \lesssim 0.05$. At this forcing the ladder never
+enters Zhang's nonlinear AMC regime: as $v_d \to 0$ the drag takes over
+from the EMFD and $\bar\Ro$ saturates at the drag-limited 0.480 (max
+local $\Ro$ 0.639) rather than approaching 1. Zhang's sin$^2$ ladder
+reaches max $\Ro \approx 0.9$ because that circulation is ${\sim}3\times$
+stronger, shrinking the drag share accordingly (run 1b consequence (ii)).
+
+\textbf{Max-$\Ro$ slopes vs the pre-registered targets [computed]:}
+log-log fits over the four smallest / four largest $v_d$ rungs give
+$-0.297$ / $-0.377$ for the in-cell max local $\Ro$ ($-0.309$ /
+$-0.376$ for the fitted cell-mean $\bar\Ro$). The large-$v_d$ branch
+agrees with Zhang's eddy-dominant scaling ($v_d^{-2/5}$; their sin$^2$
+fit $-0.41$). The small-$v_d$ branch is steeper than their AMC-branch
+$-0.26$ ($v_d^{-1/4}$), consistent with the budget: here the small-$v_d$
+arrest of $\Ro$ comes from drag, and the AMC branch their $-1/4$ law
+describes is not accessed at default $\epsilon_u$. Testing the $-1/4$
+law needs the Tier-3 reduced-drag ladder.
+
+\textbf{Geometry [computed]:} the max-$\Ro$ latitude $y_m$ coincides
+with the $v$-max latitude to within one grid point at seven of nine
+rungs (two at the rest), confirming Zhang's identification of the two;
+$y_{\mathrm{jet}}/(2 y_m) = 1.02$--$1.11$ across the ladder, so their
+$y_E = 2 y_m$ closure holds to ${\sim}10\%$. The memo's own $v$-peak
+prediction $0.447\,Y_{\Ro}$ matches the measured $v$-max latitude to
+2--4\% at every rung.
+
+\textbf{Closure (analysis G) [computed]:} diagnosed $\bar\Ro$ vs the
+no-simulation-input solutions of Eq.~\eqref{eq:closure}: G gives
+$+11.4$/$+7.3$/$+3.8$/$+1.4$/$+0.6$/$-0.1$/$-1.2$/$-1.6$\% across the
+eight rungs (ascending $v_d$); the drag-extended variant gives
+$-4.9$/$-3.0$/$-2.3$/$-1.7$/$-1.2$/$-1.2$/$-1.7$/$-1.9$\%. The drag-free
+overshoot at small $v_d$ is the neglected drag; the extension removes
+most of it. In its $v_d \to 0$ limit the extension predicts
+$\bar\Ro \approx 0.40$ vs the measured 0.480, so the cell-midpoint drag
+weighting is ${\sim}20\%$ too strong in the drag-dominated limit.
+
+\textbf{Profile level [computed]:} the u misfit stays terminus-locked at
+28--31\% of the cell-edge scale at every rung while the inner half sits
+at 4.6--6.0\%; the $v$ misfit falls from 44\% of $v_{\max}$ at $v_d = 0$
+to 10--17\% for $v_d > 0$ (the equal-area $v$ shape fits the
+eddy-driven cells better than the drag-driven one). The theory
+overpredicts $v_{\max}$ and the depression by growing margins (2\% and
+1\% at $v_d = 0.0125$ to 14\% and 9\% at 2.5); effective $v_{\max}$
+exponent $-1.40$ vs the predicted $-3/2$. Mechanism \textbf{[plausible]}:
+the uniform-$\Ro$ $u = \bar\Ro\,\beta y^2/2$ overshoots the simulated
+$u$ over the outer cell (local $\Ro$ declines toward the jet at every
+rung), so the gradient-balanced $T$ depression, and with it the
+thermodynamically slaved $v$, is overpredicted; the overshoot region is
+a larger fraction of the cell as the cell widens with $v_d$.
+
+\textbf{Far field [computed]:} poleward of the forcing edge $y_1$ every
+$v_d > 0$ run has an easterly notch and a reverse (Ferrel-like) $v$
+cell, deepening and shifting poleward with $v_d$ (notch depth $-28$~m/s
+and reverse-cell $|v|$ 68~mm/s at $v_d = 2.5$; front at $y \approx
+10.2$--$11.1\times 10^6$~m). This is the production formulation's known
+gate-on terminus notch in its parabolic-forcing form, and it is where
+the slowest settling mode lives ($\max|\Delta u|$ locations above);
+implied front creep is $\le$ a few km per drag time, so the structures
+are steady for scorecard purposes. The in-cell diagnostics exclude it by
+construction ($y \le y_{\mathrm{jet}}$); the earlier unrestricted
+max-$\Ro$ search landed on its recovery flank at $v_d \ge 0.125$, which
+is why the diagnostic is now restricted.
 
 \end{document}

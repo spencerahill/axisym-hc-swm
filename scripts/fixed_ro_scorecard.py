@@ -161,7 +161,9 @@ def _edges(ax: Axes, r: Dict) -> None:
 
 def make_figure(r: Dict, out_png: str) -> None:
     y6 = r["y"] / 1e6
-    xmax = 4.5
+    # Wide enough to show the terminus for large cells (the T1 big-v_d
+    # rungs put the jet at 5-7e6 m); tier-0-sized cells keep the 4.5.
+    xmax = max(4.5, 1.25 * max(r["y_ro"], r["y_jet"]) / 1e6)
     fig, axs = plt.subplots(2, 2, figsize=(10, 7.5), constrained_layout=True)
 
     ax = axs[0, 0]
