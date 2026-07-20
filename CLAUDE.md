@@ -142,6 +142,8 @@ pytest ss09/tests/ -v
 pip install -e .
 ```
 
+Run repo scripts with plain `python` (the `claude-swm` conda env is on PATH). Never `uv run` in this repo: it creates a stray `.venv`/`uv.lock` at the repo root (observed 2026-07-16 and again 2026-07-19). The one exception is `uv run scripts/check_tier0_theory.py`, whose PEP 723 inline deps are the point.
+
 ### Running the Model
 ```bash
 # Run at the default resolution (pass an explicit dt; see warning below)
