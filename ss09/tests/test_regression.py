@@ -5,6 +5,22 @@ import numpy as np
 import subprocess
 import tempfile
 
+# Baselines in ss09/tests/baseline/ were generated on a different machine (a
+# 4-core Intel MacBook) than the one running the suite. Bit-exactness against a
+# stored baseline is not portable across CPU and BLAS/compiler versions: the
+# same source reproduces itself bit-for-bit on one machine, but differs at the
+# level of floating-point roundoff across machines. Measured 2026-07-28 on the
+# berimbau Linux cluster (Xeon E5-2620 v4, numpy 2.4.6, numba 0.66.0): the
+# largest deviation over the 5-day regression run is 2.1e-12 in u, i.e. 5e-14
+# relative to max|u|. This tolerance sits ~100x above that roundoff floor and
+# many orders of magnitude below any real physics change, so it still catches
+# an accidental change to the scheme while tolerating a machine change.
+#
+# The bit-exactness that IS portable, and is still asserted with == 0.0, is
+# machine-local: numba vs the numpy reference within one machine
+# (test_numba_backend.py), and run-to-run reproducibility.
+CROSS_MACHINE_ATOL = 1e-10
+
 
 @pytest.fixture
 def baseline_path():
@@ -178,10 +194,11 @@ def test_regression_moist(baseline_moist_path, test_path):
 
 
 @pytest.mark.regression
-def test_collocated_path_bit_identical(baseline_path, test_path):
-    """The collocated path reproduces the baseline state (u, v, T) bit-for-bit,
-    not merely within tolerance: the staggered-v refactor must not perturb a
-    single floating-point bit of the legacy solution."""
+def test_collocated_path_reproduces_baseline(baseline_path, test_path):
+    """The collocated path reproduces the baseline state (u, v, T) to roundoff:
+    the staggered-v refactor must not perturb the legacy solution beyond the
+    cross-machine floating-point floor. This was an exact `== 0.0` check while
+    the baseline and the suite shared a machine; see CROSS_MACHINE_ATOL."""
     run_model(test_path, grid="collocated", legacy=True)
     baseline_ds = xr.open_dataset(baseline_path)
     test_ds = xr.open_dataset(test_path)
@@ -189,6 +206,7 @@ def test_collocated_path_bit_identical(baseline_path, test_path):
         max_diff = np.abs(
             baseline_ds[var].values - test_ds[var].values
         ).max()
-        assert max_diff == 0.0, (
-            f"{var} differs from baseline by {max_diff} (expected bit-exact)"
+        assert max_diff < CROSS_MACHINE_ATOL, (
+            f"{var} differs from baseline by {max_diff}, above the "
+            f"cross-machine roundoff tolerance {CROSS_MACHINE_ATOL}"
         )

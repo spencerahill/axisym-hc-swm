@@ -1,10 +1,18 @@
 """Tests for the numba backend: bitwise parity against the numpy reference.
 
-Every parity assertion here is bitwise (max|delta| == 0.0), not tolerance:
-the kernel transcribes the reference operation-for-operation, so any nonzero
-difference is a transcription bug. Configs are pinned to smoke-verified
-stable trajectories (ny=51/dt=3600 blows up by day 4-5 and cannot be used
-for parity runs; ny=51/dt=1800 is finite through at least 6 days).
+Every numba-vs-numpy parity assertion here is bitwise (max|delta| == 0.0), not
+tolerance: the kernel transcribes the reference operation-for-operation, so any
+nonzero difference is a transcription bug. That identity is machine-local and
+holds regardless of which machine the suite runs on.
+
+The single exception is the comparison against the STORED baseline file
+(test_cli_numba_reproduces_staggered_baseline), which was generated on a
+different machine and so is a roundoff-tolerance check; see CROSS_MACHINE_ATOL
+in test_regression.py.
+
+Configs are pinned to smoke-verified stable trajectories (ny=51/dt=3600 blows
+up by day 4-5 and cannot be used for parity runs; ny=51/dt=1800 is finite
+through at least 6 days).
 """
 import os
 import subprocess
@@ -29,6 +37,7 @@ from ss09.sw_model import (
     v_faces_to_centers,
 )
 from ss09.theta_e import SB08Profile, SS09Profile, Sin2Profile, ThetaEConfig
+from test_regression import CROSS_MACHINE_ATOL
 
 pytestmark = pytest.mark.numba
 
@@ -592,7 +601,13 @@ def test_full_dataset_parity(tmp_path):
 @pytest.mark.regression
 def test_cli_numba_reproduces_staggered_baseline(tmp_path):
     """End-to-end through the CLI: the numba backend at the production default
-    formulation reproduces the staggered regression baseline bit-for-bit."""
+    formulation reproduces the staggered regression baseline to roundoff.
+
+    The stored baseline was generated on a different machine, so this is a
+    tolerance check, not `== 0.0`; see CROSS_MACHINE_ATOL in test_regression.py.
+    The numba-vs-numpy bitwise identity this module exists to guard is
+    machine-local and is still asserted exactly, throughout the rest of the
+    file."""
     out = str(tmp_path / "numba_baseline.nc")
     subprocess.run(
         [
@@ -607,7 +622,10 @@ def test_cli_numba_reproduces_staggered_baseline(tmp_path):
     test_ds = xr.open_dataset(out)
     for var in ("u", "v", "T"):
         max_diff = np.abs(baseline[var].values - test_ds[var].values).max()
-        assert max_diff == 0.0, f"{var} differs from baseline by {max_diff}"
+        assert max_diff < CROSS_MACHINE_ATOL, (
+            f"{var} differs from baseline by {max_diff}, above the "
+            f"cross-machine roundoff tolerance {CROSS_MACHINE_ATOL}"
+        )
     baseline.close()
     test_ds.close()
 

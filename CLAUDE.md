@@ -142,7 +142,17 @@ pytest ss09/tests/ -v
 pip install -e .
 ```
 
-Run repo scripts with plain `python` (the `claude-swm` conda env is on PATH). Never `uv run` in this repo: it creates a stray `.venv`/`uv.lock` at the repo root (observed 2026-07-16 and again 2026-07-19). The one exception is `uv run scripts/check_tier0_theory.py`, whose PEP 723 inline deps are the point.
+Run repo scripts and the model through the `claude-swm` conda env, which is **not** the default interpreter on berimbau (plain `python` there is miniconda `base`, Python 3.7.6, with no numba and no `ss09`):
+
+```bash
+conda run -n claude-swm --no-capture-output python scripts/<name>.py
+conda run -n claude-swm --no-capture-output run-sw-model --dt 1800
+conda run -n claude-swm --no-capture-output pytest ss09/tests/
+```
+
+`--no-capture-output` streams the run log live instead of withholding it until exit. Invoking the env's interpreter directly (`/home/shill/miniconda3/envs/claude-swm/bin/python`) does **not** put the env's `bin` on PATH, so `run-sw-model` goes missing and the six subprocess-based tests fail with `FileNotFoundError`; use `conda run` (observed 2026-07-28).
+
+Never `uv run` in this repo: it creates a stray `.venv`/`uv.lock` at the repo root (observed 2026-07-16 and again 2026-07-19). The one exception is `uv run scripts/check_tier0_theory.py`, whose PEP 723 inline deps are the point.
 
 ### Running the Model
 ```bash
@@ -192,7 +202,7 @@ run-sw-model --restart-from ./model_output/restart_day0050.nc \
 **Important notes:**
 - Restart files contain instantaneous snapshots at day boundaries, not daily-averaged output
 - Configuration parameters (ny, dt, domain-size, etc.) must match between restart file and new run
-- Restart filenames encode only the day, so concurrent runs sharing `--restart-dir` overwrite each other's same-day checkpoints; give parallel runs separate restart directories (2026-07-17: parallel tier-0 extensions both wrote `restart_day6000.nc` and the second clobbered the first)
+- Restart filenames encode only the day, so concurrent runs writing to one directory collide on the same `restart_day{NNNN}.nc` (2026-07-17: parallel tier-0 extensions both wrote `restart_day6000.nc` and the second clobbered the first). **Give parallel runs separate `--output-path` directories, not separate `--restart-dir`s:** when `--output-path` is explicit, `save_restart_file` derives the restart path from it via `generate_restart_filename(self.config.output_path, day)` and `--restart-dir` is ignored entirely. On berimbau this collision is a hard `PermissionError` from netCDF4 rather than the Mac's silent clobber, so it kills workers outright (observed 2026-07-28: 3 of 8 died in a 16-way scaling sweep). This matters more now that 16-way fleets are routine on berimbau
 - Steady-state detector history is preserved across restarts for continuous convergence monitoring
 - Moisture state must pair with the run: a moist checkpoint refuses `enable_moisture=False`, and a moist run from a dry checkpoint requires an explicit `--w-init` (see the Moist V1 section)
 - Output files contain only the days simulated in that run (filtered automatically)
