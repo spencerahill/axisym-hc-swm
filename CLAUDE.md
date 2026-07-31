@@ -451,6 +451,35 @@ dW/dt + d/dy[-(2a-1) v W - D dW/dy] = E_0 - P, with P = (W - W_c)^+/tau_c. W is 
 
 **Restart.** Format version 3 adds `w`/`w_prev`, written only for moist runs, so dry v3 files read exactly as v2 did. A moist checkpoint refuses to continue dry; a moist run from a dry checkpoint requires an explicit `--w-init` (W is freshly initialized, logged). Moist continuation is bit-exact, W included.
 
+### Moist V2: Latent Heating Feedback
+
+`--enable-latent-heating` adds the moist extension's Version 2 (spec Eq. T2), the first version in which moisture can move the ITCZ:
+
+```bash
+# Production V2 run: the coupled moist model at the production formulation
+run-sw-model --ndays 10 --ny 801 --dt 30 --enable-moisture --enable-latent-heating --backend numba
+
+# V2 parameters (Delta_theta^rad is the spec's provisional 75-100 K, low end)
+run-sw-model --enable-moisture --enable-latent-heating --delta-y-rad 100 --lambda-conv 0.4843
+
+# The V2_0 bridge: the retarget with the feedback severed, for attributing
+# a V1-to-V2 difference to the retarget vs the latent heating
+run-sw-model --enable-moisture --enable-latent-heating --lambda-conv 0
+```
+
+dtheta/dt + (d Delta_z/H) dv/dy = (theta_rad - theta)/tau + Lambda P. The moisture equation is V1's, unchanged, now riding the coupled circulation. Exactly one structural change, in two parts:
+
+1. **Retarget.** The relaxation must represent radiation alone, since convective heating is now explicit as `Lambda P`; keeping it inside the relaxation too would double-count it. `--delta-y-rad` (default 75 K) is the radiative contrast Delta_theta^rad, and the model rebuilds its relaxation target profile at that contrast, so `--delta-y` keeps its V1 radiative-convective meaning (50 K) and theta_E in every term, output, and diagnostic is theta_rad. tau_rad is the existing `--tau` (the spec's default is tau_rad = tau).
+2. **Latent heating.** `Lambda = L_v/C` with the column constants in `ss09/moist_constants.py` (C = c_p Pi Delta_p / g = 5.16e6 J/m^2/K, Lambda = 0.4843 K per kg m^-2 s^-1, the same C that sets the gross dry stability Shat). `C Lambda = L_v` is what makes precipitation cancel in the column MSE budget, and the discrete scheme inherits that exactly: `latent_heating()` reads the SAME lagged (n-1) P array the moisture step drains from W, and theta and W leapfrog with the same dt and Asselin coefficient, so d/dt(C theta + L_v W) carries no P at all (tested term-by-term on a spun-up state). `--lambda-conv 0` severs the feedback and is then bit-for-bit a dry run against theta_rad under the same gate (tested).
+
+**The vertical-advection gate switches to kinematic** (`--vert-advec-gate`, `theta` | `kinematic`). V1's H(theta_E - theta) gate reads the *current* relaxation target, which in V2 is theta_rad, and a precipitating column runs warmer than theta_rad, so that gate switches off exactly where convection is strongest (spec item 11). V2 therefore defaults to SS09 Eq. 2.1's own H(dv/dy), validated as an equivalent dry formulation by the 2026-07-18 steady-state A/B twins (climate anchors within 2%, exact mirror parity, the only persistent difference a 433 km shift of the westerly terminus notch). Dry and V1 runs default to `theta`, so every regression baseline is unchanged, and the flag is independent of the moist switches (a dry `--vert-advec-gate kinematic` run is the twin the V2_0 bridge reproduces). Asking for `theta` under latent heating is allowed but warns.
+
+**The mean state runs warm, harmlessly.** In the quiescent collar the steady balance is (theta_rad - theta)/tau + Lambda E_0 = 0, so theta settles tau*Lambda*E_0 = 71 K above theta_rad at the default parameters (measured: the collar had warmed 10.6 K by day 10 and T_eq reached 247.9 K by day 200). Every theta term is invariant under theta -> theta + c with theta_rad -> theta_rad + c, so `--theta00` is a purely cosmetic dial: shifting it by -71 K leaves u unchanged to 1.8e-11 m/s on a 72.8 m/s field (measured 2026-07-30, ny=201). Lower `--theta00` if realistic absolute temperatures matter for a figure; it changes no dynamics.
+
+**Stability.** The retarget's steeper contrast strengthens the circulation (max|u| 32 -> 74 m/s at day 10, ny=801), which tightens the advective CFL. At ny=801 dt=30 remains the ceiling, unchanged from dry (200-day probe: dt=30 clean, dt=60 NaN on day 1). At the coarse ny=51 test grid the dry dt=1800 is no longer enough: a Delta_theta = 75 K run diverges by day 5 under either gate, dry or moist, and dt=900 is stable and dt-converged there (2026-07-30). Smoke any new V2 configuration before a long run.
+
+**Constraints** (hard errors in `SWConfig` and the CLI): `--enable-latent-heating` requires `--enable-moisture` (P comes from the prognostic W); `--delta-y-rad` and `--lambda-conv` require `--enable-latent-heating`. All V2 parameters land in the output global attrs; no new prognostic state, so restart format 3 is unchanged and V2 continuation is bit-exact.
+
 ### Seasonal Cycle Types
 
 Control the shape of the seasonal ITCZ migration when using SB08 profile:
