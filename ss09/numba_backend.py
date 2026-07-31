@@ -135,6 +135,27 @@ def merid_advec_u_term(u, vc, dy):
 
 
 @njit(cache=True)
+def mc_face_values(w, dy, c_f):
+    sigma = mc_limited_slope(w, dy)
+    left = w[:-1] + 0.5 * dy * sigma[:-1]
+    right = w[1:] - 0.5 * dy * sigma[1:]
+    return np.where(c_f > 0, left, right)
+
+
+@njit(cache=True)
+def moisture_transport_tendency(w_adv, w_diff, v_f, cwv_frac, d_w, dy):
+    c_f = -(2.0 * cwv_frac - 1.0) * v_f
+    w_face = mc_face_values(w_adv, dy, c_f)
+    flux = c_f * w_face - d_w * (w_diff[1:] - w_diff[:-1]) / dy
+    return -v_divergence_at_centers(flux, dy)
+
+
+@njit(cache=True)
+def precipitation(w, w_crit, tau_c):
+    return np.maximum(w - w_crit, 0.0) / tau_c
+
+
+@njit(cache=True)
 def run_day(
     u, v, theta,
     u_prev, v_prev, theta_prev,
@@ -145,6 +166,8 @@ def run_day(
     beta, v_d, epsilon_u, k_v, gravity, height, t_ref,
     tau, delta, delta_z, theta_to_temp, asselin_coef, coeff_eddy_heat_diff,
     gate_on, include_merid, include_vert, stencil_code,
+    moist_on, w, w_prev, temp_w, temp_precip,
+    cwv_frac, d_w, w_crit, tau_c, evap,
 ):
     """Integrate temp_u.shape[0] leapfrog steps (one model day), mutating the
     state (u, v, theta) and filtered prev arrays in place and filling the
@@ -175,6 +198,19 @@ def run_day(
       add does;
     - each one-sided difference (u[j+1]-u[j])/dy is precomputed once per
       step into `diff` and reused, matching the reference's shared array.
+
+    Moist V1 (moist_on): the prognostic column water vapor W rides passively
+    on the dry circulation. Its leapfrog step is interleaved per step here,
+    reading the SAME level-n face v the reference's _step_moisture reads (the
+    v the dry commit below has not yet overwritten): the MUSCL-MC advective
+    flux sees the central (n) W, the compact diffusion and the precipitation
+    sink see the lagged (n-1) w_prev, and w_next / the Asselin-filtered w_prev
+    are held in scratch until the commit block, exactly as the dry fields are.
+    W is one-way coupled (no dry field reads it), so the dry integration is
+    untouched when moisture is off or on; a diverging W is caught by the same
+    per-step NaN check as u. Unlike the reference, the kernel omits the
+    per-step negative-W warning (numba nopython cannot log); the daily W_min
+    output remains the undershoot diagnostic on both backends.
     """
     nsteps = temp_u.shape[0]
     te_rows = theta_e_day.shape[0]
@@ -192,6 +228,12 @@ def run_day(
     u_next = np.empty(ny)
     v_next = np.empty(nv)
     theta_next = np.empty(ny)
+    # moist scratch (once per day; unused, but harmlessly allocated, when dry)
+    w_sigma = np.empty(ny)  # MC-limited slope of the level-n W
+    w_diff = np.empty(nv)  # one-sided face slopes of W
+    w_flux = np.empty(nv)  # advective + diffusive face flux of W
+    w_next = np.empty(ny)
+    w_prev_next = np.empty(ny)  # Asselin-filtered n-1 level of W
 
     for k in range(nsteps):
         t = (start_step + k) * dt
@@ -305,6 +347,42 @@ def run_day(
             theta_prev[j] = theta[j] + asselin_coef * (thn + theta_prev[j] - 2 * theta[j])
             theta_next[j] = thn
 
+        # --- W (moist V1): reads the still-level-n v (not yet committed), the
+        #     level-n W (advective flux), and the lagged n-1 w_prev (diffusion
+        #     and precipitation); w_next and the Asselin-filtered n-1 level are
+        #     held in scratch until the commit, as the dry fields are ---
+        if moist_on:
+            for j in range(nv):
+                w_diff[j] = (w[j + 1] - w[j]) / dy
+            for j in range(ny):  # MC-limited slope of the advected (n) W
+                dm = w_diff[j - 1] if j >= 1 else 0.0
+                dp = w_diff[j] if j <= ny - 2 else 0.0
+                centered = 0.5 * (dm + dp)
+                mag = np.minimum(
+                    np.minimum(np.abs(2.0 * dm), np.abs(2.0 * dp)), np.abs(centered)
+                )
+                w_sigma[j] = np.sign(dm) * mag if dm * dp > 0 else 0.0
+            for j in range(nv):  # face flux: MUSCL advection (n) + lagged D (n-1)
+                c_f = -(2.0 * cwv_frac - 1.0) * v[j]
+                if c_f > 0:
+                    w_face = w[j] + 0.5 * dy * w_sigma[j]
+                else:
+                    w_face = w[j + 1] - 0.5 * dy * w_sigma[j + 1]
+                w_flux[j] = c_f * w_face - d_w * (w_prev[j + 1] - w_prev[j]) / dy
+            for j in range(ny):  # -div(flux) - P + E_0, leapfrog + Asselin
+                if j == 0:
+                    transport = -(2.0 * w_flux[0] / dy)
+                elif j == ny - 1:
+                    transport = -(-2.0 * w_flux[nv - 1] / dy)
+                else:
+                    transport = -((w_flux[j] - w_flux[j - 1]) / dy)
+                p = np.maximum(w_prev[j] - w_crit, 0.0) / tau_c
+                tendency = transport + evap - p
+                wn = w_prev[j] + two_dt * tendency
+                w_prev_next[j] = w[j] + asselin_coef * (wn + w_prev[j] - 2 * w[j])
+                w_next[j] = wn
+                temp_precip[k, j] = p
+
         # --- commit state, BCs on the state only, store, NaN check ---
         nan_found = False
         for j in range(ny):
@@ -321,10 +399,23 @@ def run_day(
                 nan_found = True
         for j in range(nv):
             temp_v[k, j] = v[j]
+        # W commit + store: a diverging W (one-way coupled, so u can stay
+        # finite) breaks the run through the same nan_found check as u.
+        if moist_on:
+            for j in range(ny):
+                w[j] = w_next[j]
+                w_prev[j] = w_prev_next[j]
+                temp_w[k, j] = w[j]
+                if np.isnan(w[j]):
+                    nan_found = True
         temp_time[k] = t / SECONDS_PER_DAY
         if nan_found:
             return k
     return -1
+
+
+_MOIST_DUMMY_1D = np.empty(0)
+_MOIST_DUMMY_2D = np.empty((0, 0))
 
 
 def day_kernel_args(model, theta_e_day, start_step):
@@ -334,8 +425,15 @@ def day_kernel_args(model, theta_e_day, start_step):
     one compiled signature regardless of how the config values were spelled
     (e.g. the int-valued k_v default). The coercions are value-exact for
     every config the numba backend accepts: SWConfig validation requires an
-    integral dt, so int(config.dt) cannot truncate."""
+    integral dt, so int(config.dt) cannot truncate.
+
+    Dry runs pass empty float64 arrays for the W state and buffers: the moist
+    branch is dynamically dead (moist_on False) and never indexes them, but
+    numba still needs a concrete float64/2-D type to compile the one shared
+    signature. The moist scalar parameters always carry their config values
+    (their defaults on a dry config), inert while moist_on is False."""
     config = model.config
+    moist = config.enable_moisture
     return dict(
         u=model.state.u,
         v=model.state.v,
@@ -370,4 +468,14 @@ def day_kernel_args(model, theta_e_day, start_step):
         include_merid=bool(config.include_merid_advec_u),
         include_vert=bool(config.include_vert_advec_u),
         stencil_code=STENCIL_CODES[config.emfd_stencil],
+        moist_on=bool(moist),
+        w=model.w if moist else _MOIST_DUMMY_1D,
+        w_prev=model.w_prev if moist else _MOIST_DUMMY_1D,
+        temp_w=model.temp_vars.w if moist else _MOIST_DUMMY_2D,
+        temp_precip=model.temp_vars.precip if moist else _MOIST_DUMMY_2D,
+        cwv_frac=float(config.cwv_frac),
+        d_w=float(config.d_w),
+        w_crit=float(config.w_crit),
+        tau_c=float(config.tau_c),
+        evap=float(config.evap),
     )

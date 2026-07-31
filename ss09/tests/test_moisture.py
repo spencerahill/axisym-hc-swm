@@ -124,11 +124,12 @@ def test_config_accepts_zero_d_w():
     assert config.d_w == 0.0
 
 
-def test_config_enable_moisture_rejects_numba_backend():
-    """The numba kernel does not mirror the moisture step yet (deferred until
-    the V1 physics is frozen)."""
-    with pytest.raises(ValueError, match="numba"):
-        _moist_config(backend="numba")
+def test_config_enable_moisture_accepts_numba_backend():
+    """The numba kernel now mirrors the moisture step (bitwise-identical to the
+    numpy reference; parity in tests/test_numba_backend.py)."""
+    config = _moist_config(backend="numba")
+    assert config.backend == "numba"
+    assert config.enable_moisture is True
 
 
 def test_config_enable_moisture_rejects_collocated_grid():

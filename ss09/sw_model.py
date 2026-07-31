@@ -1168,7 +1168,13 @@ class StaggeredSWModel(SWModel):
                 if stop:
                     break
             if nan_step >= 0:
-                logging.warning("NaN detected in u, breaking the loop.")
+                # W is one-way coupled, so it can diverge while u stays finite;
+                # name the field that actually went NaN (matching the reference
+                # loop's message).
+                nan_u = np.isnan(self.state.u).any()
+                logging.warning(
+                    "NaN detected in %s, breaking the loop.", "u" if nan_u else "W"
+                )
                 break
 
         self._finalize_run(day)
