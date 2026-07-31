@@ -104,10 +104,18 @@ def figure_profiles(clim: xr.Dataset, out_png: str, years: str) -> None:
                "half": (10.0, 0.014), "dyn": (-14.0, -0.016)}
 
     ax = axes[0]
+    # The observed interface is a band, not a level, so a read off from it is
+    # a band too; drawing it as a line would imply precision that Psi's flat
+    # mid-troposphere does not support.
+    lo = clim["a_dyn_shallow"].mean("month").values
+    hi = clim["a_dyn_deep"].mean("month").values
+    ax.fill_between(lat, np.minimum(lo, hi), np.maximum(lo, hi),
+                    color=LADDER_COLORS["dyn"], alpha=0.20, lw=0)
     for key, label in INTERFACES:
         ann = clim[f"a_{key}"].mean("month")
         ax.plot(lat, ann.values, color=LADDER_COLORS[key],
-                lw=2.2 if key == "half" else 1.3)
+                lw=2.2 if key == "half" else 1.3,
+                ls="-." if key == "dyn" else "-")
         x0, dy = anchors[key]
         k = int(np.abs(lat - x0).argmin())
         ax.text(lat[k], float(ann[k]) + dy, label, color=LADDER_COLORS[key],
@@ -135,17 +143,23 @@ def figure_profiles(clim: xr.Dataset, out_png: str, years: str) -> None:
     ax.grid(alpha=0.25)
 
     ax = axes[2]
-    for key, x0, dy in [("half", 8.0, -14.0), ("dyn", -8.0, 30.0)]:
+    lo = clim["p_d_dyn_shallow"].mean("month").values / 100.0
+    hi = clim["p_d_dyn_deep"].mean("month").values / 100.0
+    ax.fill_between(lat, lo, hi, color=LADDER_COLORS["dyn"], alpha=0.20, lw=0)
+    for key, x0, dy in [("half", 8.0, -14.0), ("dyn", -8.0, 55.0)]:
         ann = clim[f"p_d_{key}"].mean("month") / 100.0
-        ax.plot(lat, ann.values, color=LADDER_COLORS[key], lw=2.0)
+        ax.plot(lat, ann.values, color=LADDER_COLORS[key], lw=2.0,
+                ls="-." if key == "dyn" else "-")
         k = int(np.abs(lat - x0).argmin())
         ax.text(lat[k], float(ann[k]) + dy, LADDER_LABELS[key],
                 color=LADDER_COLORS[key], fontsize=9, ha="center",
                 va="top" if dy < 0 else "bottom")
     _lat_axis(ax)
-    ax.set_ylim(850, 380)
+    ax.set_ylim(900, 300)
     ax.set_ylabel("interface pressure (hPa)")
-    ax.set_title("where the branches divide", fontsize=11)
+    ax.set_title(r"where the branches divide"
+                 "\n"
+                 r"(shading: $|\Psi|$ within 5% of its extremum)", fontsize=10)
     ax.grid(alpha=0.25)
 
     fig.suptitle(f"ERA5 {years}: the lower-branch CWV fraction and its interface",

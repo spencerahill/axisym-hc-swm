@@ -49,11 +49,10 @@ GRAV = 9.80665  # m/s^2
 FIXED_PD = np.array([40000.0, 50000.0, 60000.0, 70000.0])
 REFERENCE_PD = 50000.0
 
-# Pressure band within which the dynamical interface is sought, in Pa.  Wide
-# enough to admit a deep-tropical interface near 500 hPa and a shallow
-# subtropical one, narrow enough to exclude the boundary layer and the
-# stratospheric branch of the residual circulation.
-DYNAMIC_BAND = (15000.0, 85000.0)
+# Pressure band within which the dynamical interface is sought, in Pa.  The
+# observed interface sits near 700-840 hPa, so the band must reach well below
+# 850 hPa; the upper limit keeps the search out of the stratosphere.
+DYNAMIC_BAND = (15000.0, 90000.0)
 
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -181,16 +180,58 @@ def dynamical_interface(v: xr.DataArray, ps: xr.DataArray,
                         correct_mass_flux: bool = True) -> xr.DataArray:
     """Interface where the zonal-mean mass streamfunction is extremal.
 
-    The extremum of Psi in the free troposphere is the level of nondivergence,
-    which is where ``[v]`` reverses sign and so is the observed counterpart of
-    the model's branch interface.
+    The extremum of Psi is the level of nondivergence, where ``[v]`` reverses
+    sign, and so is the observed counterpart of the model's branch interface.
+
+    The extremum is taken on the monthly *climatology* of Psi, not month by
+    month.  Between the two branches (roughly 350-650 hPa) the annual-mean
+    ``[v]`` is under 0.1 m/s, so Psi is nearly flat there and a per-month
+    argmax latches onto interannual noise in that dead layer, scattering the
+    diagnosed level over hundreds of hPa.  Averaging Psi over years first
+    leaves the seasonal cycle intact and puts the extremum where the lower
+    branch actually ends.
+    """
+    return dynamical_interface_band(v, ps, band, correct_mass_flux)[0]
+
+
+def dynamical_interface_band(v: xr.DataArray, ps: xr.DataArray,
+                             band: tuple[float, float] = DYNAMIC_BAND,
+                             correct_mass_flux: bool = True,
+                             tol: float = 0.05):
+    """``(p_ext, p_shallow, p_deep)``: the interface and how sharply it is set.
+
+    ``p_shallow`` and ``p_deep`` bound the pressures where ``|Psi|`` stays
+    within ``tol`` of its extremum.  In the deep tropics that band is hundreds
+    of hPa wide, because the two branches are separated by a layer in which
+    the annual-mean ``[v]`` is under 0.1 m/s and Psi barely changes.  The
+    interface is therefore not a sharply observed level, and the width is the
+    honest uncertainty to carry into any ``a`` read off from it.
     """
     edges, psi_edge = mass_streamfunction(v, ps, correct_mass_flux)
+    psi_da = xr.DataArray(psi_edge, dims=("time", "edge", "latitude"),
+                          coords={"time": v["time"], "latitude": v["latitude"]})
+    psi_clim = psi_da.groupby("time.month").mean("time")
+
     in_band = (edges >= band[0]) & (edges <= band[1])
-    masked = np.where(in_band[np.newaxis, :, np.newaxis], np.abs(psi_edge), -np.inf)
-    idx = np.argmax(masked, axis=-2)
-    return xr.DataArray(edges[idx], dims=("time", "latitude"),
-                        coords={"time": v["time"], "latitude": v["latitude"]})
+    absly = np.where(in_band[np.newaxis, :, np.newaxis],
+                     np.abs(psi_clim.values), -np.inf)
+    idx = np.argmax(absly, axis=-2)
+    ext = np.take_along_axis(absly, idx[..., np.newaxis, :], axis=-2)
+
+    near = absly >= (1.0 - tol) * ext
+    p_grid = np.broadcast_to(edges[np.newaxis, :, np.newaxis], absly.shape)
+    shallow = np.where(near, p_grid, np.inf).min(axis=-2)
+    deep = np.where(near, p_grid, -np.inf).max(axis=-2)
+
+    month = v["time"].dt.month
+
+    def _expand(arr):
+        da = xr.DataArray(arr, dims=("month", "latitude"),
+                          coords={"month": psi_clim["month"],
+                                  "latitude": v["latitude"]})
+        return da.sel(month=month).drop_vars("month")
+
+    return _expand(edges[idx]), _expand(shallow), _expand(deep)
 
 
 # --------------------------------------------------------------------------
@@ -246,7 +287,7 @@ INTERFACES += [("half", "half-mass p_s/2"), ("dyn", "level of nondiv.")]
 
 
 def flux_diagnostics(q: xr.DataArray, v: xr.DataArray, ps: xr.DataArray,
-                     w_total: xr.DataArray) -> xr.Dataset:
+                     w_total: xr.DataArray, p_dyn: xr.DataArray) -> xr.Dataset:
     """The pieces of the flux-matched calibration of ``2a - 1``.
 
     ``mean_vq`` is the observed column-integrated mean meridional moisture
@@ -264,10 +305,11 @@ def flux_diagnostics(q: xr.DataArray, v: xr.DataArray, ps: xr.DataArray,
     v_corr = v.values - (v.values * w).sum(axis=-2, keepdims=True) / dp
     mean_vq = (v_corr * q.values * w).sum(axis=-2) / GRAV
 
+    # Overturning strength = Psi at the branch interface, evaluated month by
+    # month on the climatologically located interface.
     edges, psi_edge = mass_streamfunction(v, ps)
-    in_band = (edges >= DYNAMIC_BAND[0]) & (edges <= DYNAMIC_BAND[1])
-    masked = np.where(in_band[np.newaxis, :, np.newaxis], np.abs(psi_edge), -np.inf)
-    idx = np.argmax(masked, axis=-2)
+    idx = np.abs(edges[np.newaxis, :, np.newaxis]
+                 - p_dyn.values[:, np.newaxis, :]).argmin(axis=-2)
     psi_ext = np.take_along_axis(psi_edge, idx[..., np.newaxis, :], axis=-2)[..., 0, :]
 
     dims, coords = ("time", "latitude"), {"time": q["time"], "latitude": q["latitude"]}
@@ -334,7 +376,10 @@ def build(years: range) -> xr.Dataset:
 
     interfaces = {interface_key(p): fixed_interface(ps, p) for p in FIXED_PD}
     interfaces["half"] = half_mass_interface(ps)
-    interfaces["dyn"] = dynamical_interface(v, ps)
+    p_dyn, p_shallow, p_deep = dynamical_interface_band(v, ps)
+    interfaces["dyn"] = p_dyn
+    interfaces["dyn_shallow"] = p_shallow
+    interfaces["dyn_deep"] = p_deep
 
     out = {}
     for key, p_d in interfaces.items():
@@ -344,7 +389,7 @@ def build(years: range) -> xr.Dataset:
         out[f"p_d_{key}"] = p_d
         out["w_total"] = res["w_total"]
 
-    flux = flux_diagnostics(q, v, ps, out["w_total"])
+    flux = flux_diagnostics(q, v, ps, out["w_total"], interfaces["dyn"])
     out.update(flux)
     for key in ["half", "dyn"]:
         out[f"flux_2lay_{key}"] = two_layer_flux(q, ps, interfaces[key],
