@@ -66,6 +66,14 @@ LADDER = [
     ("85 K", "l85", "#DDCC77"),
     ("95 K", "l95", "#CC6677"),
 ]
+# The gross-moist-stability regime test: W_c straddles the Hhat = 0 crossover
+# at W = Shat/(L_v(2a-1)) = 44.25 kg/m^2, since the quiescent column sits at
+# W_c + tau_c E_0. W_c = 35 and 40 are positive-GMS, W_c = 50 negative.
+WC_REGIME = [
+    (r"$W_c$=35", "wc35", "#4477AA"),
+    (r"$W_c$=40", "wc40", "#DDAA33"),
+    (r"$W_c$=50", "m4_v2_dyr75", "#CC3311"),
+]
 
 
 def load_equilibrium(path, last_n=10):
@@ -309,6 +317,16 @@ def main():
                    direct_labels=False)
     budget_figure(chain[-1], prefix + "_budget.png",
                   r"Moist V2 ($\Delta_\theta^{\rm rad}=75$ K) column MSE budget")
+
+    wc = [load_equilibrium(os.path.join(run_dir, d, "out.nc"))
+          for _, d, _ in WC_REGIME]
+    scorecard([w[0] for w in WC_REGIME], wc, "Gross-moist-stability regime")
+    profile_figure([w[0] for w in WC_REGIME], wc, [w[2] for w in WC_REGIME],
+                   prefix + "_gms_regime.png",
+                   "Moist V2 across the gross-moist-stability crossover "
+                   r"($\hat H=0$ at $W$=44.25 kg m$^{-2}$)")
+    budget_figure(wc[1], prefix + "_budget_wc40.png",
+                  r"Moist V2, $W_c$=40 (positive $\hat H$): column MSE budget")
 
     ladder = [load_equilibrium(os.path.join(run_dir, d, "out.nc"))
               for _, d, _ in LADDER]
