@@ -165,9 +165,10 @@ def run_day(
     y, y_v, dy,
     beta, v_d, epsilon_u, k_v, gravity, height, t_ref,
     tau, delta, delta_z, theta_to_temp, asselin_coef, coeff_eddy_heat_diff,
-    gate_on, include_merid, include_vert, stencil_code,
+    gate_on, include_merid, include_vert, stencil_code, gate_kinematic,
     moist_on, w, w_prev, temp_w, temp_precip,
     cwv_frac, d_w, w_crit, tau_c, evap,
+    latent_on, lambda_conv,
 ):
     """Integrate temp_u.shape[0] leapfrog steps (one model day), mutating the
     state (u, v, theta) and filtered prev arrays in place and filling the
@@ -211,6 +212,16 @@ def run_day(
     per-step NaN check as u. Unlike the reference, the kernel omits the
     per-step negative-W warning (numba nopython cannot log); the daily W_min
     output remains the undershoot diagnostic on both backends.
+
+    Moist V2 (latent_on): precipitation heats the column, lambda_conv * P
+    added to the theta tendency. P is read from the SAME lagged w_prev the W
+    block's sink uses, and w_prev is not committed until after both, so the
+    two see one array and L_v P cancels exactly in the column MSE budget.
+    theta_e_day carries the radiative target theta_rad in V2 (the caller
+    rebuilds the profile), so no separate target array is needed here.
+    gate_kinematic selects SS09's H(dv/dy) gate on the vertical momentum
+    advection in place of the thermodynamic H(theta_E - theta); it is
+    independent of the moist switches (dry runs may select it too).
     """
     nsteps = temp_u.shape[0]
     te_rows = theta_e_day.shape[0]
@@ -299,7 +310,10 @@ def run_day(
             else:
                 merid = 0.0
             if include_vert:
-                x = theta_e_day[row, j] - theta[j]
+                if gate_kinematic:
+                    x = dvdy[j]
+                else:
+                    x = theta_e_day[row, j] - theta[j]
                 gate_th = 1.0 if x > 0.0 else (0.0 if x < 0.0 else 0.5)
                 vert = u[j] * dvdy[j] * gate_th
             else:
@@ -343,6 +357,12 @@ def run_day(
                     g2 = (d1[j + 1] - d1[j - 1]) / (2.0 * dy)
                 eddy = coeff_eddy_heat_diff * g2
             dthdt = newt + vadv_th + eddy
+            if latent_on:
+                # Lambda * P at the lagged n-1 level: the same array the W
+                # block removes below (w_prev is committed only after both).
+                dthdt = dthdt + lambda_conv * (
+                    np.maximum(w_prev[j] - w_crit, 0.0) / tau_c
+                )
             thn = theta_prev[j] + two_dt * dthdt
             theta_prev[j] = theta[j] + asselin_coef * (thn + theta_prev[j] - 2 * theta[j])
             theta_next[j] = thn
@@ -468,6 +488,7 @@ def day_kernel_args(model, theta_e_day, start_step):
         include_merid=bool(config.include_merid_advec_u),
         include_vert=bool(config.include_vert_advec_u),
         stencil_code=STENCIL_CODES[config.emfd_stencil],
+        gate_kinematic=bool(config.vert_advec_gate == "kinematic"),
         moist_on=bool(moist),
         w=model.w if moist else _MOIST_DUMMY_1D,
         w_prev=model.w_prev if moist else _MOIST_DUMMY_1D,
@@ -478,4 +499,8 @@ def day_kernel_args(model, theta_e_day, start_step):
         w_crit=float(config.w_crit),
         tau_c=float(config.tau_c),
         evap=float(config.evap),
+        latent_on=bool(config.enable_latent_heating),
+        # None on a dry or V1 config; inert there (latent_on is False), but
+        # numba still needs a concrete float for the shared signature.
+        lambda_conv=float(config.lambda_conv or 0.0),
     )

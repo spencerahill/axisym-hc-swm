@@ -4,9 +4,10 @@ This file shows the python code for S-S model.
 
 import os
 import logging
+import warnings
 import numpy as np
 from typing import Optional, Tuple, NamedTuple
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from .model_state import ModelState
 from .theta_e import ThetaEProfile
 from .sw_config import SWConfig
@@ -170,6 +171,31 @@ def cwv_integral(w: np.ndarray, dy: float) -> float:
     return dy * (0.5 * w[0] + np.sum(w[1:-1]) + 0.5 * w[-1])
 
 
+def radiative_target_profile(
+    theta_e_profile: ThetaEProfile, delta_y_rad: float
+) -> ThetaEProfile:
+    """The moist V2 relaxation target theta_rad: the same forcing-profile
+    family and parameters as theta_E, with the meridional contrast raised
+    from the radiative-convective delta_y to the purely radiative
+    delta_y_rad (spec Eq. T2).
+
+    V2 must relax to radiation alone, because the convective heating that
+    the V1 relaxation bundles in is now explicit as Lambda * P; keeping both
+    would double-count it.
+    """
+    if delta_y_rad <= theta_e_profile.config.delta_y:
+        warnings.warn(
+            f"delta_y_rad={delta_y_rad} K is not steeper than the "
+            f"radiative-convective delta_y={theta_e_profile.config.delta_y} K; "
+            "a radiative-equilibrium target has the larger contrast (the spec "
+            "gives 75-100 K), and a flatter one leaves convective heating "
+            "inside the relaxation that Lambda * P then adds again"
+        )
+    return type(theta_e_profile)(
+        replace(theta_e_profile.config, delta_y=delta_y_rad)
+    )
+
+
 def precipitation(w: np.ndarray, w_crit: float, tau_c: float) -> np.ndarray:
     """P = (W - W_c)^+ / tau_c: quasi-equilibrium relaxation of CWV to the
     critical value on the convective timescale, zero at or below W_c. The
@@ -216,6 +242,19 @@ class SWModel:
 
     def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
         self.config = config
+        if config.enable_latent_heating:
+            # Moist V2 relaxes to radiation alone; swap the target here (not
+            # at the call site) so every entry point -- CLI, tests, scripts --
+            # gets the retarget from the config alone, and so theta_E in the
+            # relaxation, the output, and the diagnostics is one field.
+            theta_e_profile = radiative_target_profile(
+                theta_e_profile, config.delta_y_rad
+            )
+            logging.info(
+                "Latent heating on: relaxing to the radiative target "
+                "delta_y_rad=%.4g K (Lambda=%.4g K per kg m^-2 s^-1)",
+                config.delta_y_rad, config.lambda_conv,
+            )
         self.theta_e_profile = theta_e_profile
         # u and theta live on the ny centers; v may live on a different grid
         # (config.nv = ny-1 interior faces for the staggered layout, ny for the
@@ -259,7 +298,11 @@ class SWModel:
         if config.enable_moisture:
             w0 = config.w_init if config.w_init is not None else config.w_crit
             self.w = np.full(config.ny, float(w0))
-            self.w_prev = np.zeros(config.ny)
+            # Both levels start at the initial field: _seed_moisture_prev
+            # overwrites w_prev with the backward step, but the dry backward
+            # step runs first and (under V2) reads w_prev for its latent
+            # heating, which must be P(W(0)) rather than P(0).
+            self.w_prev = self.w.copy()
             self._moisture_negative_warned = False
         else:
             self.w = None
@@ -377,12 +420,20 @@ class SWModel:
         return self.state.u * self.config.epsilon_u
 
     def vert_advec_u(self) -> np.ndarray:
-        """Calculate the vertical momentum advection."""
-        return (
-            self.state.u
-            * self.dv_dy()
-            * np.heaviside(self.current_theta_e() - self.state.theta, 0.5)
-        )
+        """Calculate the vertical momentum advection.
+
+        The gate marks the columns where mass injected from below dilutes the
+        upper-level momentum. "theta" is the production thermodynamic gate
+        H(theta_E - theta) (convecting columns); "kinematic" is SS09 Eq.
+        2.1's own H(dv/dy), which reads the divergence directly and so
+        survives V2's retarget of the relaxation target (see SCIENCE.md 3.3).
+        """
+        dv_dy = self.dv_dy()
+        if self.config.vert_advec_gate == "kinematic":
+            gate = np.heaviside(dv_dy, 0.5)
+        else:
+            gate = np.heaviside(self.current_theta_e() - self.state.theta, 0.5)
+        return self.state.u * dv_dy * gate
 
     def coriolis_term(self, u_or_v: np.ndarray) -> np.ndarray:
         """Calculate the Coriolis term for the u or v equation."""
@@ -447,9 +498,27 @@ class SWModel:
         dtheta_dy = np.gradient(self.state.theta, self.config.dy)
         return self.config.coeff_eddy_heat_diff * np.gradient(dtheta_dy, self.config.dy)
 
+    def latent_heating(self) -> np.ndarray:
+        """Lambda * P: convective heating of the column by precipitation
+        (moist V2, spec Eq. T2).
+
+        P is read at the lagged (n-1) level, the SAME array the moisture step
+        removes from W in this step, so the latent term cancels exactly
+        between the two budgets: C * Lambda = L_v by construction, hence
+        d/dt(C theta + L_v W) carries no P at all.
+        """
+        return self.config.lambda_conv * precipitation(
+            self.w_prev, self.config.w_crit, self.config.tau_c
+        )
+
     def dtheta_dt(self) -> np.ndarray:
         """Calculate the time derivative of theta."""
-        return self.newt_cool_term() + self.vert_advec_theta() + self.eddy_heat_flux()
+        tendency = (
+            self.newt_cool_term() + self.vert_advec_theta() + self.eddy_heat_flux()
+        )
+        if self.config.enable_latent_heating:
+            tendency = tendency + self.latent_heating()
+        return tendency
 
     def leapfrog_step(self, prev: np.ndarray, time_deriv_func) -> np.ndarray:
         """Perform a leapfrog step for a single variable."""

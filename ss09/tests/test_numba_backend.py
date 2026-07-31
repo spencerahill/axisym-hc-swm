@@ -847,6 +847,115 @@ def test_full_dataset_parity_moist(tmp_path):
     ds_nb.close()
 
 
+# ---------------------------------------------------------------------------
+# Moist V2: the latent-heating feedback. Unlike V1, W now feeds back on the
+# dry fields, so a transcription error in the latent term or the kinematic
+# gate shows up in u/v/theta as well as in W. dt=900 (not the dry suite's
+# 1800) because the radiative target's steeper contrast tightens the
+# advective CFL at ny=51; ny=21 is stable at either.
+# ---------------------------------------------------------------------------
+
+V2 = dict(enable_moisture=True, enable_latent_heating=True)
+
+
+def test_parity_latent_default(tmp_path):
+    """The headline V2 parity: the coupled theta-W pair bitwise identical
+    across backends, with precipitation heating the column."""
+    m_np, m_nb = run_pair(tmp_path, ny=21, dt=900, ndays=5, **V2)
+    assert stored_days(m_np) == stored_days(m_nb) == 5
+    assert np.any(m_np.w > m_np.config.w_crit), "P never fired; test is vacuous"
+    assert_moist_daily_parity(m_np, m_nb)
+
+
+def test_parity_latent_production_resolution(tmp_path):
+    """Production grid (ny=801/dt=30)."""
+    m_np, m_nb = run_pair(tmp_path, ny=801, dt=30, ndays=2, **V2)
+    assert stored_days(m_np) == stored_days(m_nb) == 2
+    assert_moist_daily_parity(m_np, m_nb)
+
+
+V2_VARIANTS = [
+    ("steep_radiative_target", dict(delta_y_rad=100.0)),
+    ("zero_lambda_bridge", dict(lambda_conv=0.0)),
+    ("advection_only", dict(d_w=0.0)),
+    ("fast_convection", dict(tau_c=1800.0)),
+    ("dry_column", dict(w_init=20.0, evap=0.0)),  # P off: latent term is 0
+]
+
+
+@pytest.mark.parametrize(
+    "name,v2_kwargs", V2_VARIANTS, ids=[v[0] for v in V2_VARIANTS]
+)
+def test_parity_latent_variants(tmp_path, name, v2_kwargs):
+    m_np, m_nb = run_pair(tmp_path, ny=21, dt=900, ndays=4, **V2, **v2_kwargs)
+    assert stored_days(m_np) == stored_days(m_nb) == 4
+    assert_moist_daily_parity(m_np, m_nb)
+
+
+@pytest.mark.parametrize("gate", ["theta", "kinematic"])
+def test_parity_vert_advec_gate(tmp_path, gate):
+    """Both gate branches of the kernel's vertical-advection term, on a dry
+    run (the gate is independent of the moist switches)."""
+    m_np, m_nb = run_pair(tmp_path, ny=51, ndays=4, vert_advec_gate=gate)
+    assert stored_days(m_np) == stored_days(m_nb) == 4
+    assert_daily_parity(m_np, m_nb)
+
+
+def test_kinematic_gate_changes_the_kernel_solution(tmp_path):
+    """Guard against a kernel that ignores gate_kinematic: the two gates must
+    produce different dry solutions, or the parity test above is vacuous."""
+    theta_gate = build_model(tmp_path / "theta", "numba", ny=51, ndays=4)
+    theta_gate.run_sim()
+    kinematic = build_model(
+        tmp_path / "kin", "numba", ny=51, ndays=4, vert_advec_gate="kinematic"
+    )
+    kinematic.run_sim()
+    assert np.max(np.abs(kinematic.state.u - theta_gate.state.u)) > 0.0
+
+
+def test_latent_heating_changes_the_kernel_solution(tmp_path):
+    """Likewise for latent_on: V2 must differ from its own Lambda=0 bridge on
+    the numba backend, or the V2 parity tests would pass on a dead branch."""
+    coupled = build_model(tmp_path / "coupled", "numba", ny=21, dt=900,
+                          ndays=5, **V2)
+    coupled.run_sim()
+    bridge = build_model(tmp_path / "bridge", "numba", ny=21, dt=900, ndays=5,
+                         **V2, lambda_conv=0.0)
+    bridge.run_sim()
+    assert np.max(coupled.state.theta - bridge.state.theta) > 1.0
+
+
+def test_v2_symmetric_parity_bitexact(tmp_path):
+    """The coupled run holds mirror parity exactly on the numba backend."""
+    m_np, m_nb = run_pair(tmp_path, ny=51, dt=900, ndays=5, **V2)
+    assert np.max(np.abs(m_nb.state.u - m_nb.state.u[::-1])) == 0.0
+    assert np.max(np.abs(m_nb.w - m_nb.w[::-1])) == 0.0
+    assert_moist_daily_parity(m_np, m_nb)
+
+
+def test_restart_latent_cross_backend_bitwise(tmp_path):
+    """A V2 restart written by numpy continues bit-for-bit on numba, across
+    the coupled theta-W pair."""
+    base = build_model(tmp_path / "base", "numpy", ny=21, dt=900, ndays=2, **V2)
+    base.run_sim()
+    restart_file = _final_restart(str(tmp_path / "base" / "numpy"), 2)
+    conts = {}
+    for backend in ("numpy", "numba"):
+        cont = build_model(
+            tmp_path / f"cont_{backend}", backend, ny=21, dt=900, ndays=4, **V2
+        )
+        cont.restart_day = cont.load_from_restart(restart_file)
+        cont.run_sim()
+        conts[backend] = cont
+    for day in (2, 3):
+        for name in ("u", "v", "theta", "w", "precip"):
+            assert_bitwise(
+                getattr(conts["numpy"].results, name)[day],
+                getattr(conts["numba"].results, name)[day],
+                f"{name} day {day}",
+            )
+
+
 @pytest.mark.regression
 def test_cli_numba_reproduces_moist_baseline(tmp_path):
     """End-to-end through the CLI: the numba backend at the production default
