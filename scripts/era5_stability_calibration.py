@@ -156,12 +156,88 @@ def report(ds: xr.Dataset) -> str:
     return "\n".join(lines)
 
 
+def figures(ds: xr.Dataset, out_prefix: str) -> None:
+    """Show the regressions themselves, not just their slopes.
+
+    Panel a and b are the scatters the slopes come from, so a bad fit or a
+    latitude-dependent slope is visible rather than hidden inside one number.
+    Panel c is the local ratio flux/v_model as a function of latitude, which
+    is the same quantity resolved rather than aggregated.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cfg = SWConfig()
+    shat_model = gross_dry_stability(9.80665, cfg.delta, cfg.delta_z, cfg.height)
+    lat = ds["latitude"].values
+    band = np.abs(lat) <= 30.0
+    v = ds["v_model"].values[:, band]
+    lat_b = lat[band]
+    colour = np.broadcast_to(lat_b, v.shape)
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+    for ax, key, name, model_slope in [
+            (axes[0], "dse_flux", r"mean DSE flux  $\hat S v$", shat_model),
+            (axes[1], "mse_flux", r"mean column MSE flux  $\hat H v$", None)]:
+        f = ds[key].values[:, band]
+        sc = ax.scatter(v.ravel(), f.ravel() / 1e6, s=1.5, alpha=0.25,
+                        c=colour.ravel(), cmap="Spectral_r", vmin=-30, vmax=30)
+        s_obs = slope(ds["v_model"], ds[key], 30.0)
+        xs = np.array([v.min(), v.max()])
+        ax.plot(xs, s_obs * xs / 1e6, color="k", lw=2)
+        ax.text(0.04, 0.93, f"observed slope {s_obs:.2e} J m$^{{-2}}$",
+                transform=ax.transAxes, fontsize=9)
+        if model_slope is not None:
+            ax.plot(xs, model_slope * xs / 1e6, color="#CC3311", lw=2, ls="--")
+            ax.text(0.04, 0.86, f"model slope {model_slope:.2e}",
+                    transform=ax.transAxes, fontsize=9, color="#CC3311")
+        ax.set_xlabel(r"$v_{\rm model}$ (m s$^{-1}$)")
+        ax.set_ylabel(f"{name} (MW m$^{{-1}}$)")
+        ax.axhline(0, color="0.6", lw=0.7)
+        ax.axvline(0, color="0.6", lw=0.7)
+        ax.grid(alpha=0.25)
+        ax.set_title(name, fontsize=11)
+    fig.colorbar(sc, ax=axes[1], label="latitude", pad=0.02)
+
+    ax = axes[2]
+    ann_v = ds["v_model"].groupby("time.month").mean("time").mean("month")
+    strong = np.abs(ann_v) > 0.15
+    for key, colr, label in [("dse_flux", "#7b3294", r"$\hat S$"),
+                             ("mse_flux", "#1b7837", r"$\hat H$")]:
+        ann_f = ds[key].groupby("time.month").mean("time").mean("month")
+        ratio = np.where(strong, ann_f / ann_v, np.nan)
+        ax.plot(lat, ratio / 1e6, color=colr, lw=2)
+        k = int(np.abs(lat - 17.0).argmin())
+        ax.text(lat[k], ratio[k] / 1e6 + 12, label, color=colr, fontsize=11,
+                ha="center")
+    ax.axhline(shat_model / 1e6, color="#CC3311", lw=2, ls="--")
+    ax.text(-28, shat_model / 1e6 + 6, r"model $\hat S$", color="#CC3311",
+            fontsize=9)
+    ax.axhline(0, color="0.6", lw=0.7)
+    ax.set_xlim(-30, 30)
+    ax.set_xlabel("latitude")
+    ax.set_ylabel(r"flux / $v_{\rm model}$ (MJ m$^{-2}$)")
+    ax.set_title("local stabilities, where the overturning is resolved",
+                 fontsize=11)
+    ax.grid(alpha=0.25)
+
+    fig.suptitle(f"ERA5 {ds.attrs['years']}: gross dry and gross moist "
+                 "stability from the transport they carry", fontsize=13)
+    fig.tight_layout()
+    fig.savefig(out_prefix + "_regression.png", dpi=130)
+    print(f"Wrote {out_prefix}_regression.png")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--year-start", type=int, default=2000)
     p.add_argument("--year-end", type=int, default=2019)
+    p.add_argument("--out-prefix", default="model_output/era5_stability")
     args = p.parse_args()
-    print(report(build(range(args.year_start, args.year_end + 1))))
+    ds = build(range(args.year_start, args.year_end + 1))
+    print(report(ds))
+    figures(ds, args.out_prefix)
 
 
 if __name__ == "__main__":

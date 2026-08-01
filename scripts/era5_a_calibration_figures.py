@@ -38,9 +38,11 @@ LADDER_COLORS = {
 LADDER_LABELS = dict(INTERFACES)
 
 
-def _month_axis(ax):
+def _month_axis(ax, short=False):
+    """Month ticks. Three-letter labels: J and M each collide across the year."""
     ax.set_xticks(np.arange(1, 13))
-    ax.set_xticklabels([m[0] for m in MONTH_NAMES])
+    ax.set_xticklabels(MONTH_NAMES, fontsize=8 if short else 9,
+                       rotation=45 if short else 0)
     ax.set_xlim(1, 12)
 
 
@@ -51,7 +53,7 @@ def _lat_axis(ax, bound=40.0):
 
 
 def figure_map(clim: xr.Dataset, out_png: str, years: str) -> None:
-    """a(latitude, month), at the model-consistent interface and a lower one.
+    """a(month, latitude): month on x, latitude on y (Spencer's convention).
 
     Each panel gets its own colour scale: at the half-mass interface ``a``
     varies by 0.04 over the whole tropics and a shared scale would render it a
@@ -66,24 +68,23 @@ def figure_map(clim: xr.Dataset, out_png: str, years: str) -> None:
 
     for ax, (key, levels, fmt) in zip(axes, panels):
         a = clim[f"a_{key}"].transpose("month", "latitude").values
-        cf = ax.contourf(lat, months, a, levels=levels, cmap="YlGnBu",
+        cf = ax.contourf(months, lat, a.T, levels=levels, cmap="YlGnBu",
                          extend="both")
-        cs = ax.contour(lat, months, a, levels=levels[::2], colors="0.25",
+        cs = ax.contour(months, lat, a.T, levels=levels[::2], colors="0.25",
                         linewidths=0.6)
         ax.clabel(cs, fmt=fmt, fontsize=7)
-        ax.axvline(0.0, color="0.4", lw=0.8, ls=":")
-        ax.set_xlim(-40, 40)
-        ax.set_xticks(np.arange(-40, 41, 10))
-        ax.set_xlabel("latitude")
+        ax.axhline(0.0, color="0.4", lw=0.8, ls=":")
+        ax.set_ylim(-40, 40)
+        ax.set_yticks(np.arange(-40, 41, 10))
+        _month_axis(ax, short=True)
+        ax.set_xlabel("month")
         span = float(np.nanmax(a[:, np.abs(lat) <= 30])
                      - np.nanmin(a[:, np.abs(lat) <= 30]))
         ax.set_title(f"interface: {LADDER_LABELS[key]}"
                      f"   (spans {span:.3f} within $40^\\circ$)", fontsize=11)
         fig.colorbar(cf, ax=ax, label="$a$", pad=0.02)
 
-    axes[0].set_yticks(months)
-    axes[0].set_yticklabels(MONTH_NAMES)
-    axes[0].set_ylabel("month")
+    axes[0].set_ylabel("latitude")
     fig.suptitle(f"Lower-branch CWV fraction $a$, ERA5 {years} zonal mean",
                  fontsize=13)
     fig.tight_layout()
