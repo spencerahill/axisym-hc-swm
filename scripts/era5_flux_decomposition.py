@@ -181,7 +181,7 @@ def report(ds: xr.Dataset) -> str:
               f"{'F_MSE mean':>12}{'F_MSE eddy':>12}{'DSE mean':>11}"
               f"{'F_MSE tot':>11}"]
     lines.append("-" * len(lines[-1]))
-    for L in [30, 20, 15, 10, 5, 0, -5, -10, -15, -20, -30]:
+    for L in [30, 24, 20, 15, 10, 5, 0, -5, -10, -15, -20, -24, -30]:
         j = int(np.abs(lat - L).argmin())
         lines.append(
             f"{lat[j]:>6.1f}"

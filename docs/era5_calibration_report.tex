@@ -688,6 +688,71 @@ lands next to the $W_c = 40$ control rather than next to the run it was
 changed from. The aggregated regime was the negative gross moist stability, and
 the negative gross moist stability was the calibration error.
 
+\subsection*{The model's own fluxes, against the observed ones}
+
+Fig.~\ref{fig:modelfluxes} is the model's counterpart of Fig.~\ref{fig:fluxes},
+in the same units and sign convention, with a second axis giving the latitude
+each $y$ maps to through $f = \beta y$. The model has exactly one eddy term,
+the moisture diffusion $-L_v D\,\py W$, so its eddy latent flux and its eddy
+MSE flux are the same curve and nothing in it transports dry static energy
+except the mean circulation.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_a_check_fluxes.png}
+\caption{The model's column fluxes for the three runs, sharing a vertical scale
+within each row so the aggregated run's much larger fluxes read as larger. Top:
+latent flux, mean and eddy. Bottom: the MSE flux with the mean decomposed into
+its dry-static and latent parts. The eddy curve (orange) is close to zero
+everywhere in all three runs.}
+\label{fig:modelfluxes}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{Column fluxes at $24^\circ$, which is $y = 3$~Mm under the Coriolis
+mapping, in MW\,m$^{-1}$ positive northward. ERA5 is the 2000--2009
+annual mean.}
+\label{tab:fluxcompare}
+\begin{tabular}{lccccc}
+\toprule
+ & DSE mean & $L_v q$ mean & MSE mean & eddy & total\\
+\midrule
+ERA5                   & $+50.7$  & $-22.9$  & $+27.9$ & $+57.7$ & $+85.6$\\
+$a=0.85$, $W_c=50$     & $+151.2$ & $-148.9$ & $+2.3$  & $-2.2$  & $+0.1$\\
+$a=0.77$, $W_c=50$     & $+114.5$ & $-100.5$ & $+14.0$ & $+0.5$  & $+14.5$\\
+$a=0.85$, $W_c=40$     & $+124.2$ & $-113.0$ & $+11.2$ & $+0.5$  & $+11.7$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:fluxcompare} is the sharpest model-observation comparison in this
+report, and it is not flattering. Taking the recommended run at $a = 0.77$:
+
+\begin{itemize}
+\item Its mean dry-static-energy flux is $+114.5$ against an observed $+50.7$,
+2.3 times too large, and its mean latent flux is $-100.5$ against $-22.9$,
+4.4 times too large.
+\item Those two nearly cancel, so its mean MSE flux is $+14.0$ against an
+observed $+27.9$, about half. The model both over-transports each component and
+under-transports their difference.
+\item Its eddy flux is $+0.5$ against an observed $+57.7$. At this latitude the
+observed eddies carry twice what the mean circulation does, and the model has
+essentially none of it.
+\item So its total column energy transport across $24^\circ$ is
+$+14.5$~MW\,m$^{-1}$ against an observed $+85.6$, a factor of six.
+\end{itemize}
+
+The missing eddy energy transport is structural rather than a matter of
+calibration. The eddy flux is linear in $D$, so closing the gap from $+0.5$ to
+$+57.7$~MW\,m$^{-1}$ at fixed $\py W$ would take
+$D = 1.2\times10^{8}$~m$^2$\,s$^{-1}$, against the $3\times10^{5}$ to
+$4\times10^{6}$ that Section~\ref{sec:other} measures. The reason is that the
+model's $W$ is nearly flat, pinned near $\Wq$ by the local
+evaporation--precipitation balance, so there is almost no gradient for $D$ to
+act on. And an eddy dry-static-energy flux is not in the equations at all.
+This is the largest gap the calibration exposes.
+
 That said, the resulting solution is still not a good match to the observed
 circulation. Its jet peaks at 58.7~m\,s$^{-1}$ against an observed 200~hPa
 zonal-mean maximum of 31.0~m\,s$^{-1}$, and its meridional temperature contrast
@@ -844,6 +909,17 @@ Section~\ref{sec:depth} says the meaningful parameter is the layer's pressure
 depth. The two are interchangeable at fixed $\Shat$, so this is a question of
 whether to make the model's own statement of its assumptions honest rather than
 a question of changing any result.
+
+\textbf{The model transports about a sixth of the observed column energy, and
+has no eddy energy flux.} Table~\ref{tab:fluxcompare}: at $24^\circ$ the
+recommended run carries $+14.5$~MW\,m$^{-1}$ against an observed $+85.6$,
+because its eddy flux is $+0.5$ against $+57.7$ and its mean flux is the small
+residual of a dry-static and a latent part each two to four times too large.
+This is the largest model-observation discrepancy in the report and the one
+least amenable to calibration, since the model has no eddy dry-static-energy
+term and its $W$ is too flat for the moisture diffusion to act on. Whether V2
+is meant to represent that transport at all is a question about the model's
+scope, not about its parameters.
 
 \textbf{The V2 jet overshoot.} The three configurations of
 Section~\ref{sec:acheck} produce jets 1.9 to 2.4 times the observed 200~hPa
