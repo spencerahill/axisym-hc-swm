@@ -329,14 +329,25 @@ equations use, not the individual symbols. Calibrating `a` alone pushed the GMS
 negative; the symbols only mean something once the normalisation of `v` is
 fixed.
 
-## Figures available
+## Figures: DO NOT REUSE AS-IS
 
-- `era5_a_calibration_map.png` (month on x, latitude on y per
-  [[lat-month-plot-orientation]])
-- `era5_a_calibration_profiles.png`, `_vertical.png`, `_transport.png`
-- `era5_stability_regression.png`
-- `era5_vertical_structure.png`
-- `era5_moisture_budget.png`
+**Every figure below was made under the half-column normalisation, before the
+two-readings resolution. Several are therefore wrong or misleading for the
+report, and none may be embedded until it has been checked against the
+resolved delta-layer reading and regenerated.** Treat "the PNG already exists"
+as a trap: the plotting code runs fine and produces a plausible figure under
+either normalisation, so nothing will fail loudly.
 
-All need regenerating once the resolved normalisation lands, since several
-carry the half-column framing.
+| figure | status under the resolved reading |
+|---|---|
+| `era5_stability_regression.png` | **WRONG.** Annotates "model slope 7.75e7" against an observed 1.98e8 on the same axes, which is the retracted 2.55x claim drawn as a picture. Must be replotted with `v` on a single consistent normalisation, or with both readings as separate panels. |
+| `era5_a_calibration_transport.png` | **WRONG.** The `2a-1 = 1` ceiling line and the "required by ERA5 flux" curve at 1.6-1.8 are half-column quantities; under the delta-layer reading the required coefficient is ~0.55 and sits below the ceiling, so the panel's whole point evaporates. |
+| `era5_a_calibration_map.png` | Valid as a mass-partition-at-`p_s/2` figure, but that is no longer the model-consistent interface. Regenerate at the ~200 hPa slab interface (open calculation 2). |
+| `era5_a_calibration_profiles.png` | Same: the ladder and the half-mass curve are correct measurements, but the "half-mass p_s/2" curve should no longer be drawn as THE answer. |
+| `era5_a_calibration_vertical.png` | Still valid. It shows where the water and the branches sit and makes no normalisation claim. |
+| `era5_vertical_structure.png` | Mostly valid and it is the figure that motivated the resolution. Panel a should gain the equal-PRESSURE-depth layers (~200 hPa each) alongside the equal-geometric-depth ones already drawn, since that contrast is the argument. |
+| `era5_moisture_budget.png` | Valid. `D` and the RCE comparison do not depend on the branch normalisation. Add Spencer's caveat that boundary-layer `theta_e` is a contaminated proxy. |
+
+Regenerate before writing, then re-read each one on screen and `open` it for
+Spencer per [[open-figures-proactively]]. Figure convention: month on x,
+latitude on y per [[lat-month-plot-orientation]].
