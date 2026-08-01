@@ -334,7 +334,9 @@ depths in \emph{pressure}, not equal geometric depths, and it is what makes the
 slab picture self-consistent. Equal $dp$ gives equal mass, and equal mass is
 what equal and opposite branch velocities require. Measured in ERA5, a 4~km
 layer spans 153~hPa just below the model's tropopause and 367~hPa just above
-the ground, a mass ratio of 2.4, so the model's own geometry read literally
+the ground in the $\pm12^\circ$ composite of Fig.~\ref{fig:vert} (369~hPa
+averaged over $|\varphi|\le20^\circ$), a mass ratio of 2.4, so the model's own
+geometry read literally
 cannot give its two layers equal mass. Fig.~\ref{fig:vert} panel (a) draws both
 readings on the observed $[v]$ profile.
 
@@ -567,6 +569,71 @@ a ratio of two small numbers, so do not quote $-50$ as a firm number. This is
 the observed counterpart of the slightly negative gross moist stability that
 Spencer said might still be of interest.
 
+\section{The observed fluxes, mean against eddy}
+\label{sec:fluxes}
+
+The gross stabilities of Section~\ref{sec:stability} are properties of the mean
+circulation alone. Fig.~\ref{fig:fluxes} puts that mean transport next to the
+eddy transport it competes with, for moisture and for moist static energy, with
+moisture converted to energy units by multiplying by $L_v$ so the two share an
+axis.
+
+Both splits use the same route. The mean part comes straight from the zonal
+means, $(1/g)\int [v][x]\,dp$. The total comes from the column budget, whose
+source is a stored surface or top-of-atmosphere field and so contains every
+eddy the reanalysis has, stationary and transient. The eddy part is the
+difference. Zonal averaging destroys the covariance that would let the eddy
+flux be formed directly, which is why the budget route is needed at all. For
+moisture the source is $E-P$; for energy it is the net downward flux at the top
+of the atmosphere minus the net downward flux at the surface, radiative and
+turbulent.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_flux_decomposition.png}
+\caption{Annual-mean column fluxes, positive northward, per unit length along a
+latitude circle. (a) Latent flux $L_v F_q$: the mean circulation carries
+moisture equatorward into the ITCZ in both hemispheres while the eddies carry
+it poleward. (b) Moist static energy: the mean flux is small and the eddies
+dominate poleward of about $20^\circ$. (c) The mean MSE flux decomposed. It is
+the residual of a dry-static-energy flux and an opposing latent flux, each two
+to three times larger than their sum.}
+\label{fig:fluxes}
+\end{figure}
+
+Three things are worth reading off it.
+
+\textbf{The mean MSE flux is a residual, and a fairly small one.} At
+$15^\circ$N the mean circulation carries $+83.1$~MW\,m$^{-1}$ of dry static
+energy poleward against $-49.0$~MW\,m$^{-1}$ of latent energy equatorward,
+netting $+34.1$. At $10^\circ$N it is $+61.3$ against $-40.4$, netting $+20.9$.
+That ratio, roughly $1 - W/\Wstar$, is the observational content of
+$\Hhat/\Shat = 0.30$ from Section~\ref{sec:invariant}, seen in the flux rather
+than in the coefficient.
+
+\textbf{The sign of the mean MSE flux is poleward in the subtropics of both
+hemispheres}, $+35.4$~MW\,m$^{-1}$ at $20^\circ$N and $-30.0$ at $20^\circ$S.
+The mean circulation exports moist static energy out of the deep tropics, which
+is the positive-gross-moist-stability behaviour, and it is what the model at
+$a = 0.85$ and $W_c = 50$ failed to reproduce (Table~\ref{tab:acheck}, where
+that run has the mean flux at $+104.7$~MW\,m$^{-1}$ against an eddy flux of
+$106.2$ in near-cancellation).
+
+\textbf{The eddies dominate outside the deep tropics.} The eddy MSE flux passes
+the mean near $18^\circ$N and reaches $+96.6$~MW\,m$^{-1}$ at $30^\circ$N
+against a mean of $+7.1$. The model has no representation of that transport for
+energy: its only eddy term is the moisture diffusion $-D\,\py W$.
+
+Two caveats. The moisture budget closes well, leaving $+4.2$ and
+$-1.4$~MW\,m$^{-1}$ at $85^\circ$N and S where the flux must vanish, against a
+tropical signal near $60$. The energy budget closes worse, leaving $+31.0$ and
+$-27.1$~MW\,m$^{-1}$ against a peak near $140$, about 20\%. That is a
+latitude-dependent bias in ERA5's energy budget which removing the global mean
+cannot fix, so the eddy MSE curve is the least certain thing in this figure.
+For scale, the total MSE flux at $15^\circ$N is $51.9$~MW\,m$^{-1}$, which
+multiplied around the latitude circle is 2.01~PW, a reasonable atmospheric
+energy transport there.
+
 \section{Does the ERA5-consistent $a$ remove the aggregated regime?}
 \label{sec:acheck}
 
@@ -611,8 +678,10 @@ $a=0.85$, $W_c=40$ & 44.2 & 40.66 & $+4.8$  & 1 & 0.00 & 9.0  & $+14.5$  & 1.5\\
 
 The prediction holds. At $a = 0.77$ the five precipitating bands collapse to
 one, the dry gap closes, the peak precipitation falls from 78 to
-7.4~mm\,day$^{-1}$, the jet loses its extra easterly notch and weakens from
-73.8 to 58.7~m\,s$^{-1}$, and the mean MSE flux returns to a modest poleward
+7.4~mm\,day$^{-1}$, the jet weakens from 73.8 to 58.7~m\,s$^{-1}$ while its
+deepest easterly notch shallows from $-45.5$ to $-16.6$~m\,s$^{-1}$ and moves
+poleward from 7.48 to 9.53~Mm, and the mean MSE flux returns to a modest
+poleward
 $+17$~MW\,m$^{-1}$ with the eddy flux a 1.0~MW\,m$^{-1}$ bit player, against
 $+104.7$ and 106.2 in near-cancellation before. Every one of those numbers
 lands next to the $W_c = 40$ control rather than next to the run it was
@@ -726,9 +795,10 @@ V2, $a=0.85$, $W_c=40$      & 0.90 & 5.13 & 15.72 & 60.8 & 2.27\\
 The ERA5-consistent run is the closest of the three to the observations in
 every column, and it is still too steep by a factor of 1.4 to 1.6 in the
 temperature contrast and too strong by a factor of 1.9 in the jet. The jet
-overshoot is shared by every V2 configuration and predates this calibration: it
-appeared when the radiative retarget steepened the relaxation target, and it is
-a separate problem from the moisture coefficient.
+overshoot is shared by every V2 configuration and predates this calibration; the
+2026-07-30 attribution chain traced it to the radiative retarget steepening the
+relaxation target, a comparison not re-run for this report. It is a separate
+problem from the moisture coefficient.
 
 The peak $|v|$ comparison in Table~\ref{tab:score} replaces the one in my
 2026-07-31 notes, which mixed conventions by comparing the model's slab
@@ -796,18 +866,48 @@ $\Wstar$ would be the analogue, and it is now locatable in closed form.
 \section{Equations and parameter values}
 \label{app:eqs}
 
-The V2 equation set, with $\theta_{\rm rad}$ the radiative relaxation target
-and $\Lambda = L_v/C$:
+Transcribed from \path|ss09/sw_model.py| (\path|du_dt|, \path|dv_dt|,
+\path|dtheta_dt|, \path|moisture_transport_tendency|) and cross-checked against
+\path|SCIENCE.md| \S2.1--2.3 and \S3.1. $\theta_{\rm rad}$ is the radiative
+relaxation target, $\Lambda = L_v/C$, $T = \Pi\theta$ with $\Pi = 1/1.6$, and
+$\mathcal{H}$ is the Heaviside step with $\mathcal{H}(0) = 1/2$:
 %
 \begin{align}
-\partial_t u + v\,\py u + u\,\py v &= \beta y v - \epsilon_u u
-  - \py\!\left(v_d\,H(u)\,u\right),\\
-2\,\partial_t v &= -\beta y u - \py \phi + \kappa_v \partial_y^2 v,\\
-\partial_t \theta + \frac{d\,\Delta_z}{H}\,H(\py v)\,\py v
-  &= \frac{\theta_{\rm rad} - \theta}{\tau} + \Lambda P,\\
+\partial_t u &= \beta y v - v\,\py u - \mathcal{H}(G)\,(\py v)\,u
+  - \epsilon_u u - v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)\,\py u,
+\label{eq:u}\\
+2\,\partial_t v &= -\beta y u - \frac{gH}{T_0}\,\py T
+  + \kappa_v \partial_y^2 v,
+\label{eq:v}\\
+\partial_t \theta + \frac{\delta\,\Delta_z}{H}\,\py v
+  &= \frac{\theta_{\rm rad} - \theta}{\tau} + \kappa_\theta \partial_y^2\theta
+  + \Lambda P,
+\label{eq:th}\\
 \partial_t W + \py\!\left[-(2a-1)vW - D\,\py W\right] &= E_0 - P,
   \qquad P = \frac{(W - W_c)^+}{\tau_c}.
+\label{eq:w}
 \end{align}
+
+Four points where these differ from what a reader might expect, each of which I
+had wrong in the first version of this report:
+
+\begin{itemize}
+\item The eddy momentum flux divergence in~\eqref{eq:u} is an \emph{advection}
+at the poleward velocity $v_d\,\mathrm{sgn}(y)$, gated on westerlies. It is not
+the divergence of a flux $v_d \mathcal{H}(u) u$. Because
+$\mathcal{S} \propto \mathrm{sgn}(y)\,\py u$ it is up-gradient at a wind
+maximum, which is what makes the jet flanks the delicate region of the model.
+\item The pressure-gradient term in~\eqref{eq:v} is written directly in
+temperature, $-(gH/T_0)\py T$, with $T_0 = 300$~K a fixed reference. There is
+no geopotential in the model. Using $\theta$ in place of $T$ here was one of
+the two errors fixed by the SS13 corrigendum.
+\item The vertical-advection gate $\mathcal{H}(G)$ sits on the \emph{momentum}
+equation only. $G = \theta_E - \theta$ for dry and V1 runs, $G = \py v$ under
+the \path|kinematic| gate that V2 uses. The thermodynamic
+equation~\eqref{eq:th} is ungated.
+\item $\delta$ is the model's layer depth, called $d$ in the body of this
+report and \path|delta| in the code. $\kappa_\theta$ is zero by default.
+\end{itemize}
 
 Column constants (\path|ss09/moist_constants.py|):
 $C = c_p \Pi\,\Delta p/g = 5.164\times10^{6}$~J\,m$^{-2}$\,K$^{-1}$,
@@ -817,13 +917,21 @@ $\Shat = Cd\Delta_z/H = 7.746\times10^{7}$~J\,m$^{-2}$.
 The identity $C\Lambda = L_v$ is what makes precipitation cancel from the
 column MSE budget.
 
-Parameter values used above: $d = 4$~km, $\Delta_z = 60$~K, $H = 16$~km,
+Parameter values used above: $\delta = 4$~km, $\Delta_z = 60$~K, $H = 16$~km,
+$T_0 = 300$~K, $g = 9.81$~m\,s$^{-2}$,
 $\beta = 2\times10^{-11}$~m$^{-1}$\,s$^{-1}$, $\tau = 3.197\times10^{6}$~s,
 $v_d = 2.5$~m\,s$^{-1}$, $a = 0.85$, $D = 10^{6}$~m$^2$\,s$^{-1}$,
 $W_c = 50$~kg\,m$^{-2}$, $\tau_c = 14400$~s,
 $E_0 = 4.6\times10^{-5}$~kg\,m$^{-2}$\,s$^{-1}$,
 $\Delta\theta^{\rm rad} = 75$~K, $y_1 = 9439$~km. Quiescent column
 $\Wq = W_c + \tau_c E_0 = 50.66$~kg\,m$^{-2}$.
+
+One inconsistency to be aware of when reading numbers across this report: the
+model uses $g = 9.81$ while the ERA5 scripts use $g = 9.80665$, so $\Shat$ and
+$\Wstar$ computed on the two sides differ in their fourth digit. That is why
+Table~\ref{tab:invariant} gives $\Wstar = 44.3$~kg\,m$^{-2}$ from the ERA5-side
+calculation and Table~\ref{tab:acheck} gives 44.2 from the model runs' own
+attributes. It changes nothing.
 
 \section{Parameter status}
 \label{app:status}
@@ -886,6 +994,8 @@ script & what it produces\\
   \ref{fig:vertical}\\
 \path|era5_moisture_budget.py| & Section~\ref{sec:other};
   Fig.~\ref{fig:budget}\\
+\path|era5_flux_decomposition.py| & Section~\ref{sec:fluxes};
+  Fig.~\ref{fig:fluxes}\\
 \path|era5_calibration_v2_check.py| & Section~\ref{sec:acheck};
   Fig.~\ref{fig:acheck}, Table~\ref{tab:score}\\
 \bottomrule
