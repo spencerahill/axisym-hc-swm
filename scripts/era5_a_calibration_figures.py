@@ -25,7 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from era5_a_calibration import (INTERFACES, MONTH_NAMES, cos_weighted_mean,  # noqa: E402
-                                regional_a)
+                                regional_a, regress)
 
 LADDER_COLORS = {
     "p400": "#7b3294",
@@ -36,6 +36,11 @@ LADDER_COLORS = {
     "dyn": "#e7298a",
 }
 LADDER_LABELS = dict(INTERFACES)
+
+# The layer depth the model's own Shat = C d Delta_z / H corresponds to, Pa,
+# measured by scripts/era5_normalization.py.  It sets the velocity the model's
+# transport terms use, and so the scale of the coefficient they need.
+SLAB_DP = 19500.0
 
 
 def _month_axis(ax, short=False):
@@ -85,8 +90,10 @@ def figure_map(clim: xr.Dataset, out_png: str, years: str) -> None:
         fig.colorbar(cf, ax=ax, label="$a$", pad=0.02)
 
     axes[0].set_ylabel("latitude")
-    fig.suptitle(f"Lower-branch CWV fraction $a$, ERA5 {years} zonal mean",
-                 fontsize=13)
+    fig.suptitle(f"Lower-branch CWV fraction $a$, ERA5 {years} zonal mean"
+                 "\n(a mass partition at a chosen interface; the coefficient the "
+                 "model's transport term needs is in "
+                 "era5_normalization_partition.png)", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_png, dpi=130)
     print(f"Wrote {out_png}")
@@ -218,57 +225,77 @@ def figure_vertical(clim: xr.Dataset, out_png: str, years: str) -> None:
 
 
 def figure_transport(ds: xr.Dataset, clim: xr.Dataset, out_png: str,
-                     years: str) -> None:
-    """Observed mean moisture flux vs the model's strongest possible flux."""
+                     years: str, dp_slab: float = SLAB_DP) -> None:
+    """Observed mean moisture flux against what the model's structure carries.
+
+    The model's flux is the product ``(2a-1) * v``, and ``v`` is a layer
+    velocity: the velocity of a slab of depth ``dp_slab``, not of a half-column
+    branch.  So the transport basis here is ``v_slab W``, larger than the
+    half-column ``v W`` by ``(p_s/2)/dp_slab``, and the coefficient the observed
+    flux demands is correspondingly smaller.  Reading the coefficient off the
+    half-column basis instead is what pushed it above its own ``2a-1 <= 1``
+    ceiling and, through ``Hhat``, produced a spuriously negative gross moist
+    stability.  See ``scripts/era5_normalization.py``.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
     lat = clim["latitude"].values
 
-    obs = clim["mean_vq"].mean("month").values
-    basis = clim["transport_basis"].mean("month").values
+    obs_da = clim["mean_vq"].mean("month")
+    # transport_basis is v_half * W; rescale it to the slab velocity the model
+    # actually integrates with.
+    basis_da = (clim["transport_basis"].mean("month")
+                * (0.5 * clim["ps"].mean("month")) / dp_slab)
+    obs, basis = obs_da.values, basis_da.values
+
     ax = axes[0]
-    a_cal = float(regional_a(clim, "half", 20.0).mean("month"))
+    ratio = np.where(np.abs(basis) > 4.0, -obs / basis, np.nan)
+    # Aggregate by regression, not by averaging the pointwise ratio: the basis
+    # passes through zero at the equator and at both cell edges, where the ratio
+    # is meaningless and an unweighted mean gives those points full vote.  The
+    # regression is on the ANNUAL MEANS, which is what this figure plots; the
+    # transport-weighted regression over all months gives a smaller coefficient
+    # (era5_normalization.py section 6 reports both).
+    coeff = regress(basis_da, -obs_da, 20.0)
     ax.plot(lat, obs, color="#2c7fb8", lw=2)
-    ax.plot(lat, -(2 * a_cal - 1) * basis, color="#d95f02", lw=1.6, ls="--")
+    ax.plot(lat, -coeff * basis, color="#d95f02", lw=1.6, ls="--")
     ax.plot(lat, -0.7 * basis, color="#31a354", lw=1.4, ls=":")
-    # Label each curve on the SH lobe, where the three are widest apart.
     for x0, curve, dy, txt, color in [
-            (-11.0, obs, 2.0, "ERA5 mean $[v][q]$", "#2c7fb8"),
-            (-8.0, -(2 * a_cal - 1) * basis, 2.0,
-             f"model at calibrated $a={a_cal:.3f}$", "#d95f02"),
-            (-8.0, -0.7 * basis, -2.2, "model at spec $a=0.85$", "#31a354")]:
+            (-24.0, obs, 2.2, "ERA5 mean $[v][q]$", "#2c7fb8"),
+            (-11.0, -coeff * basis, 2.2,
+             f"model at $2a-1={coeff:.2f}$ ($a={0.5*(coeff+1):.2f}$)", "#d95f02"),
+            (14.0, -0.7 * basis, -2.4, "model at spec $a=0.85$", "#31a354")]:
         k = int(np.abs(lat - x0).argmin())
         ax.text(lat[k], curve[k] + dy, txt, color=color, fontsize=9,
                 ha="center", va="bottom" if dy > 0 else "top")
     ax.axhline(0, color="0.5", lw=0.8)
-    ax.set_ylim(-24, 36)
+    ax.set_ylim(-30, 42)
     _lat_axis(ax, 35.0)
     ax.set_ylabel("column moisture flux (kg m$^{-1}$ s$^{-1}$)")
-    ax.set_title("the model's two-branch structure under-transports", fontsize=11)
+    ax.set_title(f"transport at $v$ = slab velocity, $dp={dp_slab/100:.0f}$ hPa",
+                 fontsize=11)
     ax.grid(alpha=0.25)
 
     ax = axes[1]
-    ratio = np.where(np.abs(basis) > 2.0, -obs / basis, np.nan)
     ax.plot(lat, ratio, color="#7b3294", lw=2)
-    for key, x0, dy in [("half", 22.0, -0.07), ("dyn", -20.0, -0.06)]:
-        ann = clim[f"a_{key}"].mean("month")
-        ax.plot(lat, (2 * ann - 1).values, color=LADDER_COLORS[key], lw=1.5)
-        k = int(np.abs(lat - x0).argmin())
-        ax.text(lat[k], float(2 * ann[k] - 1) + dy, LADDER_LABELS[key],
-                color=LADDER_COLORS[key], fontsize=8.5, ha="center",
-                va="bottom" if dy > 0 else "top")
+    ann = clim["a_half"].mean("month")
+    ax.plot(lat, (2 * ann - 1).values, color=LADDER_COLORS["half"], lw=1.5)
+    k = int(np.abs(lat - 26.0).argmin())
+    ax.text(lat[k], float(2 * ann[k] - 1) - 0.05,
+            "mass partition at $p_s/2$", color=LADDER_COLORS["half"],
+            fontsize=8.5, ha="center", va="top")
     k = int(np.abs(lat - 16.0).argmin())
-    ax.text(lat[k], ratio[k] + 0.10, "required by ERA5 flux", color="#7b3294",
+    ax.text(lat[k], ratio[k] + 0.09, "required by the ERA5 flux", color="#7b3294",
             fontsize=9, ha="center")
     ax.axhline(1.0, color="0.3", lw=1.0, ls="--")
     ax.text(-34, 1.03, "$2a-1=1$ ceiling (all water below)", fontsize=8, color="0.3")
     _lat_axis(ax, 35.0)
-    ax.set_ylim(0.0, 2.2)
+    ax.set_ylim(0.0, 1.4)
     ax.set_ylabel("$2a-1$")
     ax.set_title("the coefficient the observed flux demands", fontsize=11)
     ax.grid(alpha=0.25)
 
-    fig.suptitle(f"ERA5 {years}: annual-mean column moisture transport",
-                 fontsize=13)
+    fig.suptitle(f"ERA5 {years}: annual-mean column moisture transport, with "
+                 r"$v$ read as the model reads it", fontsize=13)
     fig.tight_layout()
     fig.savefig(out_png, dpi=130)
     print(f"Wrote {out_png}")

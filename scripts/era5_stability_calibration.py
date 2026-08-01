@@ -128,31 +128,41 @@ def report(ds: xr.Dataset) -> str:
     s_eff = slope(ds["v_model"], ds["dse_flux"], 20.0)
     h_eff = slope(ds["v_model"], ds["mse_flux"], 20.0)
     w20 = float(cos_weighted_mean(ds["w_total"], 20.0).mean())
-    lines += ["", f"model Shat = C d Delta_z / H = {shat_model:.3e} J/m^2 "
-                  f"(d={cfg.delta:.0f} m, Delta_z={cfg.delta_z:.0f} K, "
-                  f"H={cfg.height:.0f} m)",
-              f"observed / model = {s_eff / shat_model:.2f} (effective), "
-              f"{float(cos_weighted_mean(ds['shat_bulk'], 20.0).mean()) / shat_model:.2f} (bulk)",
+    lines += ["",
+              "EVERY number above is a transport per unit v, so every one of them",
+              "scales with whatever normalisation v carries.  The v used here is",
+              "the half-column branch velocity 2 g Psi_ext / p_s; the model's v is",
+              "a layer velocity, larger by (p_s/2)/dp for a layer of depth dp.  Do",
+              "not compare an Shat from this table with the model's directly; see",
+              "scripts/era5_normalization.py, which places both on one axis.",
               "",
-              "The prefactor d/H is the suspect: the moisture and momentum",
-              "structure puts half the column mass in each branch, while",
-              f"d/H = {cfg.delta / cfg.height:.2f} makes the theta equation act as if the",
-              "branches were separated by only "
-              f"{cfg.delta * cfg.delta_z / cfg.height:.0f} K.",
-              f"Reproducing the observed Shat at fixed Delta_z needs "
-              f"d/H = {s_eff / (c_col * cfg.delta_z):.2f}, i.e. d = "
-              f"{s_eff / (c_col * cfg.delta_z) * cfg.height / 1e3:.1f} km."]
+              f"model Shat = C d Delta_z / H = {shat_model:.3e} J/m^2 "
+              f"(d={cfg.delta:.0f} m, Delta_z={cfg.delta_z:.0f} K, "
+              f"H={cfg.height:.0f} m, C={c_col:.3e} J/m^2/K)"]
 
-    lines += ["", "Gross moist stability Hhat = Shat - L_v(2a-1)W at the "
-                  f"observed tropical W = {w20:.1f} kg/m^2:",
-              f"{'Shat':<20}{'coefficient 2a-1':<26}{'Hhat':>11}{'W* (Hhat=0)':>13}"]
-    for slab, s_val in [("model 7.75e7", shat_model), ("observed 1.98e8", s_eff)]:
-        for alab, coeff in [("mass partition 0.900", 0.9002),
-                            ("flux-matched 1.401", 1.4011)]:
-            hh = s_val - L_V * coeff * w20
-            lines.append(f"{slab:<20}{alab:<26}{hh:>11.3e}"
-                         f"{s_val / (L_V * coeff):>13.1f}")
-    lines.append(f"{'directly regressed':<46}{h_eff:>11.3e}")
+    # W* and Hhat/Shat are ratios of two transports, so the normalisation of v
+    # cancels and they can be compared with the model directly.  Taking W* from
+    # the two regressed stabilities, W* = Shat W / (Shat - Hhat), avoids ever
+    # naming a value of 2a-1 and so avoids importing a normalisation with it.
+    w_star = s_eff * w20 / (s_eff - h_eff)
+    w_quiescent = cfg.w_crit + cfg.tau_c * cfg.evap
+    lines += ["", "What does NOT depend on the normalisation:", "",
+              f"  W* = Shat W / (Shat - Hhat) = {w_star:.1f} kg/m^2, the column "
+              "where Hhat changes sign",
+              f"  Hhat / Shat = {h_eff / s_eff:.3f} at the observed tropical "
+              f"W = {w20:.1f} kg/m^2",
+              "",
+              "  Compared with the model, whose Shat is fixed and whose 2a-1 is",
+              f"  the dial (quiescent column W_c + tau_c E_0 = "
+              f"{w_quiescent:.1f} kg/m^2):", "",
+              f"{'  a':<12}{'2a-1':>8}{'W* (kg/m^2)':>14}"
+              f"{'Hhat/Shat there':>18}"]
+    lines.append("  " + "-" * (len(lines[-1]) - 2))
+    for label, aval in [("model", cfg.cwv_frac),
+                        ("ERA5", 0.5 * (shat_model / (L_V * w_star) + 1))]:
+        wstar_m = shat_model / (L_V * (2 * aval - 1))
+        lines.append(f"{'  ' + label:<12}{2 * aval - 1:>8.3f}{wstar_m:>14.1f}"
+                     f"{1 - w_quiescent / wstar_m:>18.3f}   (a = {aval:.3f})")
     return "\n".join(lines)
 
 
@@ -168,8 +178,6 @@ def figures(ds: xr.Dataset, out_prefix: str) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    cfg = SWConfig()
-    shat_model = gross_dry_stability(9.80665, cfg.delta, cfg.delta_z, cfg.height)
     lat = ds["latitude"].values
     band = np.abs(lat) <= 30.0
     v = ds["v_model"].values[:, band]
@@ -177,9 +185,9 @@ def figures(ds: xr.Dataset, out_prefix: str) -> None:
     colour = np.broadcast_to(lat_b, v.shape)
 
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-    for ax, key, name, model_slope in [
-            (axes[0], "dse_flux", r"mean DSE flux  $\hat S v$", shat_model),
-            (axes[1], "mse_flux", r"mean column MSE flux  $\hat H v$", None)]:
+    for ax, key, name in [
+            (axes[0], "dse_flux", r"mean DSE flux  $\hat S v$"),
+            (axes[1], "mse_flux", r"mean column MSE flux  $\hat H v$")]:
         f = ds[key].values[:, band]
         sc = ax.scatter(v.ravel(), f.ravel() / 1e6, s=1.5, alpha=0.25,
                         c=colour.ravel(), cmap="Spectral_r", vmin=-30, vmax=30)
@@ -188,11 +196,7 @@ def figures(ds: xr.Dataset, out_prefix: str) -> None:
         ax.plot(xs, s_obs * xs / 1e6, color="k", lw=2)
         ax.text(0.04, 0.93, f"observed slope {s_obs:.2e} J m$^{{-2}}$",
                 transform=ax.transAxes, fontsize=9)
-        if model_slope is not None:
-            ax.plot(xs, model_slope * xs / 1e6, color="#CC3311", lw=2, ls="--")
-            ax.text(0.04, 0.86, f"model slope {model_slope:.2e}",
-                    transform=ax.transAxes, fontsize=9, color="#CC3311")
-        ax.set_xlabel(r"$v_{\rm model}$ (m s$^{-1}$)")
+        ax.set_xlabel(r"$v_{\rm half}=2g\Psi_{\rm ext}/p_s$ (m s$^{-1}$)")
         ax.set_ylabel(f"{name} (MW m$^{{-1}}$)")
         ax.axhline(0, color="0.6", lw=0.7)
         ax.axvline(0, color="0.6", lw=0.7)
@@ -211,19 +215,29 @@ def figures(ds: xr.Dataset, out_prefix: str) -> None:
         k = int(np.abs(lat - 17.0).argmin())
         ax.text(lat[k], ratio[k] / 1e6 + 12, label, color=colr, fontsize=11,
                 ha="center")
-    ax.axhline(shat_model / 1e6, color="#CC3311", lw=2, ls="--")
-    ax.text(-28, shat_model / 1e6 + 6, r"model $\hat S$", color="#CC3311",
-            fontsize=9)
     ax.axhline(0, color="0.6", lw=0.7)
+    s_eff = slope(ds["v_model"], ds["dse_flux"], 20.0)
+    h_eff = slope(ds["v_model"], ds["mse_flux"], 20.0)
+    w20 = float(cos_weighted_mean(ds["w_total"], 20.0).mean())
+    ax.text(0.03, 0.04,
+            f"$|\\varphi|\\leq20^\\circ$ aggregate: $\\hat H/\\hat S$ = "
+            f"{h_eff / s_eff:.2f},\n"
+            f"$W^*=\\hat SW/(\\hat S-\\hat H)$ = "
+            f"{s_eff * w20 / (s_eff - h_eff):.1f} kg m$^{{-2}}$\n"
+            "(both free of the normalisation of $v$)",
+            transform=ax.transAxes, fontsize=8.5, va="bottom")
     ax.set_xlim(-30, 30)
+    ax.set_ylim(-100, 260)
     ax.set_xlabel("latitude")
-    ax.set_ylabel(r"flux / $v_{\rm model}$ (MJ m$^{-2}$)")
+    ax.set_ylabel(r"flux / $v_{\rm half}$ (MJ m$^{-2}$)")
     ax.set_title("local stabilities, where the overturning is resolved",
                  fontsize=11)
     ax.grid(alpha=0.25)
 
-    fig.suptitle(f"ERA5 {ds.attrs['years']}: gross dry and gross moist "
-                 "stability from the transport they carry", fontsize=13)
+    fig.suptitle(f"ERA5 {ds.attrs['years']}: gross dry and gross moist stability "
+                 r"per unit HALF-COLUMN branch velocity $v_{\rm half}$"
+                 "\n(the model's $v$ is a layer velocity; see "
+                 "era5_normalization.py for the comparison)", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_prefix + "_regression.png", dpi=130)
     print(f"Wrote {out_prefix}_regression.png")

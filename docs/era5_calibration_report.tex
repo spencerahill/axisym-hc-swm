@@ -1,0 +1,925 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\PassOptionsToPackage{obeyspaces,spaces}{url}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\graphicspath{{model_output/}{model_output/moist_v2/}}
+
+\newcommand{\py}{\partial_y}
+\newcommand{\Shat}{\hat S}
+\newcommand{\Hhat}{\hat H}
+\newcommand{\Wq}{W_q}
+\newcommand{\Wstar}{W^*}
+\newcommand{\vhalf}{v_{\rm half}}
+\newcommand{\vslab}{v_{\delta}}
+
+\title{Calibrating the moist Sobel--Schneider model against ERA5:\\
+what the reanalysis settles, and what it does not}
+\date{2026-08-01}
+
+\begin{document}
+\maketitle
+
+\section*{Summary}
+
+The model's moisture, thermodynamic and momentum equations all contain a
+velocity written $v$, and they do not mean the same velocity by it. The
+moisture equation's $-(2a{-}1)vW$ needs two branches that between them exhaust
+the column, so each holds half the column mass. The thermodynamic equation's
+$(d\Delta_z/H)\py v$ describes a layer of depth $d$ at the top of the
+troposphere and another at the bottom, with $v=0$ in between. Those two
+velocities differ by the ratio of their depths, a factor of about 2.5 at the
+observed surface pressure, and every coefficient defined as ``transport per
+unit $v$'' scales with that factor. Measuring one coefficient under one reading
+and pairing it with another measured under the other reading is what produced
+the negative gross moist stability that has been the obstacle since 2026-07-31.
+It was an accounting error, not a physical result.
+
+Two combinations of the coefficients do not depend on the reading at all:
+the ratio $\Hhat/\Shat$, and the column
+$\Wstar = \Shat/(L_v(2a{-}1))$ at which the gross moist stability changes sign.
+Those are the right things to compare with observations, and they can be
+compared without ever deciding what $v$ means.
+ERA5 gives $\Wstar$ in the range 44 to 57~kg\,m$^{-2}$, depending on how the
+time mean is taken, against 44.3~kg\,m$^{-2}$ for the model at its default
+$a=0.85$. The model's default therefore sits at the extreme
+strong-transport end of what the observations allow, and it is the one choice
+that puts a $W_c = 50$ run below its own sign change, since such a run settles
+at a quiescent column of 50.7~kg\,m$^{-2}$.
+
+Acting on that: a V2 run at $W_c=50$ with $a$ lowered to 0.77 was integrated to
+convergence for this report. The aggregated regime of 2026-07-31, five
+precipitating bands, a 78~mm\,day$^{-1}$ equatorial spike and a bone-dry third
+of the domain, does not appear. The run instead reproduces the recognizable
+single-ITCZ circulation of the $W_c=40$ control almost exactly
+(Fig.~\ref{fig:acheck}).
+
+The model's gross dry stability, which I reported on 2026-07-31 as 2.55 times
+too small, is not. That claim came from dividing the observed dry-static-energy
+flux by a half-column velocity while comparing against a layer-velocity
+$\Shat$. Read consistently, the model's $\Shat = Cd\Delta_z/H = 7.75\times
+10^{7}$~J\,m$^{-2}$ corresponds to a slab pair 195~hPa deep, which the observed
+$[v]$ profile accommodates comfortably. Measured against the branch depth the
+observed wind shape itself implies, 238~hPa, the model's $\Shat$ is 18\% low.
+Both that claim and the 2026-07-31 recommendation of $a=0.95$ are withdrawn.
+
+What ERA5 does not settle is the sign of the model's gross moist stability at
+its current defaults. Four defensible ways of taking the time mean give
+$a$ between 0.77 and 0.84 and $\Wstar$ between 44 and 57~kg\,m$^{-2}$, a spread
+that straddles the quiescent column. Section~\ref{sec:aggregation} lays that
+out; Section~\ref{sec:open} lists what would narrow it.
+
+\section{What the model asks of the observations}
+\label{sec:ask}
+
+Three terms in the model transport something meridionally, and all three are
+written in terms of one velocity $v$ (Appendix~\ref{app:eqs} has the full
+equations):
+%
+\begin{align}
+\text{moisture:} &\quad \py\!\left[-(2a-1)\,v\,W\right],
+\label{eq:moist}\\
+\text{thermodynamic:} &\quad \frac{d\,\Delta_z}{H}\,\py v,
+\label{eq:thermo}\\
+\text{momentum:} &\quad \text{the factor of 2 in the $v$ equation.}
+\label{eq:mom}
+\end{align}
+
+Equation~\eqref{eq:moist} is built from a two-branch column. A fraction $a$ of
+the column water vapor $W$ sits in the lower branch and moves at $-v$; the
+remaining fraction $1-a$ sits in the upper branch and moves at $+v$. The
+column-integrated flux is then
+$(1-a)W(+v) + aW(-v) = -(2a-1)vW$. For the fractions to be $a$ and $1-a$ the
+two branches must exhaust the column between them. Since they also have equal
+and opposite velocities, and time-mean mass balance requires their mass
+transports to be equal and opposite, they must have equal masses. Two branches
+of equal mass that exhaust the column each hold half of it, so the interface is
+at $p_s/2$ and the branch velocity is
+%
+\begin{equation}
+\vhalf = \frac{2g\,\Psi_{\rm ext}}{p_s},
+\label{eq:vhalf}
+\end{equation}
+%
+with $\Psi_{\rm ext}$ the observed overturning mass transport, that is, the
+zonal-mean mass streamfunction evaluated at the level where $[v]$ reverses
+sign.
+
+Equation~\eqref{eq:thermo} is built from a different column. It comes from
+vertical advection $w\,\partial_z\theta$ with $w = d\,\py v$, the vertical
+velocity that continuity gives when the horizontal flow occupies a layer of
+depth $d$, and $\partial_z\theta = \Delta_z/H$. That picture has a moving layer
+of depth $d$ at the top, another at the bottom, and $v=0$ between them. A slab
+of pressure depth $dp$ carrying mass transport $\Psi_{\rm ext}$ moves at
+%
+\begin{equation}
+\vslab = \frac{g\,\Psi_{\rm ext}}{dp}.
+\label{eq:vslab}
+\end{equation}
+
+Dividing~\eqref{eq:vslab} by~\eqref{eq:vhalf},
+%
+\begin{equation}
+\frac{\vslab}{\vhalf} = \frac{p_s/2}{dp}.
+\label{eq:ratio}
+\end{equation}
+%
+At the observed tropical $p_s = 997$~hPa and a slab depth near 195~hPa this
+ratio is 2.55. Any coefficient defined as a transport divided by $v$ inherits
+it exactly. That single factor is the whole of the discrepancy I reported on
+2026-07-31.
+
+\section{The part of the answer that does not depend on the reading}
+\label{sec:invariant}
+
+Before choosing between the two readings, it is worth isolating what does not
+require the choice. The gross moist stability is
+%
+\begin{equation}
+\Hhat = \Shat - L_v(2a-1)W,
+\label{eq:hhat}
+\end{equation}
+%
+and both $\Shat$ and $(2a-1)$ are transports per unit $v$, so both scale with
+the same factor~\eqref{eq:ratio}. Two combinations therefore do not scale at
+all:
+%
+\begin{equation}
+\Wstar \;\equiv\; \frac{\Shat}{L_v(2a-1)}
+      \;=\; \frac{\Shat\,W}{\Shat - \Hhat},
+\qquad
+\frac{\Hhat}{\Shat} \;=\; 1 - \frac{W}{\Wstar}.
+\label{eq:invariants}
+\end{equation}
+%
+$\Wstar$ is the column at which $\Hhat$ changes sign. In V1 and V2 the
+equilibrium column is nearly uniform at the quiescent value
+$\Wq = W_c + \tau_c E_0$ set by the local evaporation--precipitation balance,
+so the comparison of $\Wq$ with $\Wstar$ alone decides which regime a run is
+in. The second form of $\Wstar$ in~\eqref{eq:invariants} needs only the two
+regressed stabilities and never names a value of $2a-1$, so it cannot import a
+normalization along with it.
+
+Measured over $|\varphi|\le 20^\circ$ from ERA5 2000--2019, with the barotropic
+mass adjustment applied to $[v]$ (Section~\ref{sec:stability}):
+%
+\begin{equation}
+\Wstar = 56.8~\mathrm{kg\,m^{-2}},
+\qquad
+\frac{\Hhat}{\Shat} = 0.303 \quad\text{at } W = 39.6~\mathrm{kg\,m^{-2}}.
+\end{equation}
+
+Table~\ref{tab:invariant} puts the model beside that. At the model's fixed
+$\Shat$, its $a$ is the only free dial in $\Wstar$, and the default $a=0.85$
+puts the sign change at 44.3~kg\,m$^{-2}$, below the 50.7~kg\,m$^{-2}$
+quiescent column that the V1 defaults produce. Every V2 run at $W_c=50$ was
+therefore in the negative-stability corner before it started.
+
+\begin{table}[htbp]
+\centering
+\caption{The two normalization-free comparisons. $\Hhat/\Shat$ is evaluated at
+the quiescent column $\Wq = 50.7$~kg\,m$^{-2}$ that the V1 defaults produce,
+which is the value the model actually sits at. The ERA5 row uses the
+transport-weighted regression over every month; Section~\ref{sec:aggregation}
+gives the spread across other time means.}
+\label{tab:invariant}
+\begin{tabular}{lcccc}
+\toprule
+& $a$ & $2a-1$ & $\Wstar$ (kg\,m$^{-2}$) & $\Hhat/\Shat$ at $\Wq$ \\
+\midrule
+model default        & 0.850 & 0.700 & 44.3 & $-0.145$ \\
+ERA5-consistent      & 0.773 & 0.546 & 56.8 & $+0.107$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{The $d/H$ argument, laid out}
+\label{sec:dh}
+
+This is the step that was unclear in chat, so it is written out slowly here.
+
+\textbf{Step 1. The thermodynamic equation fixes the dry-static-energy flux; it
+is not a separate assumption.} The model's temperature equation contains
+$(d\Delta_z/H)\py v$. Multiplying by the column heat capacity
+$C = c_p \Pi\, \Delta p/g$ turns that term into the divergence of a column
+dry-static-energy flux, so
+%
+\begin{equation}
+F_{\rm DSE} = C\,\frac{d\,\Delta_z}{H}\,v \equiv \Shat v,
+\qquad
+\Shat = C\,\frac{d\,\Delta_z}{H}.
+\label{eq:shatmodel}
+\end{equation}
+%
+With $C = 5.164\times10^{6}$~J\,m$^{-2}$\,K$^{-1}$, $d = 4$~km,
+$\Delta_z = 60$~K and $H = 16$~km, $\Shat = 7.746\times10^{7}$~J\,m$^{-2}$.
+Nothing has been assumed beyond the equation itself.
+
+\textbf{Step 2. $d\Delta_z/H = 15$~K is a temperature difference across one
+layer of depth $d$.} That number looks small next to $\Delta_z = 60$~K, and
+that is what made the model's $\Shat$ look wrong. But it is only half the
+story, because $\Shat$ also contains the full-column $C$.
+
+\textbf{Step 3. Whether 15~K is right depends entirely on what $v$ means.} Write
+the same flux as a two-slab transport: mass transport $\Psi_{\rm ext}$ times
+the dry-static-energy difference $\Delta s$ between the branches. With
+$\Psi_{\rm ext} = v\,dp/g$,
+%
+\begin{equation}
+F_{\rm DSE} = \frac{v\,dp}{g}\,\Delta s
+\quad\Longrightarrow\quad
+\Shat = \frac{dp\;\Delta s}{g}
+\quad\Longrightarrow\quad
+\Delta s = \frac{g\,\Shat}{dp}.
+\label{eq:dsofdp}
+\end{equation}
+%
+The model's $\Shat$ is one number; the branch temperature difference it implies
+is whatever~\eqref{eq:dsofdp} gives for the slab depth in question. Equating
+$\Delta s = c_p \Pi\, \Delta\Theta$ and using $\Delta p = p_s - p_t$,
+$\Delta\Theta = (\Delta p/dp)(d\Delta_z/H)$. At $dp = \Delta p/2$, that is 30~K.
+At $dp = 195$~hPa, it is 62~K, comparable to $\Delta_z$ itself. The
+``15~K'' is a per-layer number that only becomes a branch contrast once a layer
+depth is named.
+
+\textbf{Step 4. The observed $\Delta s$ settles it.} ERA5's dry-static-energy
+flux per unit overturning is $F_{\rm DSE}/\Psi_{\rm ext} = 38.9$~kJ\,kg$^{-1}$
+over $|\varphi|\le20^\circ$. Putting that into~\eqref{eq:dsofdp} with the
+model's $\Shat$ gives $dp = 195$~hPa. So the model's gross dry stability is
+exactly the statement that its two branches are slabs 195~hPa deep,
+39~kJ\,kg$^{-1}$ apart in $s$.
+
+\textbf{Step 5. The alternative I floated in chat was wrong.} I suggested that
+the thermodynamic equation should carry $(H-d)\Delta_z/H = 45$~K instead of
+15~K. That reproduces the literal-bulk half-column $\Shat$ to 2\%
+($2.324\times10^{8}$ against $2.283\times10^{8}$), which is why it looked
+right. It is the wrong fix, because it repairs a layer-velocity equation by
+matching a half-column measurement. The two-readings table of the next section
+is the correct picture.
+
+\section{The two readings, measured}
+\label{sec:readings}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_normalization_coefficients.png}
+\caption{Every transport coefficient against the slab depth that defines $v$.
+Purple, blue and green are ERA5. Red dashed in the left panel is the model's
+$\Shat = Cd\Delta_z/H$, a fixed number, whose intersection with the observed
+curve at 195~hPa is the depth the model's dry stability corresponds to. Green
+vertical line: the branch depth the observed $[v]$ profile implies on its own,
+238~hPa. Grey dotted: the half-column reading, $dp = p_s/2$. Right panel, red
+dashed: what $\Hhat$ becomes if the model's $\Shat$ is paired with a $2a-1$
+measured at some other depth, which is the mixing that produced the negative
+gross moist stability; the black dot at 195~hPa is the only self-consistent
+pairing. Centre panel, orange: what $2a-1$ would be for two genuinely uniform
+slabs of that depth, against the blue coefficient the observed flux actually
+demands.}
+\label{fig:coeff}
+\end{figure}
+
+Table~\ref{tab:readings} is Fig.~\ref{fig:coeff} in numbers. Every column is
+linear in $dp$, as~\eqref{eq:ratio} requires, and $\Wstar$ is constant down the
+table, as~\eqref{eq:invariants} requires. The half-column row is the $dp =
+499$~hPa member of the same family, and its $2a-1 = 1.394$ exceeds the ceiling
+$2a-1 \le 1$ that follows from $a \le 1$: a signal, visible at the time, that
+the half-column reading was not the model's.
+
+\begin{table}[htbp]
+\centering
+\caption{Transport coefficients under each reading of $v$. ERA5 2000--2019,
+$|\varphi|\le20^\circ$, mass-adjusted $[v]$, regressed over all months. Observed
+tropical $p_s = 997$~hPa and $W = 39.6$~kg\,m$^{-2}$.}
+\label{tab:readings}
+\begin{tabular}{lccccc}
+\toprule
+reading & $\Shat$ (J\,m$^{-2}$) & $2a-1$ & $a$ & $\Hhat$ (J\,m$^{-2}$)
+& $\Wstar$ (kg\,m$^{-2}$) \\
+\midrule
+half-column, $dp = p_s/2$ & $1.978\times10^{8}$ & 1.394 & 1.197 & $5.99\times10^{7}$ & 56.7 \\
+slab, $dp = 150$~hPa      & $5.943\times10^{7}$ & 0.419 & 0.709 & $1.80\times10^{7}$ & 56.8 \\
+slab, $dp = 196$~hPa      & $7.766\times10^{7}$ & 0.547 & 0.774 & $2.35\times10^{7}$ & 56.8 \\
+slab, $dp = 250$~hPa      & $9.906\times10^{7}$ & 0.698 & 0.849 & $3.00\times10^{7}$ & 56.8 \\
+slab, $dp = 300$~hPa      & $1.189\times10^{8}$ & 0.838 & 0.919 & $3.60\times10^{7}$ & 56.8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Mixing the readings is what produced the negative gross moist stability.
+Holding the model's layer-velocity $\Shat$ fixed and pairing it with each
+candidate coefficient:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+combination & $\Hhat$ (J\,m$^{-2}$)\\
+\midrule
+model $\Shat$ with the half-column flux-matched $2a-1 = 1.394$ & $-6.07\times10^{7}$\\
+model $\Shat$ with the half-column mass partition $2a-1 = 0.900$ & $-1.17\times10^{7}$\\
+model $\Shat$ with the slab $2a-1 = 0.546$ at the matched depth & $+2.34\times10^{7}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Equal pressure depths, and how thick the branches really are}
+\label{sec:depth}
+
+Spencer's correction of 2026-08-01 was that the two layers must have equal
+depths in \emph{pressure}, not equal geometric depths, and it is what makes the
+slab picture self-consistent. Equal $dp$ gives equal mass, and equal mass is
+what equal and opposite branch velocities require. Measured in ERA5, a 4~km
+layer spans 153~hPa just below the model's tropopause and 367~hPa just above
+the ground, a mass ratio of 2.4, so the model's own geometry read literally
+cannot give its two layers equal mass. Fig.~\ref{fig:vert} panel (a) draws both
+readings on the observed $[v]$ profile.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_vertical_structure.png}
+\caption{(a) The observed $[v]$ at $\pm12^\circ$, composited into one cell,
+with the model's two layers drawn two ways: equal geometric depth of 4~km each
+(green dashed, 153 and 367~hPa, unequal mass) and equal pressure depth of
+195~hPa each (purple, the depth the model's $\Shat$ implies). (b) $\Psi$
+vanishes at both ends once the column mass flux is removed, which is the
+statement that the two branch transports are equal and opposite; the level
+where $[v]$ changes sign is what divides them. (c) The observed $s(p)$, whose
+branch contrast the transport must reproduce.}
+\label{fig:vert}
+\end{figure}
+
+Three routes lead to a slab depth, and they do not agree:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+route & depth\\
+\midrule
+from the observed $s(p)$ profile, matching $\Delta s = 38.9$~kJ\,kg$^{-1}$ & 90~hPa\\
+from the model's own $\Shat$, through~\eqref{eq:dsofdp} & 195~hPa\\
+from the shape of the observed $[v]$, with no energy data used & 238~hPa\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The third is the one that makes the comparison a test rather than a fit. For
+each branch of the annual-mean $[v]$, split at the level of nondivergence, the
+participation ratio $\left(\int|v|\,dp\right)^2 / \int v^2\,dp$ returns the
+depth of the top hat that carries the same transport at the same
+peak-equivalent speed, and it uses only the wind. Averaged over
+$5^\circ$--$25^\circ$ it gives 296~hPa for the upper branch, 180~hPa for the
+lower, 238~hPa in the mean. Against the observed $\Shat$ at that depth,
+$9.44\times10^{7}$~J\,m$^{-2}$, the model's $\Shat$ is 18\% low.
+
+The first route disagreeing with the others is the honest residual of the
+two-slab idealization. Two 195~hPa slabs taken from the observed $s(p)$ profile
+differ by 33.7~kJ\,kg$^{-1}$, 13\% short of the 38.9 the transport needs,
+because the real branches correlate $[v]$ with $s$ inside themselves and a
+uniform slab cannot. That is a real limitation on how precisely $d$ can be
+pinned, and it is a 13\% effect rather than the factor of 2.5 that mixing
+normalizations produced.
+
+One consequence for branch speed: the observed peak annual-mean overturning
+carries 0.51~m\,s$^{-1}$ as a half-column branch velocity, 1.31~m\,s$^{-1}$ as
+a 195~hPa slab, and 1.07~m\,s$^{-1}$ as a 238~hPa slab. The model's $v$ is a
+slab velocity, so model-versus-ERA5 comparisons of $\max|v|$ belong against the
+last two. The 0.49~m\,s$^{-1}$ quoted in my 2026-07-31 notes was the
+half-column number and should not have been compared with the model.
+
+\section{The moisture coefficient}
+\label{sec:a}
+
+There are three different things one can mean by $a$, and they answer three
+different questions.
+
+\textbf{The mass partition} is $a = W_{\rm lower}/W_{\rm total}$ at a chosen
+interface. It answers ``where is the water''. At the half-mass level $p_s/2$ it
+is 0.9501 over $|\varphi|\le20^\circ$ (ERA5 1979--2023), and it barely moves:
+0.9477 within $10^\circ$, 0.9506 within $30^\circ$, 0.9501 globally. Its
+seasonal cycle in the tropical mean spans 0.0012, from 0.9496 in March to
+0.9508 in October, because the hemispheres cancel; at a fixed latitude the
+swing is twenty times larger, 0.939 to 0.964 at $15^\circ$N with the maximum in
+local winter. Across 45 annual means it spans 0.9466 to 0.9529 with a trend of
+$-0.0011$ per decade. Every one of those variations is dwarfed by the choice of
+interface: 0.982 at 400~hPa, 0.950 at 500, 0.883 at 600, 0.772 at 700.
+
+\textbf{The flux-matched coefficient} is the regression slope of the observed
+column moisture flux on the model's transport basis $vW$. It answers ``what
+coefficient reproduces the observed transport'', which is what the model needs,
+and it absorbs the correlation between $[v]$ and $[q]$ within each branch. It
+depends on the reading of $v$, and that is the whole content of
+Table~\ref{tab:readings}.
+
+\textbf{The literal two-slab partition} is
+$(W_{\rm lower\;slab} - W_{\rm upper\;slab})/W$ for slabs of depth $dp$
+anchored at the ground and at the model's tropopause. It answers ``what would
+two genuinely uniform slabs carry''. At $dp = 196$~hPa it is 0.588 against a
+flux-matched 0.547, so the uniform-slab idealization would over-transport by
+7\%. The sign of that correction is opposite to the half-column case, where the
+flux-matched 1.401 exceeded the literal 0.900 by 56\%, because the half-column
+lower branch is 500~hPa deep and its water sits at the very bottom where $|v|$
+is largest, whereas a 196~hPa slab is thinner than the real lower branch and
+reaches less far into dry air.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_normalization_partition.png}
+\caption{The literal two-slab coefficient at $dp = 195$~hPa across latitude and
+season (left), and its annual mean against the flux-matched value and the
+model's default (right). The seasonal structure is the monsoon signature: the
+lower slab holds a larger share of the column in the winter subtropics, where
+subsidence and the trade inversion trap water low.}
+\label{fig:partition}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_a_calibration_transport.png}
+\caption{Annual-mean column moisture transport, with $v$ read as the model
+reads it. Left: the observed flux against the model's structure at the
+flux-matched coefficient and at the spec value $a = 0.85$. Right: the
+coefficient the observed flux demands, now comfortably below its own ceiling.
+Under the half-column reading this curve sat at 1.6 to 1.8, above the ceiling,
+which was the visible symptom of the mismatch.}
+\label{fig:transport}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_a_calibration_vertical.png}
+\caption{Why $a$ depends so strongly on the interface: the deep-tropical $[q]$
+and $|[v]|$ profiles and the cumulative column water. Half the column mass sits
+above 499~hPa; about 5\% of the column water does.}
+\label{fig:vertical}
+\end{figure}
+
+\section{How the time mean is taken, and why it is the largest uncertainty}
+\label{sec:aggregation}
+
+The regressions above pool every month and latitude, so they weight by
+transport and are dominated by the strong monsoon months. The model is steady
+and has no seasonal cycle, so a time-mean circulation and its time-mean
+transport are the closer counterpart. Four defensible choices give
+Table~\ref{tab:aggregation}.
+
+\begin{table}[htbp]
+\centering
+\caption{The moisture coefficient and the regime boundary under four ways of
+taking the time mean, all at $dp = 195$~hPa, ERA5 2000--2019,
+$|\varphi|\le20^\circ$. $\Hhat/\Shat$ is at the observed
+$W = 39.6$~kg\,m$^{-2}$.}
+\label{tab:aggregation}
+\begin{tabular}{lccccc}
+\toprule
+time mean & $\Shat$ (J\,m$^{-2}$) & $2a-1$ & $a$ & $\Wstar$ (kg\,m$^{-2}$)
+& $\Hhat/\Shat$\\
+\midrule
+every month, transport-weighted & $7.746\times10^{7}$ & 0.546 & 0.773 & 56.8 & 0.303\\
+annual mean, $\bar v\,\bar W$   & $7.581\times10^{7}$ & 0.589 & 0.795 & 51.5 & 0.267\\
+equinox months, $\bar v\,\bar W$& $7.579\times10^{7}$ & 0.589 & 0.794 & 51.5 & 0.259\\
+annual mean, $\overline{vW}$    & $7.581\times10^{7}$ & 0.683 & 0.842 & 44.4 & 0.107\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The spread is seasonal covariance. The last row keeps the correlation, within
+the seasonal cycle, between a strong lower branch and a moist column, so its
+transport basis is the largest and the coefficient it demands is the smallest
+per unit transport [plausible]. The second row removes that correlation by
+multiplying the two annual means. The equinox row, restricted to March, April,
+September and October, is the closest analogue of the model, which is steady,
+hemispherically symmetric and has no solstitial cell to average away. That it
+lands on the annual-mean value to three decimal places is reassuring: the
+worry that the annual-mean tropical overturning is a small residual of two
+large opposing cells, and therefore a bad target, does not bite here.
+
+The consequence is that the observations do not settle the sign of the model's
+gross moist stability at $W_c = 50$. $\Wstar$ from 44.4 to 56.8~kg\,m$^{-2}$
+straddles the 50.7~kg\,m$^{-2}$ quiescent column. What the observations do
+settle is comparative, and that is enough to act on: $a = 0.85$ lies at or just
+beyond the strong-transport end of the range, and gives the lowest $\Wstar$ of
+any of them.
+
+Recommendation: take $a$ from the equinox row, $a \approx 0.79$, and carry
+0.77 to 0.84 as its uncertainty.
+
+\section{The gross stabilities and their error budget}
+\label{sec:stability}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_stability_regression.png}
+\caption{The regressions the stabilities come from, per unit half-column branch
+velocity. (a) and (b) are the scatters themselves, coloured by latitude, so a
+poor fit or a latitude-dependent slope would be visible rather than hidden
+inside one number. (c) is the same quantity resolved in latitude instead of
+aggregated. The local $\Hhat$ goes negative within a few degrees of the
+equator; see the caveat in the text.}
+\label{fig:stab}
+\end{figure}
+
+Both stabilities are regression slopes against the same velocity, so neither
+requires choosing a branch interface. Over four latitude bands
+(ERA5 2000--2019, half-column normalization, mass-adjusted):
+
+\begin{center}
+\begin{tabular}{lccccc}
+\toprule
+band & $\Shat_{\rm eff}$ & $\Shat_{\rm bulk}$ & $\Hhat_{\rm eff}$
+& $W$ (kg\,m$^{-2}$) & $\Hhat/\Shat$\\
+\midrule
+$|\varphi|\le10^\circ$ & $1.909\times10^{8}$ & $2.287\times10^{8}$ & $4.93\times10^{7}$ & 44.5 & 0.258\\
+$|\varphi|\le15^\circ$ & $1.946\times10^{8}$ & $2.283\times10^{8}$ & $5.46\times10^{7}$ & 42.2 & 0.281\\
+$|\varphi|\le20^\circ$ & $1.978\times10^{8}$ & $2.283\times10^{8}$ & $5.99\times10^{7}$ & 39.6 & 0.303\\
+$|\varphi|\le30^\circ$ & $1.997\times10^{8}$ & $2.301\times10^{8}$ & $6.35\times10^{7}$ & 35.1 & 0.318\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two caveats carry into everything above.
+
+\textbf{The barotropic mass adjustment is the dominant uncertainty on
+$\Shat$.} ERA5's zonal-mean $[v]$ on pressure levels carries a spurious net
+column mass flux, which leaves $|\Psi(p_s)|$ averaging 232 and peaking at
+780~kg\,m$^{-1}$\,s$^{-1}$. Removing the mass-weighted column mean of $[v]$
+first changes $\Shat$ by $-33.8\%$, from $2.989\times10^{8}$ to
+$1.978\times10^{8}$, while the peak $|\Psi_{\rm ext}|$ moves by only $-10.2\%$
+and the peak $|v|$ by $-10.3\%$. $\Shat$ is the most sensitive of the three
+because the transported quantity $s$ has a mean near 330~kJ\,kg$^{-1}$, so a
+small spurious barotropic $[v]$ fabricates a large spurious flux, while $\Psi$
+and $v$ feel only the mass flux itself. Treat 34\% as the floor on the
+uncertainty in $\Shat$ until the mass-consistent ERA5 product is used.
+Moisture is far more tolerant of the same error because $q$ has a small mean,
+which is why the $D$ route in Section~\ref{sec:other} is robust and the energy
+route is not.
+
+\textbf{The local $\Hhat$ is not uniformly positive.} Panel (c) of
+Fig.~\ref{fig:stab} shows $\Hhat$ falling through zero within about
+$8^\circ$ of the equator, reaching roughly $-50$~MJ\,m$^{-2}$ just south of it,
+and rising to $+140$~MJ\,m$^{-2}$ by $25^\circ$N. The band aggregate is
+dominated by the large-$|v|$ subtropical points. The equatorial values are
+poorly conditioned, since $v$ passes through zero there and the local ratio is
+a ratio of two small numbers, so do not quote $-50$ as a firm number. This is
+the observed counterpart of the slightly negative gross moist stability that
+Spencer said might still be of interest.
+
+\section{Does the ERA5-consistent $a$ remove the aggregated regime?}
+\label{sec:acheck}
+
+The prediction is direct: hold everything else fixed, lower $a$ from 0.85 to
+the ERA5-consistent end, and a $W_c = 50$ run should stop being
+negative-stability. One run tests it. The control is the $W_c = 40$ run of
+2026-07-31, which reaches positive stability the other way, by lowering the
+column instead of raising the crossover.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_a_check.png}
+\caption{Equilibrium profiles at $ny = 801$, $dt = 30$~s, converged under the
+slow-drift gate. Red: the 2026-07-31 configuration, $a = 0.85$ and $W_c = 50$.
+Green: the same run with $a = 0.77$. Yellow: the $W_c = 40$ control at
+$a = 0.85$. Green and yellow are close in every field; red is the aggregated
+regime.}
+\label{fig:acheck}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{The V2 test. $\Wstar$ and $\Wq$ are the model's own values.
+``Bands'' counts contiguous regions with $P > 0.5$~mm\,day$^{-1}$; ``dry'' is
+the fraction of the domain where $P$ is identically zero. Mean and eddy MSE
+fluxes are peak values in MW\,m$^{-1}$.}
+\label{tab:acheck}
+\small
+\begin{tabular}{lcccccccc}
+\toprule
+run & $\Wstar$ & $\Wq$ & $\min\Hhat$ & bands & dry & $P_{\max}$
+& mean flux & eddy flux\\
+& \multicolumn{2}{c}{(kg\,m$^{-2}$)} & (MJ\,m$^{-2}$) & & &
+(mm\,day$^{-1}$) & \multicolumn{2}{c}{(MW\,m$^{-1}$)}\\
+\midrule
+$a=0.85$, $W_c=50$ & 44.2 & 50.66 & $-32.8$ & 5 & 0.36 & 77.8 & $+104.7$ & 106.2\\
+$a=0.77$, $W_c=50$ & 57.4 & 50.66 & $+8.3$  & 1 & 0.00 & 7.4  & $+17.0$  & 1.0\\
+$a=0.85$, $W_c=40$ & 44.2 & 40.66 & $+4.8$  & 1 & 0.00 & 9.0  & $+14.5$  & 1.5\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The prediction holds. At $a = 0.77$ the five precipitating bands collapse to
+one, the dry gap closes, the peak precipitation falls from 78 to
+7.4~mm\,day$^{-1}$, the jet loses its extra easterly notch and weakens from
+73.8 to 58.7~m\,s$^{-1}$, and the mean MSE flux returns to a modest poleward
+$+17$~MW\,m$^{-1}$ with the eddy flux a 1.0~MW\,m$^{-1}$ bit player, against
+$+104.7$ and 106.2 in near-cancellation before. Every one of those numbers
+lands next to the $W_c = 40$ control rather than next to the run it was
+changed from. The aggregated regime was the negative gross moist stability, and
+the negative gross moist stability was the calibration error.
+
+That said, the resulting solution is still not a good match to the observed
+circulation. Its jet peaks at 58.7~m\,s$^{-1}$ against an observed 200~hPa
+zonal-mean maximum of 31.0~m\,s$^{-1}$, and its meridional temperature contrast
+is 1.4 times the observed one at $16^\circ$ and $24^\circ$, 1.6 times at
+$33^\circ$
+(Table~\ref{tab:score}). Fixing the moisture coefficient removes a pathology;
+it does not make V2 realistic, and the overshoot of the jet is common to every
+V2 configuration run so far.
+
+\section{The other parameters}
+\label{sec:other}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{era5_moisture_budget.png}
+\caption{(a) The column moisture budget decomposed into its total, mean and
+eddy parts. (b) The eddy flux against the gradient it should follow, with the
+regression slope, the model default and the postdoc's lat-lon estimate.
+(c) The boundary-layer $\theta_e$ contrast against the observed
+free-tropospheric $\theta$ contrast; the former is a contaminated proxy for the
+radiative-convective target, so it bounds rather than determines it.}
+\label{fig:budget}
+\end{figure}
+
+\textbf{Eddy diffusivity $D$.} Zonal-mean fields cannot form the eddy moisture
+flux directly, because zonal averaging has already destroyed the covariance.
+The steady column budget routes around that: the total flux follows from
+$E - P$ by meridional integration, and subtracting the mean flux
+$\int [v][q]\,dp/g$ leaves the eddy flux, stationary and transient together.
+Then $D = -F_{\rm eddy}/(\py W)$. Over ERA5 2000--2009 the median over
+$|\varphi|\le25^\circ$ is $7.2\times10^{5}$~m$^2$\,s$^{-1}$ with quartiles
+$4.1\times10^{5}$ to $1.8\times10^{6}$, but the latitude structure is the real
+result: $D$ rises from $2.7\times10^{5}$ at $5^\circ$S and
+$5$--$6\times10^{5}$ near $10^\circ$ to $2.8\times10^{6}$ at $20^\circ$S and
+$4.4\times10^{6}$ at $25^\circ$N. An order of magnitude separates the deep
+tropics from the subtropics. That reconciles the model default $D = 10^{6}$,
+the earlier aggregate near $7\times10^{5}$, and the postdoc's lat-lon tropical
+estimate of 1 to $2\times10^{5}$: the model's default is a subtropical value
+applied to the deep tropics, and the residual gap to the lat-lon estimate is
+plausibly the stationary eddies that the zonal-mean route lumps into the same
+term. The budget closes: the total flux reaches only 1.7 and
+$-0.5$~kg\,m$^{-1}$\,s$^{-1}$ at $85^\circ$N and S, where it must vanish, once
+the global mean $E-P$ imbalance of $-0.0129$~mm\,day$^{-1}$ is removed first.
+
+\textbf{Evaporation $E_0$.} ERA5 gives $4.58\times10^{-5}$ within $10^\circ$,
+$4.79\times10^{-5}$ within $20^\circ$ and $4.62\times10^{-5}$ within
+$30^\circ$~kg\,m$^{-2}$\,s$^{-1}$. The model default is
+$4.6\times10^{-5}$. No change is needed.
+
+\textbf{The radiative-convective temperature contrast.} Spencer's position of
+2026-08-01, which this report adopts: the relaxation target in V2 should be
+radiative-convective equilibrium rather than radiative equilibrium, and he does
+not know how he convinced himself otherwise when the spec was written. He is
+also right that the target is not observable. A column-by-column RCE free
+troposphere sits on the moist adiabat through its own boundary layer, so its
+meridional structure would follow the boundary-layer $\theta_e$, whose
+equator-to-$24^\circ$ contrast is 16.6~K against 3.2~K for the observed
+free troposphere, a factor of 5.2. But boundary-layer $\theta_e$ in a
+reanalysis already carries the circulation's influence, and a true
+latitude-by-latitude RCE has time-mean $v = w = 0$ by definition, so it is not
+a state of the real atmosphere at all. Those two numbers therefore bound
+$\Delta\theta^{\rm rad}$ rather than determine it. Treat it as a tuning
+parameter with ERA5 setting the limits.
+
+\textbf{$\beta$ and the latitude mapping.} The model's $\beta = 2\times
+10^{-11}$~m$^{-1}$\,s$^{-1}$ equals Earth's $2\Omega\cos\varphi/a$ at
+$\varphi = 29.1^\circ$. Following Spencer's suggestion to compute a proper
+Hadley-range average, $\langle\beta\rangle = 2\Omega\int\cos^2\varphi\,
+d\varphi \,/\, \left(a\int\cos\varphi\,d\varphi\right)$ over $0$ to $30^\circ$
+gives $2.190\times10^{-11}$, 9.5\% above the model's value; the equatorial
+value is $2.289\times10^{-11}$ and the value at $15^\circ$ is
+$2.211\times10^{-11}$. For turning model $y$ into a latitude, the Coriolis
+mapping $f = \beta y = 2\Omega\sin\varphi$ is the one to use, since it preserves
+the dynamically relevant quantity: $y = 2$, 3 and 4~Mm map to $16^\circ$,
+$24^\circ$ and $33^\circ$. Arc length on Earth's radius gives $13^\circ$,
+$27^\circ$ and $54^\circ$ instead, and the difference at large $y$ is
+substantial.
+
+\section{Model against ERA5}
+\label{sec:score}
+
+\begin{table}[htbp]
+\centering
+\caption{Equilibrium model states against ERA5. Temperature contrasts are
+$\theta(0)-\theta(y)$ in potential temperature, evaluated at the
+Coriolis-mapped latitudes. Peak $|v|$ for ERA5 is quoted as a slab velocity at
+$dp = 195$ and 238~hPa, the two depths of Section~\ref{sec:depth}, because that
+is the quantity the model's $v$ is; the half-column value is
+0.51~m\,s$^{-1}$.}
+\label{tab:score}
+\begin{tabular}{lccccc}
+\toprule
+ & $\Delta\theta$ at $16^\circ$ & at $24^\circ$ & at $33^\circ$
+ & jet (m\,s$^{-1}$) & peak $|v|$ (m\,s$^{-1}$)\\
+\midrule
+ERA5                        & 0.56 & 3.21 & 8.75  & 31.0 & 1.07 to 1.31\\
+V2, $a=0.85$, $W_c=50$      & 1.69 & 7.69 & 21.33 & 73.8 & 5.86\\
+V2, $a=0.77$, $W_c=50$      & 0.76 & 4.49 & 14.20 & 58.7 & 1.88\\
+V2, $a=0.85$, $W_c=40$      & 0.90 & 5.13 & 15.72 & 60.8 & 2.27\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ERA5-consistent run is the closest of the three to the observations in
+every column, and it is still too steep by a factor of 1.4 to 1.6 in the
+temperature contrast and too strong by a factor of 1.9 in the jet. The jet
+overshoot is shared by every V2 configuration and predates this calibration: it
+appeared when the radiative retarget steepened the relaxation target, and it is
+a separate problem from the moisture coefficient.
+
+The peak $|v|$ comparison in Table~\ref{tab:score} replaces the one in my
+2026-07-31 notes, which mixed conventions by comparing the model's slab
+velocity against ERA5's half-column velocity.
+
+\section{Outstanding questions}
+\label{sec:open}
+
+\textbf{Things ERA5 could settle but has not, for want of data.} Five ERA5
+directories that would remove the largest uncertainties here are present but
+empty: \path|col_wv_flux_north|, \path|col_mse_flux_north_st_eddy|,
+\path|col_dse_flux_north_st_eddy|, \path|div_col_wv_flux| and
+\path|tend_col_wv|. The first three would give the column fluxes directly from
+ERA5's own mass-consistent, submonthly accounting, instead of reconstructing
+them from monthly zonal means. That would retire the 34\% mass-adjustment
+uncertainty on $\Shat$ (Section~\ref{sec:stability}), separate the stationary
+from the transient eddies in $D$, and remove the aggregation ambiguity of
+Section~\ref{sec:aggregation}, which is currently the single largest unknown in
+the calibration. Downloading them is the highest-value next step by a wide
+margin.
+
+\textbf{Which time mean is the right calibration target.} Section
+\ref{sec:aggregation} argues for the equinox product-of-means on the grounds
+that the model is steady and symmetric, and the equinox and annual-mean routes
+agree. The mean-of-products route, which keeps the seasonal covariance, gives a
+coefficient 16\% larger and puts $\Wstar$ exactly at the model's default value.
+Deciding this properly needs a statement of what the steady model is meant to
+represent, which is a modeling question rather than an observational one.
+
+\textbf{Parameters still to calibrate.} $\Delta_z$ and $H$ directly from ERA5,
+by taking $\theta$ at the lapse-rate tropopause minus $\theta$ at the surface
+and the tropopause height, which would check whether 60~K and 16~km hold up;
+$\tau$ from the clear-sky radiative cooling fields \path|rlntcs|, \path|rsntcs|
+and \path|olr|, all present on disk; $W_c$ and $\tau_c$ from regressing $P$ on
+$W$, noting that monthly zonal means give only a smoothed pickup curve and so
+bound rather than fit the pair; $y_1$ and $y_0$; and optionally $v_d$ from the
+zonal-momentum-budget residual. $\theta_{00}$ is cosmetic
+in V2 and needs no calibration.
+
+\textbf{Whether $d$ should be re-specified in pressure.} The model carries $d$
+in metres and combines it with $H$ in metres. Everything in
+Section~\ref{sec:depth} says the meaningful parameter is the layer's pressure
+depth. The two are interchangeable at fixed $\Shat$, so this is a question of
+whether to make the model's own statement of its assumptions honest rather than
+a question of changing any result.
+
+\textbf{The V2 jet overshoot.} The three configurations of
+Section~\ref{sec:acheck} produce jets 1.9 to 2.4 times the observed 200~hPa
+maximum, and the $\Delta\theta^{\rm rad}$ ladder of 2026-07-30 reaches higher
+still. In that same ladder, latent heating steepened the model's meridional
+temperature gradient rather than flattening it, which is the opposite of the
+rationale given in the spec; that comparison has not been re-run since. The
+overshoot is now the largest remaining model-observation discrepancy, and it is
+untouched by this calibration.
+
+\textbf{The slightly negative gross moist stability case.} Spencer flagged
+this as possibly still of interest. The observations support it locally:
+$\Hhat$ is negative within roughly $8^\circ$ of the equator in ERA5
+(Section~\ref{sec:stability}), even though the tropical aggregate is firmly
+positive at $\Hhat/\Shat = 0.30$. A model configuration with $\Wq$ just above
+$\Wstar$ would be the analogue, and it is now locatable in closed form.
+
+\appendix
+
+\section{Equations and parameter values}
+\label{app:eqs}
+
+The V2 equation set, with $\theta_{\rm rad}$ the radiative relaxation target
+and $\Lambda = L_v/C$:
+%
+\begin{align}
+\partial_t u + v\,\py u + u\,\py v &= \beta y v - \epsilon_u u
+  - \py\!\left(v_d\,H(u)\,u\right),\\
+2\,\partial_t v &= -\beta y u - \py \phi + \kappa_v \partial_y^2 v,\\
+\partial_t \theta + \frac{d\,\Delta_z}{H}\,H(\py v)\,\py v
+  &= \frac{\theta_{\rm rad} - \theta}{\tau} + \Lambda P,\\
+\partial_t W + \py\!\left[-(2a-1)vW - D\,\py W\right] &= E_0 - P,
+  \qquad P = \frac{(W - W_c)^+}{\tau_c}.
+\end{align}
+
+Column constants (\path|ss09/moist_constants.py|):
+$C = c_p \Pi\,\Delta p/g = 5.164\times10^{6}$~J\,m$^{-2}$\,K$^{-1}$,
+$L_v = 2.5\times10^{6}$~J\,kg$^{-1}$,
+$\Lambda = L_v/C = 0.4843$~K per kg\,m$^{-2}$\,s$^{-1}$,
+$\Shat = Cd\Delta_z/H = 7.746\times10^{7}$~J\,m$^{-2}$.
+The identity $C\Lambda = L_v$ is what makes precipitation cancel from the
+column MSE budget.
+
+Parameter values used above: $d = 4$~km, $\Delta_z = 60$~K, $H = 16$~km,
+$\beta = 2\times10^{-11}$~m$^{-1}$\,s$^{-1}$, $\tau = 3.197\times10^{6}$~s,
+$v_d = 2.5$~m\,s$^{-1}$, $a = 0.85$, $D = 10^{6}$~m$^2$\,s$^{-1}$,
+$W_c = 50$~kg\,m$^{-2}$, $\tau_c = 14400$~s,
+$E_0 = 4.6\times10^{-5}$~kg\,m$^{-2}$\,s$^{-1}$,
+$\Delta\theta^{\rm rad} = 75$~K, $y_1 = 9439$~km. Quiescent column
+$\Wq = W_c + \tau_c E_0 = 50.66$~kg\,m$^{-2}$.
+
+\section{Parameter status}
+\label{app:status}
+
+\begin{center}\small
+\begin{tabular}{ll}
+\toprule
+status & parameters\\
+\midrule
+calibrated here & $\Shat$, $\Hhat$, $a$ and $2a-1$, $E_0$, $D$, $\Wstar$\\
+calibrated with a stated caveat & $\Delta\theta$ (contaminated proxy), $\beta$
+  (a choice of reference latitude)\\
+calibratable, not yet done & $\Delta_z$, $H$, $\tau$, $y_1$, $y_0$,
+  $(W_c, \tau_c)$, $v_d$\\
+over-determined & $d$: two slab parameters against three observables,
+  13\% residual\\
+not observable & $\Delta\theta^{\rm rad}$ (needs offline RCE), $\theta_{00}$
+  (cosmetic)\\
+purely numerical & $\epsilon_u$ (regularization), $\kappa_v$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The organizing principle behind this table: calibrate the combinations the
+equations use, not the individual symbols. Calibrating $a$ on its own is what
+pushed the gross moist stability negative, because the symbols only mean
+something once the normalization of $v$ is fixed. $\Wstar$ and $\Hhat/\Shat$
+are the combinations that survive that ambiguity, and they are where the
+comparison with observations belongs.
+
+\section{Data and scripts}
+\label{app:data}
+
+ERA5 monthly zonal means at \path|~/Dropbox/data/ecmwf/era5/monthly/|,
+symlinked in the repository as \path|era5-data/|. Fields used: \path|hus|,
+\path|cwv|, \path|ps|, \path|va|, \path|ua|, \path|ta|, \path|zg|, \path|evap|,
+\path|pr|. Precipitation is the only latitude-longitude file (4~GB) and is
+streamed month by month, since dask is not installed in this environment.
+Year ranges differ by script for cost reasons and are stated with each result:
+1979--2023 for the mass partition, 2000--2019 for the stabilities and the
+normalization, 2000--2009 for the moisture budget.
+
+Scripts, all run as \path|python scripts/<name>.py| from the repository root:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+script & what it produces\\
+\midrule
+\path|era5_normalization.py| & Sections~\ref{sec:invariant},
+  \ref{sec:readings}, \ref{sec:aggregation}; Figs.~\ref{fig:coeff},
+  \ref{fig:partition}\\
+\path|era5_vertical_structure.py| & Section~\ref{sec:depth};
+  Fig.~\ref{fig:vert}\\
+\path|era5_stability_calibration.py| & Section~\ref{sec:stability};
+  Fig.~\ref{fig:stab}\\
+\path|era5_a_calibration.py| & the mass partition of Section~\ref{sec:a};
+  writes the cache\\
+\path|era5_a_calibration_figures.py| & Figs.~\ref{fig:transport},
+  \ref{fig:vertical}\\
+\path|era5_moisture_budget.py| & Section~\ref{sec:other};
+  Fig.~\ref{fig:budget}\\
+\path|era5_calibration_v2_check.py| & Section~\ref{sec:acheck};
+  Fig.~\ref{fig:acheck}, Table~\ref{tab:score}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The V2 test run of Section~\ref{sec:acheck} is
+\path|model_output/moist_v2/wc50_a077/|, produced by
+
+\begin{quote}\small
+\path|run-sw-model --stop-at-steady-state --slow-drift-gate|\\
+\path|--ny 801 --dt 30 --backend numba|\\
+\path|--enable-moisture --enable-latent-heating|\\
+\path|--cwv-frac 0.77 --w-crit 50|
+\end{quote}
+
+converging at day 1392, alongside the existing
+\path|model_output/moist_v2/m4_v2_dyr75/| and
+\path|model_output/moist_v2/wc40/|.
+
+\section{Two verification checks worth recording}
+\label{app:checks}
+
+The identity behind~\eqref{eq:moist} is checked numerically: the model's
+$-(2a-1)vW$ and the two-layer bulk flux evaluated at the half-mass interface
+agree to $2.8\times10^{-14}$~kg\,m$^{-1}$\,s$^{-1}$, which is
+$5\times10^{-14}$\% of the peak flux. The two expressions are the same
+algebra, and the code agrees.
+
+The pressure-level column integral of $[q]$ runs 0.56~kg\,m$^{-2}$ below
+ERA5's own total column water vapour in the tropics, a mean relative error of
+1.95\%, with the largest discrepancies over Tibet and the Sahara where zonal
+asymmetry in surface pressure is largest. Piecewise-constant against
+trapezoidal integration changes $a$ by 0.0006, and removing the below-ground
+mask entirely changes it by 0.0007. Spencer's call on 2026-08-01 was that an
+error of this size is not a concern.
+
+\end{document}

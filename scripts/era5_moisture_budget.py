@@ -119,8 +119,13 @@ def eddy_diffusivity(years: range, close_budget: bool = True) -> xr.Dataset:
     f_eddy = f_total - f_mean
     dwdy = xr.DataArray(np.gradient(w_col.values, phi, axis=-1) / EARTH_R,
                         dims=ps.dims, coords=ps.coords)
+    # Evaporation as a positive upward moisture source, and the 200 hPa
+    # zonal-mean zonal wind: two more anchors for the model scorecard.
+    ua = load_level_field("ua", "u", years).sel(time=hus["time"])
     return xr.Dataset({"f_mean": f_mean, "f_total": f_total, "f_eddy": f_eddy,
                        "dwdy": dwdy, "w_col": w_col,
+                       "evap": -evap,
+                       "u200": ua.sel(level=20000.0),
                        "e_minus_p": xr.DataArray(e_minus_p, dims=ps.dims,
                                                  coords=ps.coords)},
                       attrs={"years": f"{years[0]}-{years[-1]}"})
@@ -187,10 +192,12 @@ def report(bud: xr.Dataset, rce: xr.Dataset) -> str:
     ra = rce.groupby("time.month").mean("time").mean("month")
     i0 = int(np.abs(lat).argmin())
     lines += ["", f"RCE check: boundary-layer theta_e vs free-tropospheric theta",
-              "", f"{'lat':>6}{'theta_e(BL)':>13}{'theta(FT)':>11}"
-                  f"{'d theta_e':>11}{'d theta':>10}"]
+              "", "  (16, 24 and 33 deg are the Coriolis-mapped images of the",
+              "   model's y = 2, 3 and 4 Mm; see era5_normalization.py)", "",
+              f"{'lat':>6}{'theta_e(BL)':>13}{'theta(FT)':>11}"
+              f"{'d theta_e':>11}{'d theta':>10}"]
     lines.append("-" * len(lines[-1]))
-    for L in [0, 10, 16, 20, 24, 30]:
+    for L in [0, 10, 16, 24, 33]:
         jp = int(np.abs(lat - L).argmin())
         jm = int(np.abs(lat + L).argmin())
         te = 0.5 * (float(ra["theta_e_bl"][jp]) + float(ra["theta_e_bl"][jm]))
@@ -198,13 +205,39 @@ def report(bud: xr.Dataset, rce: xr.Dataset) -> str:
         lines.append(f"{L:>6d}{te:>13.1f}{tf:>11.1f}"
                      f"{float(ra['theta_e_bl'][i0]) - te:>11.2f}"
                      f"{float(ra['theta_ft'][i0]) - tf:>10.2f}")
+    j24p, j24m = int(np.abs(lat - 24).argmin()), int(np.abs(lat + 24).argmin())
+    d_te = float(ra["theta_e_bl"][i0]) - 0.5 * (float(ra["theta_e_bl"][j24p])
+                                                + float(ra["theta_e_bl"][j24m]))
+    d_tf = float(ra["theta_ft"][i0]) - 0.5 * (float(ra["theta_ft"][j24p])
+                                              + float(ra["theta_ft"][j24m]))
     lines += ["",
-              "  The equator-to-subtropics contrast of boundary-layer theta_e is",
-              "  the contrast a column-by-column RCE free troposphere would have.",
-              "  It is much LARGER than the observed free-tropospheric contrast,",
-              "  so the circulation flattens the tropical free troposphere rather",
-              "  than steepening it, and an RCE relaxation target should be",
-              "  STEEPER than the observed temperature structure."]
+              "  Boundary-layer theta_e is the profile a column-by-column RCE free",
+              f"  troposphere would sit on.  Its equator-to-24 deg contrast is "
+              f"{d_te:.1f} K",
+              f"  against {d_tf:.1f} K for the observed free troposphere, a factor "
+              f"of {d_te/d_tf:.1f}, so",
+              "  the circulation flattens the tropical free troposphere and an RCE",
+              "  target should be STEEPER than the observed temperature structure.",
+              "",
+              "  CAVEAT (Spencer, 2026-08-01): this proxy is contaminated.  The",
+              "  boundary-layer theta_e in a reanalysis already carries the",
+              "  circulation's influence, and a true latitude-by-latitude RCE has",
+              "  time-mean v = w = 0 by definition, so it is not an observable",
+              "  state of the real atmosphere at all.  These two numbers therefore",
+              "  BOUND the radiative-convective contrast rather than determine it:",
+              "  treat Delta_theta^rad as a tuning parameter, with ERA5 setting the",
+              "  limits and not the value."]
+
+    lines += ["", "Two more anchors the model can be scored against:", ""]
+    for b in (10.0, 20.0, 30.0):
+        lines.append(f"  E_0 (mean evaporation, |lat|<={int(b)}) = "
+                     f"{float(cos_weighted_mean(bud['evap'], b).mean()):.3e} "
+                     "kg/m^2/s")
+    lines.append(f"  model default E_0 = 4.6e-05 kg/m^2/s")
+    u200 = bud["u200"].groupby("time.month").mean("time").mean("month")
+    j = int(np.abs(u200.values).argmax())
+    lines.append(f"  peak 200 hPa zonal-mean [u] = {float(u200[j]):.1f} m/s at "
+                 f"{float(u200['latitude'][j]):+.1f} deg")
     return "\n".join(lines)
 
 
@@ -261,7 +294,8 @@ def figure(bud: xr.Dataset, rce: xr.Dataset, out_png: str) -> None:
     ax = axes[2]
     i0 = int(np.abs(lat).argmin())
     for key, colr, label, x0, dy in [
-            ("theta_e_bl", "#CC3311", r"RCE target: BL $\theta_e$", -22.0, 3.0),
+            ("theta_e_bl", "#CC3311",
+             "RCE proxy: BL $\\theta_e$\n(contaminated; an upper bound)", -22.0, 3.0),
             ("theta_ft", "#2c7fb8", r"observed free-tropospheric $\theta$",
              -22.0, -3.0)]:
         prof = float(ra[key][i0]) - ra[key].values
