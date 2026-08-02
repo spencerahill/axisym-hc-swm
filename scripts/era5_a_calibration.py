@@ -37,12 +37,46 @@ the figures, and print the summary table.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import numpy as np
 import xarray as xr
 
-ERA5_ROOT = Path("/Users/sah2249/Dropbox/data/ecmwf/era5/monthly")
+
+def _resolve_era5_root() -> Path:
+    """Locate the monthly ERA5 tree on whichever machine this is running on.
+
+    Set ERA5_MONTHLY_ROOT to override. Otherwise the first existing candidate
+    wins, so the scripts run unmodified on both the laptop and the cluster.
+    """
+    env = os.environ.get("ERA5_MONTHLY_ROOT")
+    if env:
+        return Path(env)
+    candidates = (
+        Path("/data4/shill/ecmwf_era5/monthly"),                  # berimbau
+        Path("/Users/sah2249/Dropbox/data/ecmwf/era5/monthly"),   # macOS laptop
+    )
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    raise FileNotFoundError(
+        "No ERA5 monthly tree found. Tried "
+        + ", ".join(str(c) for c in candidates)
+        + ". Set ERA5_MONTHLY_ROOT to the directory holding the per-variable "
+        "subdirectories."
+    )
+
+
+ERA5_ROOT = _resolve_era5_root()
+
+# Canonical analysis span, matching the --year-start/--year-end defaults. It
+# also disambiguates the stored multi-year files: the cluster archive holds
+# several spans of the same variable (1979-2020, 1979-2021, 1979-2023) side by
+# side, and mixing spans across variables would silently compare different
+# records.
+CANONICAL_SPAN = "1979-2023"
+
 GRAV = 9.80665  # m/s^2
 
 # Interface pressures for the fixed-p_d ladder, in Pa.
@@ -86,12 +120,48 @@ def load_level_field(var: str, name: str, years: range) -> xr.DataArray:
     return da.sortby("level").transpose("time", "level", "latitude")
 
 
+def resolve_stored_file(var: str, span: str = CANONICAL_SPAN) -> Path:
+    """Pick the one stored multi-year zonal-mean file for `var`, unambiguously.
+
+    A bare glob is unsafe against the cluster archive, for two reasons that
+    both produce plausible-looking wrong answers rather than an error:
+
+    * Longitude-SECTOR means sit beside the global ones and match the same
+      pattern (e.g. era5_olr_monthly_1979-2021_lon65-95_znl-mean.nc). Loading
+      one would silently substitute a 30-degree regional mean for a global
+      zonal mean.
+    * Several time spans of the same variable coexist (1979-2020, 1979-2021,
+      1979-2023), so an arbitrary pick can mix spans across variables.
+
+    So: sector files are excluded outright, the requested span is required,
+    and anything still ambiguous raises rather than guessing.
+    """
+    directory = ERA5_ROOT / var
+    candidates = [
+        p for p in sorted(directory.glob(f"era5_{var}_monthly_*_znl-mean.nc"))
+        if "_lon" not in p.name
+    ]
+    if not candidates:
+        raise FileNotFoundError(
+            f"no global zonal-mean file for {var!r} in {directory}"
+        )
+    matching = [p for p in candidates if span in p.name]
+    if len(matching) == 1:
+        return matching[0]
+    if not matching:
+        raise FileNotFoundError(
+            f"no {span} file for {var!r} in {directory}; found "
+            + ", ".join(p.name for p in candidates)
+        )
+    raise FileNotFoundError(
+        f"{var!r} is ambiguous for span {span}: "
+        + ", ".join(p.name for p in matching)
+    )
+
+
 def load_surface_field(var: str, name: str) -> xr.DataArray:
     """Load a single-file zonal-mean surface field with dims (time, latitude)."""
-    paths = sorted((ERA5_ROOT / var).glob(f"era5_{var}_monthly_*_znl-mean.nc"))
-    if len(paths) != 1:
-        raise FileNotFoundError(f"expected one {var} file, found {len(paths)}")
-    ds = xr.open_dataset(paths[0])
+    ds = xr.open_dataset(resolve_stored_file(var))
     return _merge_expver(ds[name]).load().transpose("time", "latitude")
 
 

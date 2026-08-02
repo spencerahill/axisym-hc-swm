@@ -37,7 +37,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from era5_a_calibration import (ERA5_ROOT, GRAV, _merge_expver, column_integral,  # noqa: E402
                                 cos_weighted_mean, layer_weights,
-                                load_level_field, load_surface_field)
+                                load_level_field, load_surface_field,
+                                resolve_stored_file)
 
 CP_DRY, L_V, KAPPA = 1004.6, 2.5e6, 287.04 / 1004.6
 EARTH_R = 6371e3
@@ -46,21 +47,58 @@ SECONDS_PER_DAY = 86400.0
 
 
 def zonal_mean_precip(years: range) -> xr.DataArray:
-    """Zonal-mean precipitation, kg m^-2 s^-1, streamed from the lat-lon file.
+    """Zonal-mean precipitation in kg m^-2 s^-1.
 
-    The source is the only lat-lon file in this analysis (4 GB), so it is read
-    one month at a time rather than opened whole; dask is not installed here.
+    ERA5 archives precipitation under two different variables whose units
+    differ by ~5 orders of magnitude, and both appear in Spencer's holdings:
+
+    * ``tp``   total precipitation, the mean DAILY ACCUMULATION in metres of
+               water, which needs ``* RHO_W / SECONDS_PER_DAY``.
+    * ``mtpr`` mean total precipitation RATE, already kg m^-2 s^-1, which
+               needs no conversion at all.
+
+    Applying tp's conversion to mtpr would divide precipitation by 86.4, and
+    the error would be invisible: every curve keeps its shape, only the
+    magnitude moves. So the variable is detected and the choice reported,
+    rather than assumed. (The laptop archive has the lat-lon ``tp`` file; the
+    berimbau archive has zonal-mean ``mtpr``.)
+
+    Prefers the stored zonal mean when present, which on berimbau is 1.5 MB
+    against ~1.1 GB of per-year lat-lon data. Verified 2026-08-02: the stored
+    zonal mean matches a manual mean("longitude") of the lat-lon file to
+    3.8e-7 relative, i.e. float32 storage precision.
     """
-    path = ERA5_ROOT / "pr" / "era5_pr_monthly_1979-2020.nc"
-    ds = xr.open_dataset(path)
-    tp = ds["tp"].sel(time=slice(f"{years[0]}-01-01", f"{years[-1]}-12-31"))
-    out = np.empty((tp.sizes["time"], tp.sizes["latitude"]))
-    for i in range(tp.sizes["time"]):
-        out[i] = tp.isel(time=i).mean("longitude").values
-    # ERA5 monthly `tp` is the mean daily accumulation in metres of water.
-    return xr.DataArray(out * RHO_W / SECONDS_PER_DAY,
-                        dims=("time", "latitude"),
-                        coords={"time": tp["time"], "latitude": tp["latitude"]})
+    tslice = slice(f"{years[0]}-01-01", f"{years[-1]}-12-31")
+
+    try:
+        path = resolve_stored_file("pr")
+    except FileNotFoundError:
+        path = None
+
+    if path is not None:
+        ds = xr.open_dataset(path)
+        name = "mtpr" if "mtpr" in ds.data_vars else "tp"
+        da = _merge_expver(ds[name]).sel(time=tslice).load()
+        da = da.transpose("time", "latitude")
+    else:
+        # Fall back to the lat-lon file, read one month at a time: it is 4 GB
+        # and dask is not installed here.
+        latlon = ERA5_ROOT / "pr" / "era5_pr_monthly_1979-2020.nc"
+        ds = xr.open_dataset(latlon)
+        name = "mtpr" if "mtpr" in ds.data_vars else "tp"
+        src = _merge_expver(ds[name]).sel(time=tslice)
+        out = np.empty((src.sizes["time"], src.sizes["latitude"]))
+        for i in range(src.sizes["time"]):
+            out[i] = src.isel(time=i).mean("longitude").values
+        da = xr.DataArray(
+            out, dims=("time", "latitude"),
+            coords={"time": src["time"], "latitude": src["latitude"]},
+        )
+
+    scale = 1.0 if name == "mtpr" else RHO_W / SECONDS_PER_DAY
+    print(f"  pr: using {name!r} from {Path(path or latlon).name}, "
+          f"{'already kg/m^2/s' if scale == 1.0 else 'm/day -> kg/m^2/s'}")
+    return da * scale
 
 
 def eddy_diffusivity(years: range, close_budget: bool = True) -> xr.Dataset:

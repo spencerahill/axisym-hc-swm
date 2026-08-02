@@ -43,7 +43,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from era5_a_calibration import (ERA5_ROOT, GRAV, _merge_expver,  # noqa: E402
                                 layer_weights, load_level_field,
-                                load_surface_field)
+                                load_surface_field, resolve_stored_file)
 from era5_moisture_budget import EARTH_R, zonal_mean_precip  # noqa: E402
 from ss09.moist_constants import L_V  # noqa: E402
 
@@ -60,7 +60,7 @@ def _load_flux(var: str, name: str, times) -> xr.DataArray:
     assumed, because getting it wrong would rescale every flux here by 86400
     while leaving the shape of every curve unchanged and so invisible.
     """
-    path = next((ERA5_ROOT / var).glob(f"era5_{var}_monthly_*_znl-mean.nc"))
+    path = resolve_stored_file(var)
     da = _merge_expver(xr.open_dataset(path)[name]).sel(time=times)
     scale = 1.0 if float(np.abs(da).max()) < 1.0e4 else 1.0 / SECONDS_PER_DAY
     print(f"  {var:6s} ({name}): max|.| = {float(np.abs(da).max()):.4g}, "
