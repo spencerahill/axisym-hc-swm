@@ -30,8 +30,11 @@ from ss09.sw_model import (
     AuxiliaryVars,
     SWModel,
     TempVars,
+    mc_face_values,
     mc_limited_slope,
+    moisture_transport_tendency,
     muscl_mc_du_dy,
+    precipitation,
     v_divergence_at_centers,
     v_face_laplacian,
     v_faces_to_centers,
@@ -638,3 +641,249 @@ def test_cli_rejects_collocated_numba():
     )
     assert proc.returncode != 0
     assert "staggered" in (proc.stderr + proc.stdout)
+
+
+# ---------------------------------------------------------------------------
+# Moist V1 parity: the moisture step (W leapfrog, MUSCL-MC advective flux,
+# lagged D diffusion and P precipitation) mirrored into the kernel, under the
+# same bitwise contract as the dry fields. The kernel interleaves the W step
+# in the per-step loop, reading each step's level-n face v.
+# ---------------------------------------------------------------------------
+
+MOIST = dict(enable_moisture=True)
+
+
+def assert_moist_daily_parity(m_np, m_nb):
+    assert_daily_parity(m_np, m_nb)
+    assert_bitwise(m_np.results.w, m_nb.results.w, "daily W")
+    assert_bitwise(m_np.results.precip, m_nb.results.precip, "daily precip")
+    assert_bitwise(m_np.results.w_min, m_nb.results.w_min, "daily W_min")
+    assert_bitwise(m_np.w, m_nb.w, "final W")
+    assert_bitwise(m_np.w_prev, m_nb.w_prev, "final W_prev")
+
+
+def test_kernel_precipitation_matches_reference():
+    """P = (W - W_c)^+/tau_c, planting the exact-boundary W == W_c (max(0, 0))
+    and sub-critical W (the clip branch)."""
+    rng = np.random.default_rng(23)
+    for trial in range(50):
+        n = int(rng.integers(4, 200))
+        w = _adversarial(rng, n, 20.0) + 50.0
+        w[1] = 50.0  # exactly at w_crit: pins the max(x=0) boundary
+        assert_bitwise(
+            precipitation(w, 50.0, 14400.0),
+            numba_backend.precipitation(w, 50.0, 14400.0),
+            f"precip trial {trial}",
+        )
+
+
+def test_kernel_mc_face_values_matches_reference():
+    """MUSCL-MC face reconstruction, upwinded on the sign of the face
+    transport velocity; planted c_f zeros exercise the right-branch tie."""
+    rng = np.random.default_rng(21)
+    dy = 39377.5
+    for trial in range(50):
+        ny = int(rng.integers(4, 200))
+        w = _adversarial(rng, ny, 20.0) + 45.0
+        c_f = _adversarial(rng, ny - 1, 2.0)
+        assert_bitwise(
+            mc_face_values(w, dy, c_f),
+            numba_backend.mc_face_values(w, dy, c_f),
+            f"mc_face_values trial {trial}",
+        )
+
+
+def test_kernel_moisture_transport_matches_reference():
+    """The full flux-form transport tendency (advective MUSCL flux at level n,
+    lagged compact diffusion, half-cell wall divergence)."""
+    rng = np.random.default_rng(22)
+    dy = 39377.5
+    for trial in range(50):
+        ny = int(rng.integers(4, 200))
+        w_adv = _adversarial(rng, ny, 20.0) + 45.0
+        w_diff = _adversarial(rng, ny, 20.0) + 45.0
+        v_f = _adversarial(rng, ny - 1, 3.0)
+        assert_bitwise(
+            moisture_transport_tendency(w_adv, w_diff, v_f, 0.85, 1.0e6, dy),
+            numba_backend.moisture_transport_tendency(
+                w_adv, w_diff, v_f, 0.85, 1.0e6, dy
+            ),
+            f"transport trial {trial}",
+        )
+
+
+def test_parity_moist_default(tmp_path):
+    """The headline moist parity: daily u/v/theta/W/precip and both leapfrog
+    levels of W bitwise identical across backends, with precipitation active
+    (ny=21/dt=1800 lifts W above W_c within the run)."""
+    m_np, m_nb = run_pair(tmp_path, ny=21, ndays=5, **MOIST)
+    assert stored_days(m_np) == stored_days(m_nb) == 5
+    assert np.any(m_np.w > m_np.config.w_crit), "P never fired; test is vacuous"
+    assert_moist_daily_parity(m_np, m_nb)
+
+
+def test_parity_moist_production_resolution(tmp_path):
+    """Production grid (ny=801/dt=30): the resolution and dt moist runs
+    actually use."""
+    m_np, m_nb = run_pair(tmp_path, ny=801, dt=30, ndays=2, **MOIST)
+    assert stored_days(m_np) == stored_days(m_nb) == 2
+    assert_moist_daily_parity(m_np, m_nb)
+
+
+MOIST_VARIANTS = [
+    ("advection_only", dict(d_w=0.0)),  # D=0 ladder member
+    ("strong_diffusion", dict(d_w=2.0e6)),
+    ("dry_column", dict(w_init=20.0, evap=0.0)),  # P off, transport-only
+    ("fast_convection", dict(tau_c=1800.0)),
+    ("high_cwv_frac", dict(cwv_frac=0.95)),
+]
+
+
+@pytest.mark.parametrize(
+    "name,moist_kwargs", MOIST_VARIANTS, ids=[v[0] for v in MOIST_VARIANTS]
+)
+def test_parity_moist_variants(tmp_path, name, moist_kwargs):
+    m_np, m_nb = run_pair(tmp_path, ny=21, ndays=4, **MOIST, **moist_kwargs)
+    assert stored_days(m_np) == stored_days(m_nb) == 4
+    assert_moist_daily_parity(m_np, m_nb)
+
+
+def test_parity_moist_even_ny(tmp_path):
+    """Even ny (no y=0 gridpoint): pins hemisphere selection in both the dry
+    EMFD stencil and the W MUSCL reconstruction."""
+    m_np, m_nb = run_pair(tmp_path, ny=20, ndays=3, **MOIST)
+    assert stored_days(m_np) == stored_days(m_nb) == 3
+    assert_moist_daily_parity(m_np, m_nb)
+
+
+def test_moist_symmetric_parity_bitexact(tmp_path):
+    """On the odd-ny symmetric grid the numba backend holds W exactly even,
+    bit-for-bit, exactly as the numpy reference does."""
+    m_np, m_nb = run_pair(tmp_path, ny=51, ndays=5, **MOIST)
+    assert np.max(np.abs(m_nb.w - m_nb.w[::-1])) == 0.0
+    assert np.max(np.abs(m_nb.w_prev - m_nb.w_prev[::-1])) == 0.0
+    assert np.max(m_nb.w) - np.min(m_nb.w) > 0.1  # nontrivial structure
+    assert_moist_daily_parity(m_np, m_nb)
+
+
+def test_moist_numba_dry_fields_match_dry_twin(tmp_path):
+    """The V1 one-way-coupling invariant on the numba backend: a moist numba
+    run leaves every dry field bit-for-bit identical to its dry numba twin."""
+    dry = build_model(tmp_path / "dry", "numba", ny=21, ndays=5)
+    dry.run_sim()
+    moist = build_model(tmp_path / "moist", "numba", ny=21, ndays=5, **MOIST)
+    moist.run_sim()
+    for name in ("u", "v", "theta"):
+        assert_bitwise(
+            getattr(dry.results, name), getattr(moist.results, name),
+            f"daily {name}",
+        )
+        assert_bitwise(
+            getattr(dry.state, name), getattr(moist.state, name),
+            f"final {name}",
+        )
+
+
+def test_moist_nan_stop_parity(tmp_path):
+    """A diverging W (d_w=1e11 violates the lagged-diffusion bound) must break
+    both backends at the same step with the same stored days and the same
+    final NaN pattern, while u stays finite (W is one-way coupled)."""
+    with np.errstate(over="ignore", invalid="ignore"):
+        m_np, m_nb = run_pair(tmp_path, ny=21, ndays=8, d_w=1.0e11, **MOIST)
+    assert stored_days(m_np) == stored_days(m_nb)
+    assert stored_days(m_np) < 8, "W never diverged; test is vacuous"
+    assert np.any(np.isnan(m_np.w)) and np.any(np.isnan(m_nb.w))
+    assert not np.isnan(m_np.state.u).any(), "u should stay finite (one-way)"
+    assert_daily_parity(m_np, m_nb)
+    assert_bitwise(m_np.w, m_nb.w, "final W (NaN pattern)")
+    assert_bitwise(m_np.w_prev, m_nb.w_prev, "final W_prev (NaN pattern)")
+
+
+def test_restart_moist_numba_continuation_bitwise(tmp_path):
+    """Moist restart v3 continuation on numba reproduces the uninterrupted
+    trajectory bit-for-bit, W and dry fields alike, on both leapfrog levels."""
+    straight = build_model(tmp_path / "straight", "numba", ny=21, ndays=4, **MOIST)
+    straight.run_sim()
+    first = build_model(tmp_path / "split", "numba", ny=21, ndays=2, **MOIST)
+    first.run_sim()
+    restart_file = _final_restart(str(tmp_path / "split" / "numba"), 2)
+    cont = build_model(tmp_path / "split", "numba", ny=21, ndays=4, **MOIST)
+    cont.restart_day = cont.load_from_restart(restart_file)
+    cont.run_sim()
+    for day in (2, 3):
+        for name in ("u", "v", "theta", "w", "precip"):
+            assert_bitwise(
+                getattr(straight.results, name)[day],
+                getattr(cont.results, name)[day],
+                f"{name} day {day}",
+            )
+    assert_bitwise(straight.w, cont.w, "final W")
+    assert_bitwise(straight.w_prev, cont.w_prev, "final W_prev")
+
+
+def test_restart_moist_cross_backend_bitwise(tmp_path):
+    """A moist restart written by the numpy backend continues bit-for-bit on
+    numba (and on numpy), W state included."""
+    base = build_model(tmp_path / "base", "numpy", ny=21, ndays=2, **MOIST)
+    base.run_sim()
+    restart_file = _final_restart(str(tmp_path / "base" / "numpy"), 2)
+    conts = {}
+    for backend in ("numpy", "numba"):
+        cont = build_model(
+            tmp_path / f"cont_{backend}", backend, ny=21, ndays=4, **MOIST
+        )
+        cont.restart_day = cont.load_from_restart(restart_file)
+        cont.run_sim()
+        conts[backend] = cont
+    c_np, c_nb = conts["numpy"], conts["numba"]
+    for day in (2, 3):
+        for name in ("u", "w", "precip"):
+            assert_bitwise(
+                getattr(c_np.results, name)[day],
+                getattr(c_nb.results, name)[day],
+                f"{name} day {day}",
+            )
+    assert_bitwise(c_np.w, c_nb.w, "final W")
+    assert_bitwise(c_np.w_prev, c_nb.w_prev, "final W_prev")
+
+
+def test_full_dataset_parity_moist(tmp_path):
+    """The saved moist output dataset (W, P, W_mean, W_min included) is
+    identical across backends in every data variable and coordinate."""
+    m_np, m_nb = run_pair(tmp_path, ny=21, ndays=4, **MOIST)
+    m_np.save_results()
+    m_nb.save_results()
+    ds_np = xr.open_dataset(m_np.config.output_path, decode_times=False)
+    ds_nb = xr.open_dataset(m_nb.config.output_path, decode_times=False)
+    assert set(ds_np.data_vars) == set(ds_nb.data_vars)
+    assert {"W", "P", "W_mean", "W_min"} <= set(ds_np.data_vars)
+    for var in ds_np.data_vars:
+        assert_bitwise(ds_np[var].values, ds_nb[var].values, f"data_var {var}")
+    for coord in ds_np.coords:
+        assert_bitwise(ds_np[coord].values, ds_nb[coord].values, f"coord {coord}")
+    ds_np.close()
+    ds_nb.close()
+
+
+@pytest.mark.regression
+def test_cli_numba_reproduces_moist_baseline(tmp_path):
+    """End-to-end through the CLI: the numba backend at the production default
+    formulation with --enable-moisture reproduces the moist regression
+    baseline bit-for-bit, W and P included."""
+    out = str(tmp_path / "numba_moist_baseline.nc")
+    subprocess.run(
+        [
+            "run-sw-model", "--ndays", "5", "--ny", "801", "--dt", "30",
+            "--enable-moisture", "--backend", "numba", "--output-path", out,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    baseline = xr.open_dataset("ss09/tests/baseline/output_moist.nc")
+    test_ds = xr.open_dataset(out)
+    for var in ("u", "v", "T", "W", "P", "W_mean", "W_min"):
+        max_diff = np.abs(baseline[var].values - test_ds[var].values).max()
+        assert max_diff == 0.0, f"{var} differs from moist baseline by {max_diff}"
+    baseline.close()
+    test_ds.close()

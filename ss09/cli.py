@@ -378,7 +378,7 @@ def parse_arguments():
         dest="enable_moisture",
         help=(
             "Add the prognostic passive column-water-vapor field W (moist "
-            "V1); requires the staggered grid and the numpy backend "
+            "V1); requires the staggered grid (numpy or numba backend) "
             "(default: disabled)"
         ),
     )

@@ -91,8 +91,8 @@ class SWConfig:
     # Moist V1: prognostic passive column water vapor W(y, t), one-way coupled
     # to the circulation (guides/moist_axisymmetric_model_spec.pdf Eq. Q1).
     # Defaults are the V1 plan's placeholders, to be replaced by the
-    # ERA5-calibrated values when they land. Staggered grid + numpy backend
-    # only (validated below).
+    # ERA5-calibrated values when they land. Staggered grid only; both the
+    # numpy and numba backends are supported (validated below).
     enable_moisture: bool = False
     cwv_frac: float = 0.85  # a: lower-layer CWV fraction; mean transport ~ (2a-1)
     d_w: float = 1.0e6  # D: eddy moisture diffusivity (m^2/s)
@@ -180,12 +180,6 @@ class SWConfig:
                     f"d_w must be non-negative (a negative moisture "
                     f"diffusivity is anti-diffusion and blows up at the grid "
                     f"scale); got d_w={self.d_w}"
-                )
-            if self.backend == "numba":
-                raise ValueError(
-                    "enable_moisture=True is not supported on backend='numba' "
-                    "(the moisture step is not mirrored into the numba kernel "
-                    "yet; use the numpy reference backend)"
                 )
             if self.grid == "collocated":
                 raise ValueError(
