@@ -9,7 +9,14 @@ from ss09.model_state import ModelState
 
 
 @pytest.fixture
-def sw_config():
+def sw_config(tmp_path):
+    # Output and restart files go under tmp_path, never the repo. The restart
+    # path is derived from output_path, not restart_output_dir: a path not
+    # ending in "_output.nc" takes generate_restart_filename's fallback branch,
+    # which writes restart_day{NNNN}.nc into output_path's PARENT. A bare
+    # "./output.nc" therefore littered the repo root (or whatever the cwd
+    # happened to be) with six restart files on every run of this module.
+    #
     # These unit tests were written against the pre-2026-07-12 defaults
     # (collocated grid, gate off, centered stencil): they check np.gradient
     # dv/dy, length-ny v, and gateless EMFD expressions, and the seasonal
@@ -22,7 +29,8 @@ def sw_config():
         height=16000,
         beta=2e-11,
         t_ref=300.0,
-        output_path="./output.nc",
+        output_path=str(tmp_path / "run_output.nc"),
+        restart_output_dir=str(tmp_path),
         ny=51,
         dt=3600,
         coeff_eddy_heat_diff=0.0,
