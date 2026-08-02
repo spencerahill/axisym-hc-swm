@@ -150,7 +150,17 @@ pytest ss09/tests/ -v
 pip install -e .
 ```
 
-Run repo scripts with plain `python` (the `claude-swm` conda env is on PATH). Never `uv run` in this repo: it creates a stray `.venv`/`uv.lock` at the repo root (observed 2026-07-16 and again 2026-07-19). The one exception is `uv run scripts/check_tier0_theory.py`, whose PEP 723 inline deps are the point.
+Run repo scripts and the model through the `claude-swm` conda env, which is **not** the default interpreter on berimbau (plain `python` there is miniconda `base`, Python 3.7.6, with no numba and no `ss09`):
+
+```bash
+conda run -n claude-swm --no-capture-output python scripts/<name>.py
+conda run -n claude-swm --no-capture-output run-sw-model --dt 1800
+conda run -n claude-swm --no-capture-output pytest ss09/tests/
+```
+
+`--no-capture-output` streams the run log live instead of withholding it until exit. Invoking the env's interpreter directly (`/home/shill/miniconda3/envs/claude-swm/bin/python`) does **not** put the env's `bin` on PATH, so `run-sw-model` goes missing and the six subprocess-based tests fail with `FileNotFoundError`; use `conda run` (observed 2026-07-28).
+
+Never `uv run` in this repo: it creates a stray `.venv`/`uv.lock` at the repo root (observed 2026-07-16 and again 2026-07-19). The one exception is `uv run scripts/check_tier0_theory.py`, whose PEP 723 inline deps are the point.
 
 ### Running the Model
 ```bash
@@ -200,7 +210,7 @@ run-sw-model --restart-from ./model_output/restart_day0050.nc \
 **Important notes:**
 - Restart files contain instantaneous snapshots at day boundaries, not daily-averaged output
 - Configuration parameters (ny, dt, domain-size, etc.) must match between restart file and new run
-- Restart filenames encode only the day, so concurrent runs sharing `--restart-dir` overwrite each other's same-day checkpoints; give parallel runs separate restart directories (2026-07-17: parallel tier-0 extensions both wrote `restart_day6000.nc` and the second clobbered the first)
+- Restart filenames encode only the day, so concurrent runs writing to one directory collide on the same `restart_day{NNNN}.nc` (2026-07-17: parallel tier-0 extensions both wrote `restart_day6000.nc` and the second clobbered the first). **Give parallel runs separate `--output-path` directories, not separate `--restart-dir`s:** when `--output-path` is explicit, `save_restart_file` derives the restart path from it via `generate_restart_filename(self.config.output_path, day)` and `--restart-dir` is ignored entirely. On berimbau this collision is a hard `PermissionError` from netCDF4 rather than the Mac's silent clobber, so it kills workers outright (observed 2026-07-28: 3 of 8 died in a 16-way scaling sweep). This matters more now that 16-way fleets are routine on berimbau
 - Steady-state detector history is preserved across restarts for continuous convergence monitoring
 - Moisture state must pair with the run: a moist checkpoint refuses `enable_moisture=False`, and a moist run from a dry checkpoint requires an explicit `--w-init` (see the Moist V1 section)
 - Output files contain only the days simulated in that run (filtered automatically)
@@ -419,7 +429,7 @@ run-sw-model --grid collocated
 
 **Output and restart formats are grid-aware.** Staggered output writes daily `v` on a `y_face` coordinate (`grid = "staggered_face"`); `u`, `T`, `theta_e` stay on `y`. `ss09.read_output.load_centered(path)` returns `(y, u, v, T)` with `v` reconstructed onto the centers for either layout, so analysis code has one grid. Restart files carry a `grid` tag and `restart_format_version = 3` (version 3 adds the optional moist W state; dry v3 files read exactly as v2 did); a grid mismatch between a restart file and the run is refused unless `--migrate-restart` is passed, which interpolates `v` between the center and face grids once (legacy restarts with no tag load as collocated). Diagnostics (Hadley latitudes, steady-state kinetic energy) consume center-reconstructed `v`; the v-smoothness monitor keeps the native face field.
 
-**Dropbox sync.** `model_output/` is marked `com.dropbox.ignored` (via `xattr -w com.dropbox.ignored 1 model_output`) so run outputs do not churn Dropbox sync during a validation campaign; the measured per-day cost varied 0.55-0.9 s/day with sync load, so keep this attribute set.
+**Run-output storage.** On berimbau, `model_output/` is a symlink to `/data3/shill/axisym-swm-output/model_output` (2.1 GB of ported runs as of 2026-07-28), keeping large NetCDF output off the home filesystem and out of the repo. Check free space before a large campaign: `/data3` was 96% full with 1.1 TB free on 2026-07-28. Historical, for the retired macOS laptop: the directory was marked `com.dropbox.ignored` (via `xattr -w com.dropbox.ignored 1 model_output`) so run outputs did not churn Dropbox sync, which had varied the per-day cost by 0.55-0.9 s/day. Neither the attribute nor that cost variation applies on berimbau.
 
 ### Integration Backends (numpy vs numba)
 
@@ -435,7 +445,21 @@ run-sw-model --backend numba
 
 **numpy (default).** The reference implementation in `sw_model.py`. All physics development happens here; it is the transcription source for the numba kernel (and for any future JAX port).
 
-**numba.** `ss09/numba_backend.py` runs each model day as one `@njit` compiled call (`run_day`), preserving the reference's floating-point operation order exactly, so the integration is **bitwise identical** (max|Δ| == 0.0): the parity suite (`tests/test_numba_backend.py`) asserts this on daily outputs, restart-file contents (including the filtered prev state's wall values, observable nowhere else), NaN trajectories, and the full output dataset, and a `--backend numba` run at the production defaults reproduces the staggered regression baseline bit-for-bit. Measured speedup (solo timings, 2026-07-13): 12.8x at ny=801/dt=30 (0.67 -> 0.052 s/day, so a 15-yr production run takes ~4.7 min), 12.8x seasonal SB08, 7.8x at ny=1601/dt=15 (0.22 s/day). Moist V1 runs are supported (the W leapfrog, MUSCL-MC flux, and lagged D/P are mirrored into the kernel, bitwise-identical; 2026-07-30): measured 15.5x at ny=801/dt=30 (1.10 -> 0.071 s/day, so a 15-yr moist run takes ~6.4 min vs ~1.6 h on numpy). Constraints: staggered grid only (the collocated layout is the bit-exact Zhang et al. 2025 reproduction path and stays on the reference implementation), dt must divide 86400, and numba must be installed (`conda install -c conda-forge numba`; on Python 3.14 + Intel macOS use conda-forge, since PyPI has no stable wheel). First use pays a one-time JIT compile (~10 s), cached in `ss09/__pycache__` (gitignored) and reused across processes; editing `numba_backend.py` invalidates the cache and re-pays it once.
+**numba.** `ss09/numba_backend.py` runs each model day as one `@njit` compiled call (`run_day`), preserving the reference's floating-point operation order exactly, so the integration is **bitwise identical** (max|Δ| == 0.0): the parity suite (`tests/test_numba_backend.py`) asserts this on daily outputs, restart-file contents (including the filtered prev state's wall values, observable nowhere else), NaN trajectories, and the full output dataset, and a `--backend numba` run at the production defaults reproduces the staggered regression baseline bit-for-bit. Moist V1 runs are supported (the W leapfrog, MUSCL-MC flux, and lagged D/P are mirrored into the kernel, bitwise-identical; 2026-07-30).
+
+**Timings are machine-specific; quote the berimbau row.** Measured on berimbau (2x Xeon E5-2620 v4, 16 physical cores, 200-day solo runs, 2026-07-28/08-02), with the 16-concurrent rate beside it:
+
+| config | solo | 16-way | 15-yr solo |
+|---|---|---|---|
+| dry numba, ny=801/dt=30 | 0.086 s/day | 0.116 | 7.9 min |
+| dry numpy, same | 0.841 s/day | 1.171 | 76.8 min |
+| numba, ny=1601/dt=15 | 0.302 s/day | 0.425 | 27.5 min |
+| moist numba, ny=801/dt=30 | 0.141 s/day | 0.180 | 12.9 min |
+| moist numpy, same | 1.158 s/day | 1.639 | 105.7 min |
+
+So numba is 9.8x on dry and 8.2x on moist here. **Cap concurrent runs at 16** (one per physical core): 138 model-days/s aggregate for only a 34% per-run latency penalty. Going to 32 still gains throughput (190 days/s) but doubles per-run wall time. Threading *within* a run is counterproductive at these grid sizes (0.08x at ny=801), so parallelism means separate processes. Historical, from the retired 4-core MacBook and roughly 1.5x optimistic for berimbau: 12.8x dry at 0.052 s/day (15-yr ~4.7 min), 12.8x seasonal SB08 (not re-measured on berimbau), 7.8x at ny=1601/dt=15 (0.22 s/day), and 15.5x moist at 0.071 s/day (15-yr ~6.4 min).
+
+Constraints: staggered grid only (the collocated layout is the bit-exact Zhang et al. 2025 reproduction path and stays on the reference implementation), dt must divide 86400, and numba must be installed (`conda install -c conda-forge numba`; on Python 3.14 + Intel macOS use conda-forge, since PyPI has no stable wheel). First use pays a one-time JIT compile (~10 s), cached in `ss09/__pycache__` (gitignored) and reused across processes; editing `numba_backend.py` invalidates the cache and re-pays it once.
 
 **Editing the physics:** change the numpy reference first, then mirror the change in `numba_backend.py` preserving per-element operation order (see the module docstring's bitwise notes: the -0.0 semantics of added zero terms, the shared one-sided differences), and let the parity suite arbitrate; if the two implementations drift, the bitwise tests fail loudly. Cache caveat: constants the kernel imports from `sw_model.py` (`THETA_TO_TEMP`, `SECONDS_PER_DAY`) are frozen into the compiled artifact, and the JIT cache watches only `numba_backend.py` itself, so changing such a constant requires touching `numba_backend.py` (or deleting `ss09/__pycache__`) to force a recompile; a stale cache fails the parity suite loudly. Decision (Spencer, 2026-07-14): keep the two-implementation split at least through moist V1 (numpy for fast physics iteration and as the JAX transcription source, numba for production runs); reassess once the mirroring cost of one real physics change is measured.
 

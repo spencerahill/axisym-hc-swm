@@ -3,3 +3,9 @@ papers/
 guides/
 __pycache__/
 era5-data
+*.egg-info/
+
+# Deliberately NOT ignoring restart_day*.nc: the test suite used to litter
+# those into the cwd, and that root cause is fixed (tests now route output
+# under tmp_path). Ignoring them would silently mask a regression of the
+# same bug rather than surfacing it in git status.
