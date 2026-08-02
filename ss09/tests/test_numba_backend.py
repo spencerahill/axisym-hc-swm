@@ -5,10 +5,11 @@ tolerance: the kernel transcribes the reference operation-for-operation, so any
 nonzero difference is a transcription bug. That identity is machine-local and
 holds regardless of which machine the suite runs on.
 
-The single exception is the comparison against the STORED baseline file
-(test_cli_numba_reproduces_staggered_baseline), which was generated on a
-different machine and so is a roundoff-tolerance check; see CROSS_MACHINE_ATOL
-in test_regression.py.
+The exceptions are the two comparisons against STORED baseline files
+(test_cli_numba_reproduces_staggered_baseline and
+test_cli_numba_reproduces_moist_baseline). Those baselines were generated on a
+different machine, so they are relative-roundoff-tolerance checks; see
+CROSS_MACHINE_RTOL in test_regression.py.
 
 Configs are pinned to smoke-verified stable trajectories (ny=51/dt=3600 blows
 up by day 4-5 and cannot be used for parity runs; ny=51/dt=1800 is finite
@@ -40,7 +41,7 @@ from ss09.sw_model import (
     v_faces_to_centers,
 )
 from ss09.theta_e import SB08Profile, SS09Profile, Sin2Profile, ThetaEConfig
-from test_regression import CROSS_MACHINE_ATOL
+from test_regression import assert_matches_baseline
 
 pytestmark = pytest.mark.numba
 
@@ -624,10 +625,8 @@ def test_cli_numba_reproduces_staggered_baseline(tmp_path):
     baseline = xr.open_dataset("ss09/tests/baseline/output_staggered.nc")
     test_ds = xr.open_dataset(out)
     for var in ("u", "v", "T"):
-        max_diff = np.abs(baseline[var].values - test_ds[var].values).max()
-        assert max_diff < CROSS_MACHINE_ATOL, (
-            f"{var} differs from baseline by {max_diff}, above the "
-            f"cross-machine roundoff tolerance {CROSS_MACHINE_ATOL}"
+        assert_matches_baseline(
+            baseline[var].values, test_ds[var].values, var
         )
     baseline.close()
     test_ds.close()
@@ -869,7 +868,12 @@ def test_full_dataset_parity_moist(tmp_path):
 def test_cli_numba_reproduces_moist_baseline(tmp_path):
     """End-to-end through the CLI: the numba backend at the production default
     formulation with --enable-moisture reproduces the moist regression
-    baseline bit-for-bit, W and P included."""
+    baseline, W and P included.
+
+    The stored baseline was generated on a different machine, so this is a
+    relative-tolerance check rather than `== 0.0`; see CROSS_MACHINE_RTOL in
+    test_regression.py. The moist numba-vs-numpy bitwise identity is
+    machine-local and is still asserted exactly, elsewhere in this file."""
     out = str(tmp_path / "numba_moist_baseline.nc")
     subprocess.run(
         [
@@ -883,7 +887,8 @@ def test_cli_numba_reproduces_moist_baseline(tmp_path):
     baseline = xr.open_dataset("ss09/tests/baseline/output_moist.nc")
     test_ds = xr.open_dataset(out)
     for var in ("u", "v", "T", "W", "P", "W_mean", "W_min"):
-        max_diff = np.abs(baseline[var].values - test_ds[var].values).max()
-        assert max_diff == 0.0, f"{var} differs from moist baseline by {max_diff}"
+        assert_matches_baseline(
+            baseline[var].values, test_ds[var].values, var
+        )
     baseline.close()
     test_ds.close()

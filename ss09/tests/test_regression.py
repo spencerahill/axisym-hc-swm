@@ -9,17 +9,50 @@ import tempfile
 # 4-core Intel MacBook) than the one running the suite. Bit-exactness against a
 # stored baseline is not portable across CPU and BLAS/compiler versions: the
 # same source reproduces itself bit-for-bit on one machine, but differs at the
-# level of floating-point roundoff across machines. Measured 2026-07-28 on the
-# berimbau Linux cluster (Xeon E5-2620 v4, numpy 2.4.6, numba 0.66.0): the
-# largest deviation over the 5-day regression run is 2.1e-12 in u, i.e. 5e-14
-# relative to max|u|. This tolerance sits ~100x above that roundoff floor and
-# many orders of magnitude below any real physics change, so it still catches
-# an accidental change to the scheme while tolerating a machine change.
+# level of floating-point roundoff across machines.
+#
+# The tolerance is RELATIVE, scaled by each variable's own magnitude, because
+# relative roundoff is what is actually uniform across variables. Measured
+# 2026-08-02 on berimbau (Xeon E5-2620 v4, numpy 2.4.6, numba 0.66.0) over the
+# 5-day moist regression run, every variable sits in a narrow relative band
+# while their absolute deviations span six orders of magnitude:
+#
+#     u       4.03e-14 rel   (1.62e-12 abs, max|u| = 40.3)
+#     v       1.26e-14 rel   (1.79e-13 abs)
+#     T       1.39e-15 rel   (2.84e-13 abs)
+#     W       6.08e-15 rel   (3.41e-13 abs)
+#     P       2.18e-14 rel   (9.28e-18 abs, max|P| = 4.26e-04)
+#     W_mean  4.28e-16 rel   (2.13e-14 abs)
+#     W_min   1.03e-14 rel   (3.66e-13 abs)
+#
+# A single ABSOLUTE tolerance cannot serve that spread: one loose enough for u
+# (1e-10) is ~1e7 times the roundoff floor for P, leaving the P check with no
+# teeth. This relative bound sits ~250x above the largest observed relative
+# deviation and many orders of magnitude below any real physics change.
 #
 # The bit-exactness that IS portable, and is still asserted with == 0.0, is
 # machine-local: numba vs the numpy reference within one machine
 # (test_numba_backend.py), and run-to-run reproducibility.
-CROSS_MACHINE_ATOL = 1e-10
+CROSS_MACHINE_RTOL = 1e-11
+
+
+def assert_matches_baseline(baseline_vals, test_vals, var):
+    """Assert test_vals matches baseline_vals to within cross-machine roundoff.
+
+    Scales the tolerance by the baseline variable's own magnitude. An
+    identically-zero baseline variable is required to match exactly, since
+    there is no scale to be roundoff-relative to.
+    """
+    baseline_vals = np.asarray(baseline_vals)
+    test_vals = np.asarray(test_vals)
+    max_diff = np.abs(baseline_vals - test_vals).max()
+    scale = np.abs(baseline_vals).max()
+    limit = CROSS_MACHINE_RTOL * scale
+    assert max_diff <= limit, (
+        f"{var} differs from baseline by {max_diff:.4e}, above the "
+        f"cross-machine tolerance {limit:.4e} "
+        f"({CROSS_MACHINE_RTOL} x max|{var}| = {scale:.4e})"
+    )
 
 
 @pytest.fixture
@@ -203,10 +236,6 @@ def test_collocated_path_reproduces_baseline(baseline_path, test_path):
     baseline_ds = xr.open_dataset(baseline_path)
     test_ds = xr.open_dataset(test_path)
     for var in ("u", "v", "T"):
-        max_diff = np.abs(
-            baseline_ds[var].values - test_ds[var].values
-        ).max()
-        assert max_diff < CROSS_MACHINE_ATOL, (
-            f"{var} differs from baseline by {max_diff}, above the "
-            f"cross-machine roundoff tolerance {CROSS_MACHINE_ATOL}"
+        assert_matches_baseline(
+            baseline_ds[var].values, test_ds[var].values, var
         )
