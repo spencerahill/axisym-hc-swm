@@ -114,10 +114,15 @@ def fig_regime_map(rows, out):
         # Thick white ring marks a solution that never settles, so a reader can
         # see at a glance which cells of the map are time means of a
         # fluctuating state rather than equilibria.
-        edges = ["k" if r["steady"] else "w" for r in plane]
-        widths = [0.5 if r["steady"] else 2.2 for r in plane]
-        sc = ax.scatter(xs, ys, c=cs, s=230, cmap=cmap, edgecolor=edges,
-                        linewidth=widths, zorder=3)
+        vmin, vmax = float(np.min(cs)), float(np.max(cs))
+        for steady, mk, size in ((True, "o", 230), (False, "s", 200)):
+            keep = [k for k, r in enumerate(plane) if r["steady"] is steady]
+            if not keep:
+                continue
+            sc = ax.scatter([xs[k] for k in keep], [ys[k] for k in keep],
+                            c=[cs[k] for k in keep], s=size, cmap=cmap,
+                            marker=mk, edgecolor="k", linewidth=0.6, zorder=3,
+                            vmin=vmin, vmax=vmax)
         plt.colorbar(sc, ax=ax, label=title)
         # the r = 1 line: W_c = W*(a) - tau_c E_0
         aa = np.linspace(0.735, 0.885, 200)
@@ -130,7 +135,7 @@ def fig_regime_map(rows, out):
         ax.set_xlabel("lower-branch CWV fraction $a$")
         ax.grid(alpha=0.25, zorder=0)
     axes[0].set_ylabel(r"precipitation threshold $W_c$ (kg m$^{-2}$)")
-    axes[0].text(0.03, 0.05, "white ring: never settles", fontsize=7.5,
+    axes[0].text(0.03, 0.05, "circles settle; squares never do", fontsize=7.5,
                  color="0.25", transform=axes[0].transAxes)
     label_curve(axes[0], 0.80, w_star(0.80) - 0.66 + 1.4, r"$r=1$: $\hat H=0$",
                 OI["verm"], rotation=-38)
@@ -196,14 +201,17 @@ def fig_collapse(rows, out):
     for ax in axes[-3:]:
         ax.set_xlabel(r"$r=W_q/W^*$  (quiescent CWV / $\hat H=0$ crossover)")
     axes[0].legend(fontsize=8, loc="lower left", framealpha=0.9)
-    axes[0].text(0.02, 0.30, "filled: steady solution\nopen: never settles,\n"
-                 "  value is a 1000-day mean", transform=axes[0].transAxes,
-                 fontsize=7.5, color="0.25")
+    axes[1].text(0.03, 0.86, "filled: steady solution\nopen: never settles, so the\n"
+                 "plotted value is a 1000-day mean",
+                 transform=axes[1].transAxes, fontsize=7.5, color="0.25",
+                 va="top")
     axes[2].text(1.02, 0.55, r"$\hat H<0$" + "\nin an\nundisturbed\ncolumn",
                  transform=axes[2].transAxes, color=OI["verm"], fontsize=8)
-    fig.suptitle("Every parameter that moves the gross moist stability moves "
-                 "the solution the same way:\nfive separate knobs collapse "
-                 r"onto $r=L_v(2a-1)(W_c+\tau_cE_0)/(Cd\Delta_z/H)$",
+    fig.suptitle(r"Four of the six swept parameters collapse onto "
+                 r"$r=L_v(2a{-}1)(W_c+\tau_cE_0)/(Cd\Delta_z/H)$; "
+                 r"$\tau_c$ and $E_0$ do not," + "\n"
+                 r"because each also sets something else: how fast convection "
+                 r"removes water, and how much water there is",
                  fontsize=12)
     fig.tight_layout()
     fig.savefig(out, dpi=140)
@@ -246,7 +254,7 @@ def profile_panels(eq, names, labels, out, title, colors=None,
     # right, where W is flat at W_c + tau_c E_0 and the curves are as far apart
     # as they ever get, so each label is nearer its own curve than any other.
     ax = axes[3]
-    frac = label_x if label_x is not None else 0.86
+    frac = label_x if label_x is not None else 0.74
     for j, (nm, lab) in enumerate(zip(names, labels)):
         if nm not in eq:
             continue
@@ -376,15 +384,22 @@ def fig_anatomy(eq, name, out, title, xlim=(-9, 9)):
     ax.axhline(0, color="gray", lw=0.8, ls=":")
     # Label each curve where the three are furthest apart, which is at their
     # own extremum, so each label sits nearer its own curve than the others.
+    m = np.abs(yf) < abs(xlim[0]) * 1e6
+    span = float(np.max(np.abs(r["mean_flux"][m]))) / 1e6 or 1.0
     for arr, lab, col, sgn in ((r["mean_flux"], r"mean $v\hat H$", OI["black"], 1),
                                (r["eddy_flux"], r"eddy $-L_vD\partial_yW$",
-                                OI["green"], -1),
-                               (r["total_flux"], "total", OI["purple"], 1)):
-        m = np.abs(yf) < abs(xlim[0]) * 1e6
+                                OI["green"], -1)):
         j = int(np.flatnonzero(m)[np.argmax(np.abs(arr[m]))])
-        span = float(np.max(np.abs(arr[m]))) or 1.0
         label_curve(ax, yf[j], arr[j] / 1e6, "  " + lab, col,
-                    dy=sgn * 0.10 * span / 1e6, va="center")
+                    dy=sgn * 0.10 * span, va="center")
+    # The total is small and flat next to the two that nearly cancel, so its
+    # label goes in the empty upper-left rather than on the curve.
+    ax.annotate("total (the two above nearly cancel)",
+                xy=(xlim[0] * 0.72, float(r["total_flux"][
+                    int(np.argmin(np.abs(yf - xlim[0] * 0.72e6)))]) / 1e6),
+                xytext=(0.03, 0.88), textcoords="axes fraction",
+                color=OI["purple"], fontsize=9, fontweight="bold",
+                arrowprops=dict(arrowstyle="-", color=OI["purple"], lw=0.9))
     ax.set_ylabel("northward MSE flux (MW m$^{-1}$)")
     ax.set_xlabel("$y$ (Mm)")
     ax.margins(y=0.20)
@@ -542,7 +557,9 @@ def fig_seasonal_hov(seas, names, labels, out, title, field="p",
                                     ("rain maximum", OI["sky"]),
                                     ("rain-band centroid", OI["blue"]),
                                     ("ascending branch", OI["verm"]))):
-        label_curve(axes[0], 0.04, ylim[1] * (0.88 - 0.10 * k), txt, col)
+        axes[0].text(0.04, ylim[1] * (0.88 - 0.10 * k), txt, color=col,
+                     fontsize=8.5, fontweight="bold",
+                     bbox=dict(fc="white", ec="none", alpha=0.78, pad=1.0))
     cb = fig.colorbar(im, ax=axes, fraction=0.03, pad=0.02)
     cb.set_label("$P$ (mm day$^{-1}$)" if field == "p" else field)
     fig.suptitle(title, fontsize=12)
@@ -587,9 +604,15 @@ def fig_seasonal_summary(srows, out):
                 continue
             x = [r["amp_km"] for r in ss]
             v = [r[key] for r in ss]
-            ax.plot(x, v, "o-", color=col, lw=1.5, ms=5)
-            ax.text(x[-1], v[-1], "  " + lab, color=col, fontsize=8,
-                    fontweight="bold", va="center", ha="left")
+            # A dashed line with open markers means the cycle does not repeat
+            # from one year to the next, so "amplitude" and "lag" describe one
+            # arbitrary realisation. Plotting those as a result would be wrong.
+            cyc = all(r["cyclic"] for r in ss)
+            ax.plot(x, v, "o-" if cyc else "o--", color=col, lw=1.5, ms=5,
+                    mfc=col if cyc else "none")
+            ax.text(x[-1], v[-1], "  " + lab + ("" if cyc else "\n  (no two cycles alike)"),
+                    color=col, fontsize=8, fontweight="bold", va="center",
+                    ha="left")
         if key == "ro_cell_max":
             ax.axhline(1.0, color=OI["green"], lw=1.2, ls="--")
             label_curve(ax, 400, 1.0, "angular momentum conserving",
@@ -632,10 +655,14 @@ def fig_seasonal_period(srows, out):
                         key=lambda r: r["period"])
             if not ss:
                 continue
-            ax.plot([r["period"] for r in ss], [r[key] for r in ss], "o-",
-                    color=col, lw=1.5, ms=5)
-            ax.text(ss[-1]["period"], ss[-1][key], "  " + lab, color=col,
-                    fontsize=8, fontweight="bold", va="center", ha="left")
+            cyc = all(r["cyclic"] for r in ss)
+            ax.plot([r["period"] for r in ss], [r[key] for r in ss],
+                    "o-" if cyc else "o--", color=col, lw=1.5, ms=5,
+                    mfc=col if cyc else "none")
+            ax.text(ss[-1]["period"], ss[-1][key],
+                    "  " + lab + ("" if cyc else "\n  (no two cycles alike)"),
+                    color=col, fontsize=8, fontweight="bold", va="center",
+                    ha="left")
         if pred:
             ss = sorted([r for r in sub if abs(r["a"] - 0.79) < 1e-9],
                         key=lambda r: r["period"])
@@ -778,15 +805,13 @@ def main():
 
     transect = ["A_a085_wc30", "B_a085_wc35", "A_a085_wc40", "B_a085_wc44",
                 "A_a085_wc50", "B_a085_wc55", "A_a085_wc60"]
-    tlab = [f"$W_c$={w} ($r$={r_param(0.85, w):.2f})"
-            for w in (30, 35, 40, 44, 50, 55, 60)]
+    tlab = [f"$W_c$={w}" for w in (30, 35, 40, 44, 50, 55, 60)]
     profile_panels(eq, transect, tlab, o("03_transect_profiles.png"),
                    r"Crossing $\hat H=0$ by raising $W_c$ at $a=0.85$: "
                    r"$r$ from 0.69 to 1.37")
     profile_panels(eq, ["A_a085_wc40", "B_a085_wc42", "B_a085_wc44",
                         "B_a085_wc46", "A_a085_wc50"],
-                   [f"$W_c$={w} ($r$={r_param(0.85, w):.3f})"
-                    for w in (40, 42, 44, 46, 50)],
+                   [f"$W_c$={w}" for w in (40, 42, 44, 46, 50)],
                    o("03b_transition_zoom.png"),
                    r"The transition resolved: $r$ from 0.92 to 1.14 at $a=0.85$")
     fig_budget(eq, ["A_a079_wc40", "A_a085_wc50"],

@@ -167,10 +167,13 @@ def load_run(path: str, last_n: int = 1000,
         )
         var["jet_range_rel"] = float(var["jet_range"]
                                      / max(abs(var["jet_mean"]), 1e-30))
-        # "Steady" means the jet magnitude varies by under 1% of itself over
-        # that whole window, which the steady solutions satisfy with a range of
-        # exactly zero.
-        var["steady"] = bool(var["jet_range_rel"] < 0.01)
+        # A steady jet magnitude is necessary and not sufficient: two runs held
+        # their jet to under 1% while their rain bands wandered across the
+        # domain, which showed up as an MSE budget residual of order the source
+        # itself. The pointwise u drift between the two trailing 1000-day means
+        # catches that, so both conditions are required. The threshold is loose
+        # (1%) because the two genuinely steady-but-short runs sit at 0.2 and
+        # 0.4% while the wandering ones sit at 10 and 63%.
     finally:
         ds.close()
 
@@ -538,7 +541,8 @@ def scalars(r, name="", block="", note="") -> Dict[str, Any]:
         resid_rel=float(np.max(np.abs(r["residual"]))
                         / max(np.max(np.abs(r["source"])), 1e-30)),
         drift_u=drift_u, drift_w=drift_w,
-        steady=r["var"]["steady"], var_window=r["var"]["window"],
+        steady=bool(r["var"]["jet_range_rel"] < 0.01 and drift_u < 0.01),
+        var_window=r["var"]["window"],
         jet_range=r["var"]["jet_range"], jet_range_rel=r["var"]["jet_range_rel"],
         jet_sd=r["var"]["jet_sd"], wmean_range=r["var"]["wmean_range"],
         pmax_range=r["var"]["pmax_range"], pmax_sd=r["var"]["pmax_sd"],
@@ -745,6 +749,12 @@ def seasonal_scalars(s, name="", block="", note="") -> Dict[str, Any]:
         harm_frac_itcz=frac_itcz, harm_frac_asc=frac_asc,
         lobes_max=int(np.max(s["lobes_t"])),
         lobes_mean=float(np.mean(s["lobes_t"])),
+        # Whether the cycle repeats at all. The two consecutive cycles either
+        # agree to under 50 km in rain-band position or they disagree by
+        # thousands, with nothing in between across these 19 runs, so the
+        # threshold is not a tuned choice. For a run that fails it, "amplitude"
+        # and "lag" describe one arbitrary realisation and mean nothing.
+        cyclic=bool(s["repeat_itcz"] / 1e3 < 50.0),
         name=name, block=block, note=note, a=s["a"], w_crit=s["w_crit"],
         evap=s["evap"], d_w=s["d_w"], days=s["days"], ny=len(y),
         period=s["period"], amp_km=s["amp"] / 1e3,

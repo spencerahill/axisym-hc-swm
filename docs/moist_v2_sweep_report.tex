@@ -1,0 +1,1437 @@
+\documentclass[11pt]{article}
+\PassOptionsToPackage{obeyspaces,spaces}{url}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{url}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue]{hyperref}
+\usepackage{caption}
+\captionsetup{font=small}
+
+\graphicspath{{figs/}{docs/figs/}{../model_output/moist_v2_sweep/figs/}%
+{/home/shill/py/axisym-hc-swm/model_output/moist_v2_sweep/figs/}}
+
+\newcommand{\Hhat}{\hat{H}}
+\newcommand{\Shat}{\hat{S}}
+\newcommand{\Wstar}{W^{*}}
+\newcommand{\Wq}{W_q}
+\newcommand{\py}{\partial_y}
+\newcommand{\dyr}{\Delta_\theta^{\rm rad}}
+\newcommand{\mmday}{mm\,day$^{-1}$}
+\newcommand{\ms}{m\,s$^{-1}$}
+
+\title{A parameter sweep of the moist V2 shallow-water Hadley model\\
+\large 149 simulations across the sign change of the gross moist stability,
+with off-equatorial and seasonally migrating forcing}
+\author{Run and written by Claude, for Spencer Hill}
+\date{2026-08-09}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+
+\section{Summary of what the runs show}
+\label{sec:summary}
+
+151 runs, of which 150 completed: 131 with time-invariant forcing and 19 with a
+seasonally migrating forcing, all at $n_y = 801$ except the resolution twins, all
+integrated 5800 days (5.01 drag timescales) except the seasonal ones and one
+short pair. One configuration diverged and was replaced.
+
+\begin{enumerate}
+
+\item \textbf{One number organises most of it.} $r = \Wq/\Wstar$, the ratio of
+the moisture an undisturbed column holds to the moisture at which the gross
+moist stability changes sign, is the control parameter
+(Section~\ref{sec:control}). Four runs with $a$ from 0.75 to 0.87 and $W_c$ from
+34.9 to 52.0, chosen so that all four sit at $r = 0.85$, agree on the
+subtropical jet to 0.19\%, on peak $|v|$ to 0.10\%, on the raining fraction to
+0.00\% and on peak precipitation to 1.02\%. Across the 58 runs that vary the
+gross moist stability by any route, those same quantities span 77\%, 382\%, 59\%
+and 839\% of their means. The collapse is real, not a restatement of the
+definition.
+
+\item \textbf{Two of the six parameters do not collapse, for identifiable
+reasons.} $\tau_c$ and $E_0$ each move $r$ and also move something else: how
+fast convection removes water, and how much water there is. The $\tau_c$ ladder
+crosses $r = 1$ (0.906 to 1.084) with the domain raining everywhere at every
+rung, while a run at $r = 1.055$ reached through $W_c$ rains over only 73\% of
+the domain.
+
+\item \textbf{The transition begins before $\Hhat$ changes sign.} On the finest
+transect ($a = 0.85$, nine values of $W_c$) the domain rains everywhere up to
+$r = 0.919$ and has split into three bands over 91\% of the domain by
+$r = 0.964$. Convergence raises $W$ above $\Wq$ in the ascending region, so the
+local $\Hhat$ goes negative there before the undisturbed column does.
+
+\item \textbf{What the aggregated state does with its energy.} At $a = 0.85$,
+$W_c = 50$ the mean circulation carries $+104.7$~MW\,m$^{-1}$ into the
+ascending column, because $\Hhat < 0$ there, and the eddy moisture flux carries
+$-106.2$ back out. They cancel to 1.4\%. The eddy flux is the brake, and the
+solution finds its equilibrium by drawing part of the domain dry enough to turn
+$\Hhat$ positive: over $1.0 < |y| < 3.8$~Mm the column sits at
+43.7~kg\,m$^{-2}$ against $\Wstar = 44.25$, giving $\Hhat = +1.0$~MJ\,m$^{-2}$
+where the rest of the domain has $-33$ (Section~\ref{sec:budget}).
+
+\item \textbf{Removing the eddy moisture flux removes the brake, completely.}
+At $D = 0$ on the negative-stability reference, 4.6\% of the domain rains, at
+831.7~\mmday, in 35 separate bands. At $D = 4\times10^{6}$~m$^2$\,s$^{-1}$,
+71.8\% rains at a peak of 34.4. On the positive-stability reference the same
+range of $D$ changes peak precipitation by 3\%.
+
+\item \textbf{Aggregation needs the feedback at nearly full strength.} With
+$\Lambda$ at 0, 0.25, 0.50 and 0.75 of its physical value $L_v/C$ the
+negative-stability reference rains everywhere, peaking at 4.9, 5.2, 5.7 and
+7.9~\mmday. At the physical value it rains over 63\% of the domain, peaking at
+77.8. The onset between 0.75 and 1.0 is abrupt.
+
+\item \textbf{With passive moisture the same parameter does nothing at all.}
+Two V1 twins, one at $r = 0.76$ and one at $r = 1.14$, have identical
+circulations: jet 28.20~\ms, peak $|v|$ 0.365~\ms, raining everywhere, and no
+organised band. Their gross moist stabilities are $+18.4$ and
+$-11.4$~MJ\,m$^{-2}$. $\Hhat$ is a diagnostic in V1 and a dynamical quantity in
+V2, and this is the control that shows it.
+
+\item \textbf{There is a second boundary, further out, where the solutions stop
+settling.} 18 of the 131 never reach a steady state. In 16 the jet magnitude
+itself swings, by 2.6 to 83.0~\ms{} over the trailing 2000 days, along with the
+peak rain rate by up to 2890~\mmday. In the other two the jet holds to under
+0.7~\ms{} while the rain bands wander across the domain, which shows up as a
+pointwise $u$ difference of 10\% and 62\% between consecutive 1000-day means.
+They span $r = 1.132$ to 2.290, and the largest $r$ that still settles is 1.310,
+so unsteadiness sets in well past $\Hhat = 0$ rather than at it
+(Section~\ref{sec:numerics}).
+
+\item \textbf{The initial moisture does not select the attractor.} Starting $W$
+15 or 30~kg\,m$^{-2}$ above $W_c$ at four points spanning the transition changes
+the equilibrium by at most $8\times10^{-4}$ relative. No multiple equilibria
+were found (Section~\ref{sec:multistable}).
+
+\item \textbf{The rain band and the energy flux equator are 1.9 Mm apart.} With
+the forcing peak at 1400~km, the rain peaks at 1.082~Mm and the total column MSE
+flux vanishes at 2.959~Mm. Because $\Hhat$ varies only from 17.8 to
+19.3~MJ\,m$^{-2}$ across the tropics there, the flux is essentially $v\Hhat$ and
+vanishes where $v$ does, which is the boundary between the cross-equatorial cell
+and the summer cell rather than the ascent maximum
+(Section~\ref{sec:offeq}).
+
+\item \textbf{The seasonal response is quasi-static, and a single-timescale
+picture of it is wrong by a factor of ten.} A 37-day thermal relaxation predicts
+the rain band should lag the forcing by 17 to 37~days depending on period, and
+be damped to 0.36 of the quasi-steady amplitude at a 90-day period. Measured
+across five periods from 90 to 1440 days, the lag is 3.1 to 6.0~days and the
+gain 0.85 to 0.94. The gain also matches the steady off-equatorial value at the
+same displacement to within 2\%. These cycles repeat exactly: consecutive cycles
+differ by 0.0~km in band position (Section~\ref{sec:seasonal}).
+
+\item \textbf{Every seasonal run on the negative-stability reference is
+chaotic.} Consecutive cycles differ by 10,889 to 14,656~km in rain-band
+position, so their amplitudes and lags describe one arbitrary realisation and
+are not reported as results.
+
+\item \textbf{None of it looks much like the observed Hadley circulation, and
+the jet is the worst of it.} Across the plane the subtropical jet runs 1.53 to
+2.56 times the observed 31.0~\ms, and with the forcing 2800~km off the equator
+the winter jet reaches 128.7~\ms{} with $-54$~\ms{} of equatorial easterly. The
+eddy energy transport is essentially absent, as the ERA5 calibration already
+found (Section~\ref{sec:plausible}).
+
+\item \textbf{The numerics are sound where it matters and not everywhere.}
+Halving $\Delta t$ changes $u$ by 0.01\% of its peak. Across all eight
+resolution and timestep twins the jet moves by at most 0.30\% and peak
+precipitation by at most 0.91\%. But the profile at $|y| \approx 7$ to 11~Mm is
+not converged: between $n_y = 801$ and 401 it differs by up to 67.6\% of peak
+$u$, and between 801 and 1601 by up to 9.8\%. The tropics are converged; the
+westerly terminus region is not.
+
+\end{enumerate}
+
+\paragraph{Independent check.} Two of these configurations were run in July 2026
+by a different session with different analysis code, and their equilibria were
+recorded in \path|CLAUDE.md| and in \path|docs/era5_calibration_report.pdf|. All
+18 quantities recorded there are reproduced, most to under 1\%: peak
+precipitation 77.82 against 78, the secondary band at 5.592~Mm and 18.72~\mmday{}
+against 5.6 and 18.7, the dry fraction 0.362 against 0.36, the terminus notch at
+7.482~Mm and $-45.49$~\ms{} against 7.48 and $-45$, and the jet 73.79 against
+73.8. The quiescent column sits 71.22~K above its radiative target against the
+analytic $\tau\Lambda E_0 = 71.22$~K. Run
+\path|python scripts/v2_sweep_verify.py| to regenerate that comparison.
+
+\section{The gross moist stability, and the one number that sets its sign}
+\label{sec:control}
+
+\subsection{What the quantity is}
+
+The moist V2 model carries column moist static energy
+$\langle h\rangle = C\theta + L_v W$, where $C$ is the column heat capacity that
+converts a potential-temperature tendency into a column-energy tendency and
+$L_v$ is the latent heat of vaporisation. Adding the thermodynamic equation
+(\ref{eq:theta}) times $C$ to the moisture equation (\ref{eq:w}) times $L_v$
+gives the budget (\ref{eq:mse}), whose transport term is
+\begin{equation}
+\py\Big[\,\underbrace{v\big(\Shat - L_v(2a-1)W\big)}_{\text{mean circulation}}
+\;\underbrace{-\;L_v D\,\py W}_{\text{eddies}}\Big].
+\end{equation}
+The bracket multiplying $v$ is the gross moist stability
+$\Hhat = \Shat - L_v(2a-1)W$. It is the column energy the mean circulation
+carries per unit of upper-level meridional velocity, and it is the difference of
+two terms that partly cancel. The first, the gross dry stability
+$\Shat = C\,d\,\Delta_z/H$, is positive: the upper branch is warmer than the
+lower branch, so poleward flow aloft exports dry static energy. The second is
+negative: the lower branch is moister than the upper branch and flows the other
+way, so the same circulation imports latent energy.
+
+Its \emph{sign} is what matters, and here is why. Suppose ascent at some
+latitude strengthens. Ascent means upper-level divergence, $\py v > 0$. If
+$\Hhat > 0$, the strengthened circulation exports more energy from that column
+than it imports, the column cools, and the ascent is damped. If $\Hhat < 0$ the
+strengthened circulation is a net \emph{import} of energy into the ascending
+column, which warms and moistens it further, and the ascent grows. A negative
+gross moist stability is a positive feedback on ascent. In a full model this is
+the mechanism behind self-aggregation of convection; here it is available in a
+two-line budget.
+
+\subsection{The two moisture values that decide the sign}
+
+$\Hhat$ vanishes at
+\begin{equation}
+\Wstar = \frac{\Shat}{L_v(2a-1)} = \frac{C\,d\,\Delta_z}{H\,L_v(2a-1)} .
+\label{eq:wstar}
+\end{equation}
+At the sweep's fixed values ($C = 5.1619\times10^{6}$~J\,m$^{-2}$\,K$^{-1}$,
+$d = 4$~km, $\Delta_z = 60$~K, $H = 16$~km, $L_v = 2.5\times10^{6}$~J\,kg$^{-1}$)
+this gives $\Shat = 7.7429\times10^{7}$~J\,m$^{-2}$ and
+$\Wstar = 44.25$~kg\,m$^{-2}$ at the spec's $a = 0.85$, rising to
+$53.40$ at $a = 0.79$ and $61.94$ at $a = 0.75$.
+
+The other value is where the moisture actually sits. In a column with no
+transport, the steady moisture balance is $E_0 = P = (W - W_c)/\tau_c$, so
+\begin{equation}
+\Wq = W_c + \tau_c E_0 .
+\label{eq:wq}
+\end{equation}
+At the defaults $W_c = 50$~kg\,m$^{-2}$, $\tau_c = 14400$~s and
+$E_0 = 4.6\times10^{-5}$~kg\,m$^{-2}$\,s$^{-1}$ the correction is
+$\tau_c E_0 = 0.66$~kg\,m$^{-2}$, so $\Wq = 50.66$~kg\,m$^{-2}$. This value is
+set locally, by evaporation against precipitation, and the circulation cannot
+move it except by transporting water in or out faster than convection removes
+it. That is why the quiescent parts of the domain sit at $\Wq$ whatever the rest
+of the solution is doing.
+
+\subsection{One dimensionless number, five knobs}
+
+Putting (\ref{eq:wstar}) and (\ref{eq:wq}) together, an undisturbed column has
+negative gross moist stability when $\Wq > \Wstar$, that is when
+\begin{equation}
+\boxed{\;
+r \;\equiv\; \frac{\Wq}{\Wstar}
+\;=\; \frac{L_v(2a-1)\,(W_c + \tau_c E_0)}{C\,d\,\Delta_z/H}
+\;>\; 1 . \;}
+\label{eq:r}
+\end{equation}
+Five separate model parameters appear in $r$, and each of them can be moved
+across $r = 1$ on its own: the lower-branch water-vapour fraction $a$, the
+precipitation threshold $W_c$, the convective timescale $\tau_c$, the
+evaporation rate $E_0$, and the static stability $\Delta_z$. That is what makes
+the collapse onto $r$ a real question rather than a definition. If $r$ were
+merely a convenient relabelling, then runs at the same $r$ reached through
+different parameters would still differ. The sweep therefore includes eight runs
+in which $W_c$ was chosen for each of four values of $a$ so that all four land
+on the same $r$, at $r = 0.85$ and again at $r = 1.05$
+(Section~\ref{sec:regime}), and separate ladders in $\tau_c$, $E_0$ and
+$\Delta_z$ that cross $r = 1$ by themselves.
+
+Two caveats on $r$, stated now because they limit how much it can be expected
+to explain. First, $r$ describes an \emph{undisturbed} column. In the deep
+tropics the circulation moves water, so the local $W$ departs from $\Wq$ and the
+local $\Hhat$ from its quiescent value; $r$ predicts the sign of the feedback
+that gets things started, not the equilibrium reached. Second, $a$ and
+$\Delta_z$ appear elsewhere in the equations as well as in $r$. The factor
+$(2a-1)$ is also the moisture transport velocity in (\ref{eq:w}), and $\Delta_z$
+also multiplies the adiabatic term in (\ref{eq:theta}), so changing either does
+more than move $r$. $W_c$, $\tau_c$ and $E_0$ are cleaner: they enter the
+dynamics only through $r$ and through the precipitation rate itself.
+
+\subsection{Where the real atmosphere sits}
+
+This is not an exotic corner of parameter space. The ERA5 calibration
+(\path|docs/era5_calibration_report.pdf|, its stability section) gives
+$\Hhat/\Shat$ between $0.258$ over $|\varphi| \le 10^\circ$ and $0.318$ over
+$|\varphi| \le 30^\circ$, so the observed band-mean gross moist stability is
+positive but only about a quarter to a third of the dry value: the two competing
+terms cancel to within 70\% or so. The same report finds the \emph{local}
+$\Hhat$ falling through zero within about $8^\circ$ of the equator. And its
+estimate of $\Wstar$ itself, 44 to 57~kg\,m$^{-2}$ depending on how the time
+mean is taken, straddles the model's quiescent $50.66$~kg\,m$^{-2}$. So $r = 1$
+is roughly where the observations put the tropical atmosphere, and the question
+of what happens on either side of it is a question about the real Hadley
+circulation.
+
+\section{Where the regime boundary sits}
+\label{sec:regime}
+
+\subsection{The map}
+
+Figure~\ref{fig:map} places 25 runs in the plane of $a$ and $W_c$, the two
+parameters that move $r$ without touching anything else in the equations. The
+line $r = 1$ is drawn on it, and it separates the two behaviours cleanly. Below
+it the whole domain rains, at close to the evaporation rate, with a single broad
+maximum. Above it the rain concentrates into a few narrow bands separated by
+regions where precipitation is identically zero, and the peak rate rises by more
+than an order of magnitude.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{01_regime_map.png}
+\caption{The regime map. Colour shows four properties of the equilibrium; the
+solid line is $r = 1$, where an undisturbed column has $\Hhat = 0$, and the
+dotted line is $r = 0.85$. Circles settle to a steady state, squares never do.}
+\label{fig:map}
+\end{figure}
+
+\subsection{The transect through the boundary}
+
+The finest sampling is at $a = 0.85$, where nine values of $W_c$ from 30 to 60
+put $r$ between 0.693 and 1.371:
+
+\begin{center}
+\begin{tabular}{rrrrrrr}
+\toprule
+$W_c$ & $r$ & raining fraction & bands & peak $P$ (\mmday) & min $\Hhat$ (MJ\,m$^{-2}$) & jet (\ms)\\
+\midrule
+30 & 0.693 & 1.000 & 1 & 5.30  & $+23.4$ & 51.5\\
+35 & 0.806 & 1.000 & 1 & 6.15  & $+14.4$ & 55.1\\
+40 & 0.919 & 1.000 & 1 & 9.02  & $+4.8$  & 60.8\\
+42 & 0.964 & 0.910 & 3 & 15.02 & $-0.5$  & 64.7\\
+44 & 1.009 & 0.775 & 3 & 38.04 & $-10.7$ & 70.5\\
+46 & 1.055 & 0.730 & 5 & 56.64 & $-19.6$ & 74.1\\
+50 & 1.145 & 0.633 & 5 & 77.82 & $-32.8$ & 73.8\\
+55 & 1.258 & 0.561 & 9 & 97.67 & $-47.3$ & 74.5\\
+60 & 1.371 & 0.501 & 9 & 139.52& $-68.0$ & 78.3\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The boundary is bracketed between $r = 0.919$ and $r = 0.964$, so it sits
+\emph{below} $\Hhat = 0$ for the undisturbed column. The reason is in the
+caveat of Section~\ref{sec:control}: $r$ describes a column with no transport,
+and the ascending region has transport. Moisture convergence lifts $W$ there
+above $\Wq$, so the local $\Hhat$ reaches zero while the quiescent collar still
+has $\Hhat > 0$. At $W_c = 42$, $r = 0.964$, the minimum $\Hhat$ over the domain
+is already $-0.5$~MJ\,m$^{-2}$.
+
+\subsection{The collapse, and its two exceptions}
+
+Figure~\ref{fig:collapse} plots nine properties of the equilibrium against $r$
+for every run that varies the gross moist stability by any route. Four routes
+collapse: $a$, $W_c$, $\Delta_z$, and the matched-$r$ block that fixes $r$ and
+varies $a$ with $W_c$ compensating.
+
+The matched-$r$ block is the test that could have failed. Eight runs, four at
+$r = 0.85$ and four at $r = 1.05$, with $a$ from 0.75 to 0.87 and $W_c$ chosen
+for each to hit the target $r$:
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+ & raining fraction & peak $P$ & jet & peak $|v|$ & min $\Hhat$\\
+\midrule
+$r = 0.85$, spread across four $a$ & 0.00\% & 1.02\% & 0.19\% & 0.10\% & 2.71\%\\
+$r = 1.05$, spread across four $a$ & 0.34\% & 14.91\% & 2.27\% & 0.07\% & 41.65\%\\
+\midrule
+for scale: spread over all 58 GMS runs & 58.6\% & 838.6\% & 77.5\% & 382.3\% & 1877.9\%\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each spread is the full range divided by the mean. At $r = 0.85$ the four runs
+are the same solution to a fraction of a percent, while $a$ differs by 16\% and
+$W_c$ by 49\% between them. At $r = 1.05$ the agreement is looser and
+structured: the circulation still matches (peak $|v|$ to 0.07\%, jet to 2.3\%)
+while the precipitation extremes do not (peak $P$ to 15\%, min $\Hhat$ to 42\%).
+Past the boundary the solution has narrow bands whose peak values are sensitive
+to where exactly they sit, and $r$ predicts the circulation better than it
+predicts the extremes.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{02_collapse_on_r.png}
+\caption{Nine properties of the equilibrium against $r$, for every run that
+varies the gross moist stability. Marker shape and colour identify which
+parameter was varied. Filled markers settle to a steady state; open markers
+never do, so their plotted value is a 1000-day time mean of a fluctuating state.}
+\label{fig:collapse}
+\end{figure}
+
+The two exceptions are informative rather than a failure of the idea.
+$\tau_c$ enters $r$ through $\Wq = W_c + \tau_c E_0$, and it also sets how fast
+convection removes water from a column. Raising it from 1800 to 172800~s at
+$a = 0.85$, $W_c = 40$ takes $r$ from 0.906 to 1.084, across the boundary, and
+the domain rains everywhere at every rung, peak precipitation only rising from
+8.1 to 17.0~\mmday. A slow convective sink smears the rain out, which is the
+opposite of what concentrating it requires, so the two effects work against each
+other. $E_0$ likewise enters $r$ only weakly, through the same product, while
+setting the total water supply outright: doubling it on the negative-stability
+reference takes peak $|v|$ from 5.86 to 11.15~\ms{} and peak precipitation from
+77.8 to 197.5~\mmday{} at nearly unchanged $r$ (1.145 to 1.160).
+
+$\Delta_z$ collapses for the energetics and the raining fraction, and sits about
+6\% low in the jet at matched $r$, because it also multiplies the adiabatic term
+in the thermodynamic equation. That was the expected behaviour of the two
+parameters flagged in Section~\ref{sec:control} as doing more than moving $r$.
+
+\section{What the solutions on either side look like}
+\label{sec:regimes}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{03_transect_profiles.png}
+\caption{The $a = 0.85$ transect at equilibrium, $W_c$ from 30 to 60, which is
+$r$ from 0.693 to 1.371. Labels on the $W$ panel sit in the quiescent collar,
+where $W = W_c + \tau_c E_0$ and the curves are furthest apart. The two largest
+$W_c$ never settle, and their large extratropical oscillations in $u$ are
+discussed in Section~\ref{sec:numerics}.}
+\label{fig:transect}
+\end{figure}
+
+\subsection{Below the boundary: a Hadley cell that drizzles}
+
+At $r < 0.92$ the solution is a recognisable two-cell Hadley circulation with a
+broad rain maximum at the equator sitting on a background that rains everywhere
+at the evaporation rate. $W$ is nearly flat, pinned close to $\Wq$, with a bump
+of a few kg\,m$^{-2}$ at the equator. Peak precipitation is 5 to 9~\mmday{}
+against the 3.97 the uniform evaporation supplies, so the equatorial maximum is
+only a 30 to 130\% enhancement over the background. The jet strengthens smoothly
+with $r$, from 51.5 to 60.8~\ms{} over the transect, and peak $|v|$ from 1.10 to
+2.27~\ms.
+
+\subsection{Above it: bands, dry gaps, and rain rates no atmosphere has}
+
+At $r > 1$ the picture is different in kind. At $W_c = 50$ the equator rains at
+77.8~\mmday{} in a spike a few hundred km wide, two secondary bands sit at
+$\pm5.59$~Mm raining 18.7~\mmday, and precipitation is identically zero over
+36.2\% of the domain. As $r$ rises further the number of bands goes 3, 5, 9 and
+the peak rate reaches 139.5~\mmday{} at $r = 1.371$ and 831.7 with the eddy
+moisture flux switched off entirely.
+
+Two arithmetic facts make this less mysterious than it first looks, and both are
+exact. Peak precipitation is $(W_{\max} - W_c)/\tau_c$, so it is a direct
+read-out of the wettest column and nothing more. And because transport moves no
+total water, the domain mean of $P$ equals $E_0$ at equilibrium, which the runs
+satisfy to between 0.999 and 1.000 in the finite-volume measure. Aggregation
+therefore cannot change how much it rains in total; it can only change over how
+little of the domain that rain falls. At $W_c = 50$ the raining 63.3\% of the
+domain averages 1.58 times $E_0$, and the excess is concentrated in the spike.
+
+The precipitation rates are far outside anything observed. A zonal-mean
+77.8~\mmday{} is roughly ten times the wettest zonal-mean band on Earth, and
+831.7 is not a rain rate at all. This is the clearest sense in which the
+negative-stability solutions are not candidate Hadley circulations.
+
+\section{The solutions against ERA5}
+\label{sec:plausible}
+
+Before any of the parameter dependences matter, the question is whether these
+are plausible Hadley circulations. The short answer is that the positive
+stability side is the right order of magnitude and too strong by roughly a factor
+of two, the negative stability side is not a Hadley circulation, and the eddy
+energy transport is missing from all of it.
+
+\begin{center}
+\input{tables/score}
+\end{center}
+
+\medskip
+\noindent The ERA5 row is the 2000--2009 annual mean from
+\path|docs/era5_calibration_report.pdf| (its Table~9), with peak $|v|$ quoted as
+a slab velocity at the two branch depths that report estimates, because that is
+the quantity the model's $v$ is. Temperature contrasts are
+$\theta(0) - \theta(y)$ at the Coriolis-mapped latitudes $y = 2$, 3 and 4~Mm.
+
+\paragraph{The jet is too strong everywhere, by 1.53 to 2.56 times.} Over the
+whole $(a, W_c)$ plane the subtropical jet runs between 47.5 and 79.2~\ms{}
+against an observed 31.0. The best case in the sweep is the driest,
+$a = 0.75$, $W_c = 30$ at $r = 0.495$, which gives 47.5~\ms. The ERA5
+calibration already traced this overshoot to the radiative retarget rather than
+to the moisture parameters, and the attribution chain here confirms it
+quantitatively: the V1 twin has a 28.20~\ms{} jet, retargeting the relaxation to
+$\dyr = 75$~K with the feedback severed raises it to 41.58 with no change in
+moisture physics at all, and the sensitivity is $0.708$~\ms{} per K of $\dyr$ on
+the positive-stability reference. Getting the jet to 31~\ms{} at fixed
+everything-else would take $\dyr \approx 43$~K, which is below the
+radiative-convective 50~K and so is not available.
+
+\paragraph{The temperature contrast is too steep by 1.5 to 2.4 times}, in the
+same direction and for the same reason. At $24^\circ$ the observed
+$\Delta\theta$ is 3.21~K; the runs give 2.34 at $r = 0.49$, 3.33 at 0.76, 5.07
+at 0.92 and 7.62 at 1.14. The one run that matches the observed contrast closely
+is the V1 twin at 1.13~K, which is too flat.
+
+\paragraph{Column water vapour is about right on the dry side.} ERA5 gives
+39.6~kg\,m$^{-2}$ averaged over $|\varphi| \le 20^\circ$. The runs give 40.8 at
+$r = 0.76$ and 41.0 at $r = 0.92$, so the reference states hold close to the
+observed tropical column. That is unsurprising, since $W$ is pinned near $\Wq$
+and $\Wq$ was chosen near observed values, but it does mean the moisture is not
+the thing that is wrong.
+
+\paragraph{The energy transport is the largest gap, and it is structural.}
+The column fluxes at $24^\circ$, which is $y = 3$~Mm:
+
+\begin{center}
+\input{tables/fluxes}
+\end{center}
+
+\medskip
+\noindent At $24^\circ$ ERA5 transports 85.6~MW\,m$^{-1}$ of column moist static
+energy northward, of which 57.7 is eddy and 27.9 is the mean circulation. The
+positive-stability reference gives 21.3 mean and 0.38 eddy. So the mean flux is
+within a factor of one and a half of the observed mean flux, and the eddy flux is
+smaller than observed by a factor of 150. The reason is the one the ERA5 report
+identified: the model's only eddy energy flux is $-L_v D\,\py W$, there is no
+eddy dry-static-energy flux in the equations at all, and $W$ is nearly flat
+because the local evaporation-precipitation balance pins it, so there is almost
+no gradient for $D$ to act on. Raising $D$ to 4 million m$^2$\,s$^{-1}$, above
+the top of the ERA5-calibrated range, moves the eddy flux from 0.38 to
+1.42~MW\,m$^{-1}$.
+
+The negative-stability side inverts the problem rather than fixing it: at
+$a = 0.85$, $W_c = 50$ the eddy flux at $24^\circ$ is $-2.19$~MW\,m$^{-1}$,
+pointing the wrong way, because $W$ decreases away from the ITCZ there and the
+downgradient flux is equatorward.
+
+\section{The column energy budget}
+\label{sec:budget}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.86\textwidth]{04b_anatomy_negative.png}
+\caption{How the negative-stability solution at $a = 0.85$, $W_c = 50$
+($r = 1.145$) reaches equilibrium. Top to bottom: column water vapour against
+the two thresholds that matter, precipitation on a log scale, the gross moist
+stability with the non-raining regions shaded, and the column MSE flux resolved
+into its mean and eddy parts.}
+\label{fig:anatomy}
+\end{figure}
+
+\subsection{Never the net alone}
+
+The mean column MSE flux $v\Hhat$ is the difference of two much larger terms,
+and reporting it alone would misrepresent the transport by a large factor. At
+$24^\circ$ on the positive-stability reference the dry-static flux $\Shat v$ and
+the latent flux $-L_v(2a-1)vW$ nearly cancel, and the ERA5 calibration measured
+the same cancellation in the observations (its Table~8: $+50.7$ against $-22.9$
+observed, $+114.5$ against $-100.5$ in the model at $a = 0.77$). The model
+over-transports each component and under-transports their difference.
+
+\subsection{How a negative-stability solution closes its budget}
+
+Figure~\ref{fig:anatomy} answers this for $a = 0.85$, $W_c = 50$, and the answer
+has two parts.
+
+\textbf{The eddy flux cancels the mean flux at the ITCZ, to 1.4\%.} At the
+ascending column the mean circulation carries $+104.7$~MW\,m$^{-1}$ northward on
+one side of the spike and the same southward on the other, importing energy
+because $\Hhat < 0$ there. The eddy moisture flux carries $-106.2$, exporting it
+down the enormous $W$ gradient the spike creates. The total is
+$-1.5$~MW\,m$^{-1}$, 1.4\% of either term. This is what stops the positive
+feedback: the ascent intensifies until the moisture gradient it builds is steep
+enough for $D$ to remove the energy the mean circulation is importing. That is
+also why $D$ is the parameter with the most leverage on this state
+(Section~\ref{sec:ladders}).
+
+\textbf{The circulation dries part of the domain back above $\Hhat = 0$.} Over
+$1.0 < |y| < 3.8$~Mm the column is drawn down to a mean 43.7~kg\,m$^{-2}$,
+below $\Wstar = 44.25$, so $\Hhat$ there is $+1.0$~MJ\,m$^{-2}$ against $-32.8$
+at the ITCZ, reaching $+1.70$ at $2.28$~Mm. Those bands are the only part of the
+domain from which the mean circulation can export energy, and they lie inside
+the non-raining region.
+
+That second part is weaker than the picture suggests at a glance, and the number
+is worth stating rather than the impression: 43\% of the non-raining area has
+$\Hhat > 0$, and averaged over the whole non-raining area $\Hhat$ is
+$-2.54$~MJ\,m$^{-2}$. The two broad gaps between the ITCZ and the secondary
+bands are positive; the narrow gaps outside the secondary bands are not. So the
+drying is part of the answer and the eddy cancellation is most of it.
+
+\subsection{Budget closure as an equilibrium check}
+
+For the 113 runs that settle, the residual of
+$\py(F_{\rm mean} + F_{\rm eddy}) = Q$ is between $3.4\times10^{-9}$ and
+$6.3\times10^{-4}$ of the maximum source, and 110 of them are below $10^{-6}$.
+The three above it are identifiable: the two members of the off-equatorial
+resolution pair, which were run 2500 days rather than 5800 and so are not fully
+equilibrated ($5\times10^{-6}$ and $2\times10^{-6}$), and the $\tau_c = 1800$~s
+run at $6.3\times10^{-4}$, whose $u$ drift is $2\times10^{-5}$ so it is settled;
+its residual is presumably the diagnostic reconstruction struggling with a
+precipitation that is a very stiff function of $W$, and I did not chase it
+further.
+
+For the 18 runs that never settle the residual runs from 0.12 to 1690, which is
+expected rather than a defect: $\partial\langle h\rangle/\partial t$ is not zero
+and the budget as written omits it. Their residual is therefore a useful
+independent confirmation of the steadiness classification, not a separate check.
+
+\section{Sensitivity to each parameter in turn}
+\label{sec:ladders}
+
+Each ladder is run on both reference states, the positive-stability
+$a = 0.79$, $W_c = 40$ ($r = 0.76$) and the negative-stability $a = 0.85$,
+$W_c = 50$ ($r = 1.14$). The figures are
+\path|05_ladder_dyrad.png| through \path|10_ladder_evap.png|.
+
+\subsection{The radiative contrast $\dyr$: the strongest single lever on the jet}
+
+Raising $\dyr$ from 50 to 110~K takes the jet from 35.8 to 78.3~\ms{} on the
+positive-stability reference and from 57.6 to 99.3 on the negative one. The
+sensitivity is 0.708 and 0.690~\ms{} per K, nearly the same on both, so this is a
+dry-dynamical response that the moisture regime rides on top of rather than
+modifies. Peak $|v|$ goes 0.79 to 2.03~\ms{} on the positive reference. The
+raining fraction stays 1.000 throughout on the positive side and falls only from
+0.648 to 0.591 on the negative side, so forcing strength does not by itself
+trigger aggregation over this range.
+
+\textbf{Physical reading (derived).} $\dyr$ sets the meridional temperature
+gradient the relaxation drives toward, the pressure gradient in (\ref{eq:v})
+follows it, and the jet follows by thermal wind. That the sensitivity is the same
+on both sides of the stability boundary says the two effects are close to
+separable: latent heating changes where the rain falls and how strong the
+overturning is, and $\dyr$ sets the overall amplitude.
+
+\subsection{The eddy moisture diffusivity $D$: the brake, and only on one side}
+
+This is the largest asymmetry in the sweep. On the positive-stability reference,
+$D$ from 0 to $4\times10^{6}$~m$^2$\,s$^{-1}$ changes the jet from 53.66 to
+53.31~\ms{} (0.7\%) and peak precipitation from 5.77 to 5.61~\mmday{} (3\%). On
+the negative-stability reference the same range gives:
+
+\begin{center}
+\begin{tabular}{rrrrr}
+\toprule
+$D$ (m$^2$\,s$^{-1}$) & raining fraction & bands & peak $P$ (\mmday) & $W$ at equator (kg\,m$^{-2}$)\\
+\midrule
+0                 & 0.046 & 35 & 831.7 & 188.6\\
+$2.5\times10^{5}$ & 0.538 & 13 & 212.8 & 85.5\\
+$5\times10^{5}$   & 0.568 & 5  & 127.2 & 71.2\\
+$1\times10^{6}$   & 0.633 & 5  & 77.8  & 63.0\\
+$2\times10^{6}$   & 0.693 & 3  & 52.0  & 58.7\\
+$4\times10^{6}$   & 0.718 & 3  & 34.4  & 55.7\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Physical reading (derived).} Section~\ref{sec:budget} showed that the
+equilibrium at $D = 10^{6}$ is a near-cancellation between a mean flux importing
+$+104.7$~MW\,m$^{-1}$ into the ascending column and an eddy flux exporting
+$-106.2$. The eddy flux is proportional to $D$, so at smaller $D$ the ascent has
+to build a steeper moisture gradient to remove the same energy, which means a
+taller and narrower spike. At $D = 0$ there is nothing to remove it at all, and
+the solution collapses to 4.6\% of the domain raining at 832~\mmday{} with the
+equatorial column holding 189~kg\,m$^{-2}$ of water. That run also fails the
+steadiness test through wandering bands rather than a wandering jet.
+
+Two things follow. The parameter with the most leverage over the aggregated state
+is the one the ERA5 calibration is least certain about; its measured range is
+$3\times10^{5}$ to $4\times10^{6}$, and over that range the raining fraction goes
+0.54 to 0.72. And the positive-stability reference is almost completely
+insensitive to it, so $D$ cannot be calibrated from anything on that side.
+
+\subsection{The convective timescale $\tau_c$: aggregation needs a fast sink}
+
+On the negative-stability reference, $\tau_c$ from 1800 to 172800~s takes the
+raining fraction from 0.528 to 0.755 and peak precipitation from 176.8 down to
+46.9~\mmday, so a \emph{shorter} convective timescale aggregates more, even
+though a shorter $\tau_c$ gives a \emph{smaller} $r$. This is the mechanism
+behind the failed collapse of Section~\ref{sec:regime}: concentrating rain
+requires the sink to respond quickly to the local moisture, and a slow sink
+smears it out. The $\tau_c = 1800$~s run is one of the 18 that never settles.
+
+\subsection{Evaporation $E_0$: the amplitude of everything moist}
+
+$E_0$ barely moves $r$ (1.138 to 1.160 over a fourfold range on the
+negative-stability reference) and moves everything else a great deal: peak $|v|$
+from 3.31 to 11.15~\ms, peak precipitation from 37.4 to 197.5~\mmday, and the
+equatorial temperature from 224.9 to 293.6~K. The temperature is the cleanest
+demonstration of the mean-state offset derived in SCIENCE.md~\S3.6: the quiescent
+column sits $\tau\Lambda E_0$ above its radiative target, which is 35.6~K at the
+lowest $E_0$ and 142.4 at the highest, and over eight runs spanning that range
+the measured offset matches the prediction to $4\times10^{-7}$ relative. On the
+positive-stability reference $E_0$ changes the jet by
+1\% while changing peak precipitation from 3.69 to 9.80~\mmday, exactly tracking
+$E_0$ itself because the domain rains uniformly at the evaporation rate.
+
+\subsection{The eddy momentum flux $v_d$: the axisymmetric limit is extreme}
+
+Removing the eddy momentum flux entirely gives a jet of 86.7~\ms{} on the
+positive-stability reference and 160.9~\ms{} on the negative one, against 53.6
+and 73.8 at the default $v_d = 2.5$~\ms. Peak $|v|$ collapses from 1.27 to
+0.31~\ms{} on the positive side, and raising $v_d$ to 7.5 gives 47.5~\ms{} of jet
+with 2.07~\ms{} of overturning. All four directions match the expectations in
+SCIENCE.md~\S6: stronger eddies give weaker zonal winds, stronger $v$, and a
+wider cell.
+
+At $v_d = 0$ the negative-stability run still aggregates, with 76.5\% of the
+domain raining and a peak of 72.7~\mmday. So aggregation is thermodynamic, and
+the eddy momentum forcing modulates it rather than causing it.
+
+\subsection{The feedback strength $\Lambda$: a threshold, not a gradual onset}
+
+$\Lambda = L_v/C$ is derived rather than free, and detuning it breaks the exact
+cancellation of precipitation in the MSE budget, so this ladder is diagnostic
+rather than physical. It is also the most informative one. On the
+negative-stability reference:
+
+\begin{center}
+\begin{tabular}{rrrrr}
+\toprule
+$\Lambda/\Lambda_0$ & jet (\ms) & peak $|v|$ (\ms) & peak $P$ (\mmday) & raining fraction\\
+\midrule
+0.00 & 41.58 & 0.562 & 4.91  & 1.000\\
+0.25 & 44.69 & 0.683 & 5.16  & 1.000\\
+0.50 & 48.86 & 0.912 & 5.70  & 1.000\\
+0.75 & 57.36 & 1.691 & 7.93  & 1.000\\
+1.00 & 73.79 & 5.860 & 77.82 & 0.633\\
+1.25 & 81.90 & 7.526 & 166.85& 0.620\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Between 0.75 and 1.00 the peak rain rate jumps by a factor of 9.8 and the
+raining fraction falls off 1. On the positive-stability reference the same ladder
+never aggregates: the raining fraction is 1.000 at every rung and peak
+precipitation goes 4.59 to 10.27~\mmday. So the two ingredients are both
+necessary: negative gross moist stability, and a feedback strong enough to
+exploit it. At $\Lambda/\Lambda_0 = 0$ the two references have identical dry
+fields to every digit reported (jet 41.5779~\ms, peak $|v|$ 0.562137~\ms,
+$T(0)$ 197.123~K) while their moisture differs as their $W_c$ requires, which is
+the expected behaviour of the V2$_0$ bridge and a check that the coupling runs
+only in the intended direction.
+
+\subsection{The V1 to V2 attribution chain}
+
+Four runs per reference, changing one thing per step:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{llrrrrr}
+\toprule
+$\Hhat$ & step & jet & peak $|v|$ & $T$(0) & $\Delta\theta_{24}$ & peak $P$\\
+ & & (\ms) & (\ms) & (K) & (K) & (\mmday)\\
+\midrule
+either & V1, no heating, no retarget      & 28.20 & 0.365 & 200.3 & 1.13 & 4.38\\
+either & retarget to 75 K, $\Lambda=0$    & 41.58 & 0.562 & 197.1 & 1.63 & 4.59\\
+\midrule
+$+$ & $\Lambda$ on, target still 50 K & 35.84 & 0.790 & 246.9 & 2.38 & 5.08\\
+$+$ & $\Lambda$ on, target 75 K (V2)  & 53.57 & 1.266 & 244.6 & 3.33 & 5.72\\
+\midrule
+$-$ & $\Lambda$ on, target still 50 K & 57.56 & 5.242 & 249.9 & 7.05 & 67.47\\
+$-$ & $\Lambda$ on, target 75 K (V2)  & 73.79 & 5.860 & 248.1 & 7.62 & 77.82\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The first two rows have no moisture feedback, so they are the same run
+whichever $W_c$ is set; the peak $P$ differs only because $P$ reads off $W_c$.
+
+The retarget alone accounts for a 47\% jet increase with no moisture feedback at
+all, which is where most of the overshoot against observations comes from. The
+71~K warming appears with $\Lambda$, as derived. And aggregation appears in the
+negative-stability row as soon as $\Lambda$ is switched on, even at the flatter
+50~K target, so it does not require the steeper radiative contrast.
+
+\section{Two equilibria at the same parameters?}
+\label{sec:multistable}
+
+A state whose ascent reinforces itself is a natural candidate for multiple
+equilibria, so eight runs start with the column already moist: at
+$a = 0.85$ and $W_c = 40$, 42, 44 and 46, spanning $r$ from 0.919 to 1.055
+across the transition, with $W(t=0) = W_c + 15$ and $W_c + 30$~kg\,m$^{-2}$
+instead of the default $W_c$.
+
+Nothing happens. The largest relative difference from the default start, over any
+of the reported quantities and any of the eight runs, is
+$8\times10^{-4}$. At $W_c = 40$, 42 and 44 the equilibria agree to every digit
+reported: jet 60.81, 64.68, 70.50~\ms{} and peak $P$ 9.02, 15.02,
+38.04~\mmday{} whatever the initial moisture. At $W_c = 46$ the jet differs by
+0.06~\ms{} out of 74.07 and peak precipitation by 0.04 out of 56.64.
+
+So within the range tested there is one attractor per parameter set, and the
+aggregated state is reached from a dry start as readily as from a wet one. That
+is a negative result and worth having: it means the regime map of
+Section~\ref{sec:regime} is a map of the parameter space rather than of the
+initial conditions, and the boundary at $r \approx 0.94$ is not a hysteresis
+loop. What it does not test is a start that is drier than $W_c$, or an
+asymmetric initial perturbation, either of which could still find a second
+branch (Section~\ref{sec:open}).
+
+\section{Forcing peaked off the equator and held fixed in time}
+\label{sec:offeq}
+
+Sixteen runs move the maximum of the radiative target off the equator and hold
+it there, at $y_0 = 0$, 700, 1400, 2100 and 2800~km. Two profile families are
+used. The $\sin^2$ family translates rigidly, so $y_0$ displaces the forcing
+without changing its shape or strength. The SB08 family adds an antisymmetric
+term, so its peak value \emph{rises} above $\theta_{00}$ by
+$\dyr\sin^2(\pi y_0/2y_1)$ as $y_0$ increases: a solstitial SB08 forcing is
+stronger as well as displaced, which is worth holding in mind when its
+circulation is stronger too. Both families are run on both reference states.
+
+\subsection{Where the rain goes, and how to ask the question}
+
+\textbf{Three positions, and they are not interchangeable.} The precipitation
+centroid taken over the whole domain is a bad tracker here, by enough to change
+the answer. On the positive-stability reference the domain drizzles at the
+evaporation rate everywhere, and that uniform background pulls the centroid
+toward the middle of the domain: at $y_0 = 1400$~km the plain centroid sits at
+0.299~Mm while the rain \emph{maximum} sits at 1.082~Mm. Read from the centroid
+the rain band follows 21\% of the forcing displacement, read from the maximum
+77\%. The report uses the maximum, and a centroid taken over the connected
+region raining above $E_0$, which agree with each other. All three are in
+\path|all_runs.csv|, so the difference is visible rather than buried.
+
+\textbf{The rain follows most but not all of the forcing.} On the
+positive-stability reference the rain maximum reaches 1.082, 1.404 and
+1.711~Mm for SB08 forcing at $y_0 = 1400$, 2100 and 2800~km, so it covers 77\%,
+67\% and 61\% of the displacement. The fraction falls as the forcing goes
+further out, which is what a restoring influence tied to the equator produces.
+Under $\sin^2$ forcing the fractions are slightly higher, 82\% at 1400~km and
+70\% at 2100~km.
+
+\subsection{The rain maximum and the energy flux equator are 1.9 Mm apart}
+
+Take the SB08 $y_0 = 1400$~km run on the positive-stability reference. Its rain
+peaks at 1.082~Mm. The zero of its total column MSE flux, the energy flux
+equator, is at 2.959~Mm. The two are separated by 1.88~Mm, which is about
+$15^\circ$ of equivalent latitude.
+
+The reason is visible in the flux itself. The gross moist stability in that run
+varies only between 17.8 and 19.3~MJ\,m$^{-2}$ across the whole tropics, and the
+eddy flux never exceeds 0.8~MW\,m$^{-1}$ against a mean flux reaching
+80~MW\,m$^{-1}$. So the total flux is very nearly $v\Hhat$ with $\Hhat$
+constant, which means it vanishes where $v$ does. And $v$ has no zero anywhere
+between $-5.0$ and $+3.0$~Mm: a single cross-equatorial cell spans the entire
+tropics with southward upper-level flow throughout, and the rain maximum sits
+\emph{inside} that cell rather than at its edge. Upper-level divergence
+$\py v$ is positive across the whole band, peaking at 1.061~Mm, which is where
+the rain is (1.082~Mm, agreeing to 21~km). The flux zero at 2.959~Mm is the
+boundary between that cell and the weak summer cell poleward of it.
+
+So in this model the standard reasoning that puts the rain band at the energy
+flux equator does not apply, and the reason is structural: the ascending region
+is broad and lies within a single-signed $v$, so the energy flux does not have
+to vanish where the ascent is strongest. Whether that is a defect of the
+single-layer formulation or a genuine consequence of a nearly uniform $\Hhat$
+is the sharpest open question this sweep raises
+(Section~\ref{sec:open}).
+
+\subsection{The winter jet reaches four times the observed value}
+
+Under SB08 forcing on the positive-stability reference, as $y_0$ goes from 1400
+to 2800~km:
+
+\begin{itemize}
+\item The winter (southern) jet strengthens from 91.6 to 128.8~\ms{} while the
+summer jet weakens from 26.9 to 12.3~\ms.
+\item Equatorial zonal wind becomes strongly easterly, from $-25.4$ to
+$-54.2$~\ms.
+\item Peak $|v|$ more than doubles, 4.38 to 9.50~\ms.
+\item The domain stops raining everywhere: the raining fraction falls from
+1.000 to 0.845, so even a positive-stability state develops a dry zone once the
+forcing is far enough off the equator.
+\end{itemize}
+
+The directions are all as expected for a solstitial circulation, and the
+magnitudes are not. A 129~\ms{} winter jet is four times the observed
+zonal-mean maximum of 31~\ms, and $-54$~\ms{} of equatorial easterly is roughly
+three times what the solstice season shows. Section~\ref{sec:plausible} takes
+the plausibility question up properly; the point here is that the off-equatorial
+overshoot compounds the jet overshoot the equinoctial runs already have.
+
+\subsection{On the negative-stability reference the rain leaves the tropics}
+
+The same forcing on the negative-stability reference ($a = 0.85$, $W_c = 50$)
+does something qualitatively different. At $y_0 = 700$~km the rain maximum is
+at 3.44~Mm, and by $y_0 = 2800$~km it is at 5.28~Mm, which is $46^\circ$
+equivalent latitude. The rain band is no longer near the forcing maximum at all;
+it has been relocated far poleward, and it now sits \emph{poleward} of the
+energy flux equator ($-0.01$ to $2.48$~Mm) rather than equatorward of it.
+
+Every one of these eight runs fails the steadiness test of
+Section~\ref{sec:numerics}, so the positions above are maxima of a 1000-day mean
+field rather than of a settled state, and they should be read as such. The
+cleanest statement the block makes is that split itself: with the forcing off
+the equator, every run on the negative-stability reference keeps fluctuating and
+every run on the positive-stability reference settles.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{11_offequatorial.png}
+\caption{Time-invariant off-equatorial forcing. Rain position, energy flux
+equator, equatorial zonal wind, the two jets and the overturning strength against
+the forcing displacement $y_0$, for both profile families and both reference
+states. The dotted 1:1 line in the first panel marks where the rain would sit if
+it followed the forcing exactly.}
+\label{fig:offeq}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{12_offeq_profiles_P.png}
+\caption{Equilibrium profiles for the SB08 off-equatorial series on the
+positive-stability reference, $y_0$ from 0 to 2800~km. The winter jet near
+$y = -5$~Mm strengthens to 129~\ms{} while the summer jet nearly disappears.}
+\label{fig:offeqprof}
+\end{figure}
+
+\section{Forcing that migrates through a seasonal cycle}
+\label{sec:seasonal}
+
+Nineteen runs vary $y_0$ in time with the SB08 profile: five amplitudes from 350
+to 2800~km at a 360-day period, five periods from 90 to 1440 days at 1400~km
+amplitude, and the square and tanh waveforms, each on both reference states, plus
+one $n_y = 1601$ twin. Each is integrated for 2880~days plus at least six full
+cycles, and the last two complete cycles are compared as the repeatability
+check. All amplitudes and lags come from a least-squares fit at the forcing
+frequency, which is more robust on these series than a peak-finding estimate.
+
+\begin{center}
+\input{tables/seasonal}
+\end{center}
+
+\subsection{The positive-stability cycles repeat exactly, and the negative ones never repeat}
+
+The cleanest result of the block is the split. On the positive-stability
+reference, consecutive cycles differ by 0.0~km in rain-band position for nine of
+the ten runs, and 0.4~km for the square-wave one. That is a fully converged
+periodic solution. On the negative-stability reference every run differs from its
+own previous cycle by 10,889 to 14,656~km, which is most of the domain. Those are
+chaotic, and their fitted amplitudes and lags describe one arbitrary realisation.
+They are in the table and marked, and no conclusion rests on them.
+
+\subsection{The response is quasi-static, and the obvious null model is wrong by a factor of ten}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{16b_seasonal_period.png}
+\caption{Response against forcing period at fixed 1400~km amplitude, with the
+prediction of a single relaxation on the model's thermal timescale $\tau = 37$~d
+in grey. Dashed lines with open markers are the chaotic negative-stability runs,
+whose fitted values describe one realisation.}
+\label{fig:seasperiod}
+\end{figure}
+
+A single first-order relaxation on the model's own thermal timescale
+$\tau = 37$~days is the natural null model. Driving $dX/dt = (F(t)-X)/\tau$ with
+$F = A\sin\omega t$ gives a response damped by $1/\sqrt{1+\omega^2\tau^2}$ and
+lagged by $\arctan(\omega\tau)/\omega$. That predicts a lag of 17, 26, 33, 36 and
+37~days at periods of 90, 180, 360, 720 and 1440~days, and a damping factor of
+0.36, 0.61, 0.84, 0.95 and 0.99.
+
+What the runs give at those five periods is a lag of 3.1, 4.1, 5.3, 5.9 and
+6.0~days, and a gain of 0.852, 0.896, 0.920, 0.937 and 0.944. The lag is five to
+six times smaller than predicted at every period, and the damping at the shortest
+period is 0.85 where the null model says 0.36.
+
+\textbf{Physical reading (derived, then checked).} The prediction fails because
+the rain band's position is not something the column temperature has to
+equilibrate to. It is set by where the forcing peaks, moderated by whatever pulls
+the ascent back toward the equator, and both act on the fast dynamical and
+moisture timescales rather than on $\tau$. The check is that the seasonal gain
+should then equal the \emph{steady} response at the same displacement. It does:
+the time-invariant SB08 run at $y_0 = 1400$~km puts the rain maximum at
+1.082~Mm, a gain of 0.773, and the seasonal runs at 1400~km amplitude give a
+rain-maximum gain of 0.757 to 0.787 across the five periods, so the steady value
+sits inside that range. The migrating solution is tracking the sequence of steady
+states.
+
+The same holds for the dynamics. Local Rossby number in the dominant cell,
+averaged over $|y|$ from 1 to 4~Mm, reaches 0.452, 0.540, 0.597, 0.616 and 0.622
+at the five periods, and the steady $y_0 = 1400$~km run gives 0.624. At the two
+longest periods the migrating cycle matches the perpetual state to 1\%, and at a
+360-day period it falls 4\% short. So there is no sign in this model of the
+seasonal cycle reaching an angular-momentum-conserving regime that the
+corresponding steady forcing does not, which is the mechanism Schneider and
+Bordoni identify for monsoon onset. If anything the migration keeps the cell
+slightly further from that limit.
+
+\subsection{What the amplitude does}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{13_seasonal_hov_P.png}
+\caption{Precipitation through the composite cycle at five migration amplitudes
+on the positive-stability reference. Four position measures are drawn: the
+forcing maximum, the rain maximum, the centroid of the rain band, and the
+maximum of upper-level divergence. On the positive-stability reference they
+coincide closely.}
+\label{fig:seashov}
+\end{figure}
+
+Raising the migration amplitude from 350 to 2800~km at a 360-day period takes
+the summer-side jet from 61.3 to 126.7~\ms{} and the rain-band amplitude from 390
+to 1957~km, so the gain falls from 1.115 to 0.699. The gain exceeding one at the
+smallest amplitudes is worth flagging as a small-signal result rather than
+interpreting: at 350~km amplitude the band moves 390~km, and the difference is
+of the order of ten gridpoints.
+
+At amplitudes of 2100 and 2800~km a dry region opens in the winter hemisphere
+even on the positive-stability reference. The raining fraction dips to 0.905 and
+0.844 at the solstices of the migrating runs, and the steady runs held at the
+same displacement give 0.905 and 0.845. So a far enough displacement produces a
+dry zone with no help from negative gross moist stability, and the migrating and
+steady cases produce the same one.
+
+\subsection{A migrating forcing against one held at the solstice}
+
+Four pairs compare the seasonal solution at its peak $y_0$ against the
+time-invariant run with the forcing held at that same $y_0$:
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+ & rain position, seasonal & steady & summer jet, seasonal & steady\\
+\midrule
+700~km, positive $\Hhat$  & 0.102~Mm & 0.124~Mm & 44.7~\ms & 38.4~\ms\\
+1400~km, positive $\Hhat$ & 0.262    & 0.299    & 38.6     & 26.9\\
+2100~km, positive $\Hhat$ & 0.476    & 0.529    & 33.8     & 18.7\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The migrating case reaches a rain band 22 to 53~km closer to the equator and a
+summer jet 6.3 to 15.1~\ms{} stronger than the state it would reach if the
+forcing stopped there. Both differences point the same way and have the same
+cause: the summer hemisphere has not had time to finish weakening its jet or to
+finish pulling the rain poleward. The peak precipitation is essentially identical
+between the two (6.02 against 6.03, 6.86 against 6.88, 8.02 against
+8.06~\mmday), so the migration changes the geometry of the circulation without
+changing its rainfall intensity.
+
+The fourth pair, at 1400~km on the negative-stability reference, differs far more
+(rain at 2.509 against 1.408~Mm, jet 113.8 against 82.2~\ms, peak precipitation
+229.4 against 50.6~\mmday), and both members of that pair fail their respective
+steadiness and repeatability tests, so the comparison is between two fluctuating
+states and is not interpretable.
+
+\subsection{Waveform}
+
+Replacing the sinusoidal migration with a tanh or a square wave at 1400~km and
+360~days changes very little: the gain is 0.920, 0.906 and 0.972 for sin, tanh
+and square, the lag 5.3, 5.1 and 3.8~days, and the summer jet 89.1, 91.0 and
+91.4~\ms. The square wave's smaller lag is the expected consequence of a forcing
+that spends most of the cycle stationary. The square-wave run is also the only
+positive-stability seasonal run whose consecutive cycles are not identical, and
+its 0.4~km difference is small enough to be the discrete jump itself rather than
+a failure to converge.
+
+\section{Timestep, grid spacing, and how far from equilibrium the runs are}
+\label{sec:numerics}
+
+\subsection{The documented timestep is not enough everywhere}
+
+Before spending hours on long integrations I ran all 149 configurations for 100
+days each and checked the output files. Twenty-two of them diverged, meaning the
+integration hit a NaN and stopped, in most cases within the first day or two.
+The repository's note that $\Delta t = 30$~s is the V2 ceiling at $n_y = 801$ is
+right at the reference parameters and wrong as a general statement.
+
+The 22 fall into two groups, and both make sense. One group has an unusually
+strong circulation: the three deeply negative-stability cases at $W_c = 60$ with
+$a \ge 0.83$ ($r$ from 1.29 to 1.45), the two steepest radiative contrasts
+$\dyr = 100$ and $110$~K on the negative-stability reference, the two smallest
+static stabilities $\Delta_z = 30$ and $45$~K, and the one case with the latent
+heating coefficient raised 25\% above its physical value. The other group has a
+forcing maximum far off the equator: every run with $|y_0| \ge 1400$~km, and the
+$y_0 = 700$~km runs on the negative-stability reference.
+
+Halving to $\Delta t = 15$~s rescued 16 of the 22 over a 300-day probe. The
+remaining six needed $\Delta t = 6$~s, and all five that stayed in the sweep ran
+clean at that value; the sixth was an $n_y = 1601$ off-equatorial case that would
+have cost 2.4~h on its own, so it was replaced (Section~\ref{sec:offeq}).
+
+\subsection{These are cold-start transients, not unstable equilibria}
+
+The distinction matters, because it says the equilibria themselves are
+reachable. A run whose forcing maximum sits at $y_0 = 1400$~km from the first
+timestep diverges at $\Delta t = 30$~s. A \emph{seasonal} run whose forcing
+maximum walks out to the same 1400~km over 90 days does not: it survived the
+100-day screen at $\Delta t = 30$~s. The model starts from $u = v = 0$ with
+$\theta$ at its target, and a large off-equatorial forcing imposed on that state
+produces a violent adjustment; the same forcing approached gradually does not.
+
+Even so, every seasonal run in the sweep uses $\Delta t = 15$~s. Two reasons.
+One seasonal case, amplitude 2800~km on the negative-stability reference,
+diverged at day 800 rather than in the first days, so the screen would have
+passed it and the production run would have wasted its time. And holding
+$\Delta t$ fixed across the seasonal block removes the timestep as a confounder
+when amplitudes and periods are compared against each other.
+
+\subsection{Timestep and grid spacing}
+
+Eight twin pairs test the numerics, each changing only $\Delta t$ or $n_y$ from
+its partner. The comparison is the pointwise difference after interpolating to
+the coarser grid, not a difference of summary numbers.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+pair & max$|\Delta u|$ (\ms) & as \% of peak $u$ & where (Mm) & jet change\\
+\midrule
+positive $\Hhat$: $\Delta t$ 30 to 15 & 0.0031 & 0.01\% & $-11.5$ & 0.00\%\\
+negative $\Hhat$: $\Delta t$ 30 to 15 & 0.0087 & 0.01\% & $-7.4$  & 0.00\%\\
+positive $\Hhat$: $n_y$ 801 to 1601   & 0.589  & 1.10\% & $-9.7$  & 0.02\%\\
+negative $\Hhat$: $n_y$ 801 to 1601   & 7.20   & 9.76\% & $-7.4$  & 0.04\%\\
+near-critical: $n_y$ 801 to 1601      & 0.260  & 0.37\% & $-11.1$ & 0.02\%\\
+off-equatorial: $n_y$ 801 to 1601     & 29.98  & 41.58\%& $-7.5$  & 0.02\%\\
+positive $\Hhat$: $n_y$ 801 to 401    & 7.58   & 14.14\%& $-9.6$  & 0.01\%\\
+negative $\Hhat$: $n_y$ 801 to 401    & 49.86  & 67.58\%& $+7.4$  & 0.30\%\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two conclusions, and they point different ways.
+
+\textbf{The timestep is converged and the bulk quantities are converged in
+resolution.} Halving $\Delta t$ changes $u$ nowhere by more than 0.01\% of its
+peak, which is negligible; that matters because 21 of the 151 runs use a smaller
+$\Delta t$ than the rest for stability, and this says mixing timesteps across the
+sweep costs nothing. Across all eight pairs the jet moves by at most 0.30\% and
+peak precipitation by at most 0.91\%, so every scalar this report quotes is
+resolution-insensitive.
+
+\textbf{The profile in the westerly terminus region is not converged.} Every one
+of the large differences sits at $|y|$ between 7 and 11~Mm, which is where the
+zonal wind turns over and the Heaviside gate on the eddy momentum flux switches.
+The 2026-07-12 $n_y = 1601$ probe recorded the same thing for the dry model, so
+this is a known property of the formulation rather than something the moisture
+introduces. What is new is the size on the negative-stability side: 9.8\% between
+801 and 1601, and 67.6\% between 801 and 401. Any conclusion about the
+extratropical structure of an aggregated solution should be treated as
+resolution-dependent. Nothing in this report rests on one.
+
+The off-equatorial pair is the weakest of the eight, and deliberately so: the
+$y_0 = 700$~km cold start diverges at $n_y = 1601$ unless $\Delta t = 6$~s, so
+both members of that pair run at 6~s and only for 2500 days, which is 2.2 drag
+timescales rather than 5. Both are equally unequilibrated, so their difference
+still measures grid sensitivity, and their bulk agreement is good (jet 38.44
+against 38.45~\ms, peak $|v|$ 2.424 against 2.426).
+
+\subsection{How far from equilibrium the runs are}
+
+Every non-seasonal run is a fixed 5800-day integration, which is 5.01 drag
+timescales at $\epsilon_u = 10^{-8}$~s$^{-1}$, rather than a convergence-gated
+one. That choice makes the drift something this report measures instead of
+something a detector asserts.
+
+For the 113 runs classified steady, the pointwise difference in $u$ between the
+mean over days 3800--4800 and the mean over days 4800--5800 is between
+$7\times10^{-10}$ and $3.9\times10^{-3}$ of peak $u$, and the two runs at the top
+of that range are the 2500-day off-equatorial pair. Excluding those, the largest
+drift among the 111 full-length steady runs is $4.5\times10^{-4}$. The domain
+integral of
+precipitation equals that of evaporation to between 0.999 and 1.000 in the
+finite-volume measure for all 131, which is a constraint the integration has to
+satisfy at equilibrium and does. And no run had negative $W$ at any timestep,
+which the MUSCL-limited transport is designed to prevent.
+
+\subsection{What the never-settling solutions look like}
+
+The 18 unsteady runs fall into two kinds. In 16 of them the jet magnitude itself
+swings, by 2.6 to 83.0~\ms{} over the trailing 2000 days. In two, both from the
+low-$D$ end of the diffusivity ladder, the jet holds to under 0.7~\ms{} while the
+rain bands wander: their pointwise $u$ difference between consecutive 1000-day
+means is 10\% and 62\%. A steadiness test on the jet alone would have passed
+those two, and their MSE budget residuals of 0.12 and 0.45 of the source are what
+gave them away.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{18_spinup.png}
+\caption{Equilibration of five runs spanning the transition, against the 1157-day
+drag timescale. The $r = 1.37$ run is one of the 18 that never settles; its jet
+and peak rain rate keep swinging for the whole integration.}
+\label{fig:spinup}
+\end{figure}
+
+The unsteadiness shows up in the profiles as large-amplitude oscillations in $u$
+poleward of about 5~Mm, visible on the two largest-$W_c$ curves of
+Figure~\ref{fig:transect} reaching $\pm80$~\ms. Their wavelength is roughly
+1.6~Mm, which is 40 gridpoints at $n_y = 801$, so they are not the $2\Delta y$
+computational mode. Whether they are resolution-converged is untested: no
+$n_y = 1601$ twin was run above $r = 1.01$, and given the 9.8\% difference the
+twins do show at $r = 1.145$ in exactly that region, they should not be trusted
+quantitatively.
+
+\section{Open questions, and the runs that would settle them}
+\label{sec:open}
+
+Each of these names what outcome would decide it, because a proposed run without
+that is not a test.
+
+\paragraph{1. Why is the rain band 1.9 Mm from the energy flux equator, and is
+that a defect of the single layer?} This is the sharpest question the sweep
+raises, because the standard framework for ITCZ position ties the two together
+and here they come apart. The argument in Section~\ref{sec:offeq} is that with
+$\Hhat$ nearly uniform the total flux is essentially $v\Hhat$, so it vanishes
+where $v$ does, which is the cell boundary. That argument is testable: it predicts
+that the separation should shrink as $\Hhat$ becomes less uniform. The
+negative-stability off-equatorial runs have strongly varying $\Hhat$ and are all
+unsteady, so they cannot answer it. A run at intermediate $r$, around 1.01 to
+1.05, with off-equatorial forcing, would have varying $\Hhat$ and might still
+settle. If the separation shrinks with the variance of $\Hhat$ the explanation
+holds; if it does not, something else is going on. This is the run I would do
+first.
+
+\paragraph{2. Is the 40-gridpoint extratropical wave train real?} The
+never-settling solutions oscillate at a wavelength of about 1.6~Mm poleward of
+5~Mm. It is not the grid-scale computational mode, and the twins at $r = 1.145$
+already show a 9.8\% resolution sensitivity in exactly that region. An
+$n_y = 1601$ twin of one unsteady run, say $a = 0.85$, $W_c = 60$, would say
+whether the oscillation survives grid refinement. At $\Delta t = 15$~s and 5800
+days that costs about an hour. If the wave train changes character with
+resolution, then the whole $r > 1.3$ corner of the map is describing the numerics
+rather than the physics.
+
+\paragraph{3. Is there a second branch reachable from a drier start?} The
+initial-condition block only tested moister starts, and found one attractor.
+Starting below $W_c$, so that nothing precipitates at $t = 0$, tests the other
+direction, and so does an asymmetric initial perturbation, which could find a
+single-cell state. Eight runs, about two hours. A negative result there would
+make the regime map genuinely a map of parameter space.
+
+\paragraph{4. What is $D$, really?} $D$ has more leverage over the aggregated
+state than any other parameter, and the ERA5 calibration puts it only within a
+factor of 13, from $3\times10^{5}$ to $4\times10^{6}$~m$^2$\,s$^{-1}$. Across that
+range the raining fraction of the negative-stability reference goes 0.54 to 0.72
+and its peak rain rate 213 to 34~\mmday. No model result on that side of the
+boundary is better determined than $D$ is. The ERA5 report's own recommendation,
+downloading the five empty ERA5 flux directories it lists, is the way to narrow
+it, and this sweep raises the value of doing so.
+
+\paragraph{5. Can the jet overshoot be fixed without breaking the retarget?} The
+jet is 1.5 to 2.6 times observed, and Section~\ref{sec:plausible} traces most of
+it to the radiative retarget: 0.708~\ms{} per K of $\dyr$, needing
+$\dyr \approx 43$~K to reach the observed 31~\ms, which is below the
+radiative-convective 50~K and therefore not available. Two things are worth
+trying and neither was in this sweep. A larger $v_d$ reduces the jet without
+touching the thermodynamics: at $v_d = 7.5$~\ms{} the jet is 47.5~\ms{} on the
+positive-stability reference, still 1.5 times observed, so a $v_d$ ladder reaching
+15 or 20 would say whether eddy momentum forcing alone can close the gap and at
+what cost to the overturning. And making the radiative background \emph{colder}
+as well as steeper is the refinement SCIENCE.md~\S3.6 flags as not yet done; it is
+dynamically free as implemented, so it would not help the jet, which is itself
+worth stating so nobody tries it expecting otherwise.
+
+\paragraph{6. Does the eddy energy transport gap have a fix inside this
+formulation?} The model transports 0.38~MW\,m$^{-1}$ of eddy energy at
+$24^\circ$ against an observed 57.7, and the reason is structural: there is no
+eddy dry-static-energy flux in the equations, and the one eddy flux there is acts
+on a $W$ field that local evaporation and precipitation hold nearly flat. Adding
+$\kappa_\theta\,\py^2\theta$ is already in the code and disabled by default. A
+ladder in $\kappa_\theta$ would show whether an eddy heat flux large enough to
+matter for the energy budget leaves the circulation recognisable. That is a small
+change to test and would answer whether the gap is a missing term or a missing
+layer.
+
+\paragraph{7. Which value of $r$ should the model actually run at?} The
+observations put the tropics near $r = 1$: the ERA5 estimate of $\Wstar$, 44 to
+57~kg\,m$^{-2}$, straddles the model's quiescent 50.66, and the observed
+band-mean $\Hhat/\Shat$ of 0.26 to 0.32 is positive but small. This sweep says
+that the model's behaviour on the two sides of $r = 1$ differs in kind, and that
+the boundary sits at $r \approx 0.94$ rather than 1. So the choice of $a$ is not
+a detail. The ERA5-recommended $a \approx 0.79$ with $W_c = 40$ puts the model at
+$r = 0.76$, comfortably on the smooth side, and its jet is the least unrealistic
+of the configurations tested. Whether the real tropical atmosphere sits far
+enough onto the smooth side to justify that is a question about the observations,
+not about the model, and the largest uncertainty in it is the 34\% floor on
+$\Shat$ from the barotropic mass adjustment that the ERA5 report documents.
+
+\appendix
+
+\section{The model equations, as the code implements them}
+\label{sec:equations}
+
+Transcribed from \path|ss09/sw_model.py| and \path|ss09/sw_config.py|, and
+cross-checked against \path|SCIENCE.md| \S2--3. Not written from memory: the
+function that computes each term is named beside it, because an earlier report
+in this repository had four of these equations wrong.
+
+The model is a single layer representing the zonal-mean upper troposphere on an
+equatorial $\beta$-plane, $y \in [-15751, +15751]$~km with rigid walls. The
+prognostic variables are the zonal wind $u$ and potential temperature $\theta$
+on $n_y$ cell centres, the meridional wind $v$ on the $n_y-1$ interior faces
+(Arakawa C-grid), and the column water vapour $W$ on the centres.
+
+\paragraph{Zonal momentum} (\texttt{StaggeredSWModel.du\_dt})
+\begin{equation}
+\frac{\partial u}{\partial t}
+= \underbrace{\beta y\, \bar{v}}_{\texttt{coriolis\_term}}
+- \underbrace{\bar{v}\,\py u\big|_{\rm upwind}}_{\texttt{merid\_advec\_u}}
+- \underbrace{u\,(\py v)\,\mathcal{H}(\py v)}_{\texttt{vert\_advec\_u}}
+- \underbrace{\epsilon_u u}_{\texttt{rayleigh\_drag\_u}}
+- \underbrace{v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)\,\py u}_{\texttt{edd\_mom\_flux\_div\_u}} .
+\label{eq:u}
+\end{equation}
+$\bar v$ is the face $v$ averaged to the centres (\texttt{v\_faces\_to\_centers});
+$\py v$ is the compact two-point face difference
+(\texttt{v\_divergence\_at\_centers}). The eddy momentum flux divergence is
+\emph{advective} in form, transporting $u$ poleward at speed $v_d$ wherever the
+flow is westerly, and its $\py u$ uses a MUSCL reconstruction with
+monotonized-central limited slopes (\texttt{muscl\_mc\_du\_dy}), which is the
+production stencil. Note the gate on the vertical momentum advection is the
+kinematic $\mathcal{H}(\py v)$, SS09's own form, not the thermodynamic
+$\mathcal{H}(\theta_E-\theta)$ used for dry and V1 runs: under latent heating a
+precipitating column runs \emph{warmer} than its relaxation target, so the
+thermodynamic gate would switch off exactly where convection is strongest.
+
+\paragraph{Meridional momentum} (\texttt{StaggeredSWModel.dv\_dt}), on the faces
+\begin{equation}
+2\frac{\partial v}{\partial t}
+= -\beta y\,\bar{u}
+- \frac{gH}{T_0}\,\py T
++ k_v\,\py^2 v ,
+\qquad T = \theta\,(p_t/p_s)^{R/c_p} = \theta/1.6 .
+\label{eq:v}
+\end{equation}
+$\bar u$ is $u$ averaged to the faces, $\py T$ the compact face difference. The
+factor of 2 is the vertical integration with $v_{\rm top} = -v_{\rm bottom}$.
+The Laplacian uses a mirror wall ghost so that $v = 0$ at the walls.
+
+\paragraph{Thermodynamics} (\texttt{dtheta\_dt}, \texttt{latent\_heating})
+\begin{equation}
+\frac{\partial \theta}{\partial t}
+= \frac{\theta_{\rm rad} - \theta}{\tau}
+- \frac{d\,\Delta_z}{H}\,\py v
++ \Lambda P ,
+\qquad
+\Lambda = \frac{L_v}{C},
+\quad
+C = \frac{c_p\,\Pi\,\Delta p}{g} .
+\label{eq:theta}
+\end{equation}
+This equation is \emph{not} gated. $\theta_{\rm rad}$ is the same forcing-profile
+family as $\theta_E$ but at the steeper purely radiative contrast $\dyr$
+(\texttt{radiative\_target\_profile}), because the convective heating that V1's
+single relaxation bundled in is now explicit as $\Lambda P$ and keeping both
+would double-count it.
+
+\paragraph{Column water vapour} (\texttt{moisture\_transport\_tendency},
+\texttt{precipitation})
+\begin{equation}
+\frac{\partial W}{\partial t}
++ \py\Big[-(2a-1)\,v\,W - D\,\py W\Big]
+= E_0 - P ,
+\qquad
+P = \frac{(W - W_c)^{+}}{\tau_c} .
+\label{eq:w}
+\end{equation}
+$-(2a-1)v$ is the column transport velocity: the lower branch moves opposite to
+the upper-layer $v$, and with a fraction $a$ of the column water vapour in the
+lower branch the column-integrated flux reduces to this one coefficient. The
+transport is finite-volume in flux form through the faces, with MUSCL-MC face
+values of $W$ upwinded on the transport velocity's sign and zero flux at the
+walls, so transport moves no total water to roundoff. Advection is stepped at
+the central leapfrog level; $D$ and $P$ at the lagged $n-1$ level.
+
+\paragraph{Time stepping} Leapfrog with an Asselin filter, coefficient 0.04.
+$\theta$ and $W$ share the same $\Delta t$ and filter coefficient, and the
+latent heating reads the \emph{same} lagged $P$ array the moisture sink uses,
+so $C\Lambda = L_v$ holds discretely and precipitation cancels exactly between
+the two budgets.
+
+\paragraph{Column energetics} Combining (\ref{eq:theta}) and (\ref{eq:w}) with
+$\langle h\rangle = C\theta + L_v W$,
+\begin{equation}
+\frac{\partial \langle h\rangle}{\partial t}
++ \py\Big[v\Hhat - L_v D\,\py W\Big]
+= \frac{C}{\tau}\big(\theta_{\rm rad} - \theta\big) + L_v E_0 ,
+\qquad
+\Hhat = \Shat - L_v(2a-1)W ,
+\label{eq:mse}
+\end{equation}
+with the gross dry stability $\Shat = C\,d\,\Delta_z/H$. Precipitation is
+internal and does not appear.
+
+\paragraph{Forcing profiles} The $\sin^2$ profile
+(\texttt{Sin2Profile.\_\_call\_\_}) is
+\begin{equation}
+\theta_E = \theta_{00} - \Delta_y \sin^2\!\left(\frac{\pi (y - y_0)}{2 y_1}\right),
+\qquad |y - y_0| < y_1 ,
+\end{equation}
+a rigid translation of the equinoctial profile. The SB08 profile
+(\texttt{SB08Profile.\_\_call\_\_}) is
+\begin{equation}
+\theta_E = \theta_{00} - \Delta_y\left[
+\sin^2\!\left(\frac{\pi y}{2 y_1}\right)
+- 2 \sin\!\left(\frac{\pi y_0}{2 y_1}\right)\sin\!\left(\frac{\pi y}{2 y_1}\right)
+\right],
+\end{equation}
+clamped to its $\pm y_1$ values outside. Its maximum sits at $y = y_0$, and its
+peak value \emph{rises} above $\theta_{00}$ as $y_0$ moves off the equator, by
+$\Delta_y \sin^2(\pi y_0/2y_1)$: the SB08 family is not a rigid translation, and
+a solstitial SB08 forcing is stronger as well as displaced. Seasonal cycles vary
+$y_0$ in time and are available only for SB08. Under latent heating the profile
+these formulae describe is $\theta_{\rm rad}$ and the contrast is $\dyr$.
+
+\paragraph{Parameter values} Every run in the sweep uses
+$g = 9.81$~m\,s$^{-2}$, $H = 16$~km, $d = 4$~km, $\beta = 2\times10^{-11}$
+m$^{-1}$\,s$^{-1}$, $T_0 = 300$~K, $\theta_{00} = 330$~K, $y_1 = 9439$~km,
+$\Delta_y = 50$~K, $\tau = 37$~d, $k_v = 7.786\times10^{5}$~m$^2$\,s$^{-1}$,
+$\epsilon_u = 10^{-8}$~s$^{-1}$, $\kappa_\theta = 0$, and the production
+formulation (staggered $v$, EMFD gate on, MC stencil, kinematic vertical-advection
+gate, numba backend). The derived constants are
+$C = 5.1619\times10^{6}$~J\,m$^{-2}$\,K$^{-1}$,
+$\Lambda = 0.48431$~K per kg\,m$^{-2}$\,s$^{-1}$ and
+$\Shat = 7.7429\times10^{7}$~J\,m$^{-2}$. Defaults for what the sweep varies:
+$a = 0.85$, $W_c = 50$~kg\,m$^{-2}$, $\tau_c = 14400$~s,
+$E_0 = 4.6\times10^{-5}$~kg\,m$^{-2}$\,s$^{-1}$ ($3.97$~\mmday),
+$D = 10^{6}$~m$^2$\,s$^{-1}$, $v_d = 2.5$~\ms, $\Delta_z = 60$~K,
+$\dyr = 75$~K.
+
+\section{Run inventory}
+\label{sec:inventory}
+
+The sweep is defined by \path|scripts/v2_sweep_manifest.py|, which is the single
+source of truth: it computes each run's parameters, records the timestep each
+configuration needs, and generates the command line. The table below is
+generated from it.
+
+\input{tables/inventory}
+
+\section{Commands}
+\label{sec:repro}
+
+From the repository root, with the \texttt{claude-swm} conda environment:
+
+\begin{verbatim}
+# what the sweep is, and what it costs
+python scripts/v2_sweep_manifest.py
+
+# stability screen: every configuration for 100 days, 16 at a time
+python scripts/v2_sweep_run.py --smoke 100 --nproc 16
+
+# the sweep itself (about 2.5 h at 20 concurrent on berimbau)
+python scripts/v2_sweep_run.py --nproc 20
+
+# re-run only what failed or is missing
+python scripts/v2_sweep_run.py --nproc 20 --skip-done
+
+# diagnostics, every figure, and every number quoted above
+python scripts/v2_sweep_figures.py
+python scripts/v2_sweep_report_tables.py
+
+# this document
+latexmk -pdf -outdir=docs docs/moist_v2_sweep_report.tex
+\end{verbatim}
+
+Output lives in \path|model_output/moist_v2_sweep/|, one directory per run
+holding \path|out.nc| and a final restart file, with \path|logs/| alongside and
+\path|status.jsonl| recording each run's exit state, wall time and stored days.
+The scalar table for every run is \path|all_runs.csv|, the quoted statistics are
+\path|numbers.json|, and the figures are in \path|figs/|.
+
+\end{document}

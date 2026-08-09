@@ -300,12 +300,15 @@ def main():
                      f"spread {100*e['spread_rel']:7.1f}% of the mean")
 
     # -- plausibility scorecard against ERA5 --------------------------------
-    score_names = [("A_a079_wc40", r"$a$=0.79, $W_c$=40 ($r$=0.76)"),
-                   ("A_a085_wc40", r"$a$=0.85, $W_c$=40 ($r$=0.92)"),
-                   ("B_a085_wc44", r"$a$=0.85, $W_c$=44 ($r$=1.01)"),
-                   ("A_a085_wc50", r"$a$=0.85, $W_c$=50 ($r$=1.14)"),
-                   ("A_a075_wc30", r"$a$=0.75, $W_c$=30 ($r$=0.49)"),
-                   ("N_P_v1", "moist V1 twin of the first row")]
+    # Row labels are the three numbers that identify the run, in their own
+    # columns rather than crammed into a text label: a text label wide enough to
+    # carry them pushed both generated tables 265 pt past the margin.
+    score_names = [("A_a075_wc30", "0.75 & 30 & 0.49"),
+                   ("A_a079_wc40", "0.79 & 40 & 0.76"),
+                   ("A_a085_wc40", "0.85 & 40 & 0.92"),
+                   ("B_a085_wc44", "0.85 & 44 & 1.01"),
+                   ("A_a085_wc50", "0.85 & 50 & 1.14"),
+                   ("N_P_v1", r"\multicolumn{3}{l}{V1 twin, $a$=0.79 $W_c$=40}")]
     score_rows = []
     for nm, lab in score_names:
         if nm not in R:
@@ -313,20 +316,20 @@ def main():
         r = R[nm]
         score_rows.append((lab, r))
     with _tex("score.tex") as fh:
-        fh.write("\\begin{tabular}{lcccccc}\n\\toprule\n")
-        fh.write(" & jet & peak $|v|$ & $\\Delta\\theta(16^\\circ)$ & "
-                 "$(24^\\circ)$ & $(33^\\circ)$ & $W$, $|\\varphi|\\le20^\\circ$\\\\\n")
-        fh.write(" & (m\\,s$^{-1}$) & (m\\,s$^{-1}$) & (K) & (K) & (K) & "
-                 "(kg\\,m$^{-2}$)\\\\\n\\midrule\n")
-        fh.write(f"ERA5 & {ERA5['jet']:.1f} & "
+        fh.write("{\\small\n\\begin{tabular}{cccccccc}\n\\toprule\n")
+        fh.write("$a$ & $W_c$ & $r$ & jet & peak $|v|$ & "
+                 "$\\Delta\\theta(16^\\circ)$ & $(24^\\circ)$ & $(33^\\circ)$\\\\\n")
+        fh.write(" & & & (m\\,s$^{-1}$) & (m\\,s$^{-1}$) & (K) & (K) & "
+                 "(K)\\\\\n\\midrule\n")
+        fh.write(f"\\multicolumn{{3}}{{l}}{{ERA5}} & {ERA5['jet']:.1f} & "
                  f"{ERA5['v_slab'][0]:.2f}--{ERA5['v_slab'][1]:.2f} & "
                  f"{ERA5['dtheta16']:.2f} & {ERA5['dtheta24']:.2f} & "
-                 f"{ERA5['dtheta33']:.2f} & {ERA5['w20']:.1f}\\\\\n\\midrule\n")
+                 f"{ERA5['dtheta33']:.2f}\\\\\n\\midrule\n")
         for lab, r in score_rows:
             fh.write(f"{lab} & {r['jet']:.1f} & {r['v_max']:.2f} & "
                      f"{r['dtheta16']:.2f} & {r['dtheta24']:.2f} & "
-                     f"{r['dtheta33']:.2f} & {r['w_trop20']:.1f}\\\\\n")
-        fh.write("\\bottomrule\n\\end{tabular}\n")
+                     f"{r['dtheta33']:.2f}\\\\\n")
+        fh.write("\\bottomrule\n\\end{tabular}\n}\n")
     note("score_rows", [(lab, {k: r[k] for k in
                               ("jet", "v_max", "dtheta16", "dtheta24",
                                "dtheta33", "w_trop20", "r")})
@@ -346,17 +349,16 @@ def main():
 
     # -- flux table at 24 deg ------------------------------------------------
     with _tex("fluxes.tex") as fh:
-        fh.write("\\begin{tabular}{lcccc}\n\\toprule\n")
-        fh.write(" & mean $v\\hat H$ & eddy $-L_vD\\py W$ & total & "
-                 "eddy share\\\\\n & (MW\\,m$^{-1}$) & (MW\\,m$^{-1}$) & "
-                 "(MW\\,m$^{-1}$) & \\\\\n\\midrule\n")
-        fh.write(f"ERA5 & {ERA5['mse24']:.1f} & {ERA5['eddy24']:.1f} & "
-                 f"{ERA5['tot24']:.1f} & "
-                 f"{ERA5['eddy24']/ERA5['tot24']:.2f}\\\\\n\\midrule\n")
+        fh.write("{\\small\n\\begin{tabular}{cccccc}\n\\toprule\n")
+        fh.write("$a$ & $W_c$ & $r$ & mean $v\\hat H$ & eddy $-L_vD\\py W$ & "
+                 "total\\\\\n & & & (MW\\,m$^{-1}$) & (MW\\,m$^{-1}$) & "
+                 "(MW\\,m$^{-1}$)\\\\\n\\midrule\n")
+        fh.write(f"\\multicolumn{{3}}{{l}}{{ERA5}} & {ERA5['mse24']:.1f} & "
+                 f"{ERA5['eddy24']:.1f} & {ERA5['tot24']:.1f}\\\\\n\\midrule\n")
         for lab, r in score_rows:
             fh.write(f"{lab} & {r['f_mean_ref']:.2f} & {r['f_eddy_ref']:.2f} & "
-                     f"{r['f_tot_ref']:.2f} & {r['eddy_share']:.3f}\\\\\n")
-        fh.write("\\bottomrule\n\\end{tabular}\n")
+                     f"{r['f_tot_ref']:.2f}\\\\\n")
+        fh.write("\\bottomrule\n\\end{tabular}\n}\n")
     note("flux_rows", [(lab, {k: r[k] for k in
                              ("f_mean_ref", "f_eddy_ref", "f_tot_ref",
                               "eddy_share")}) for lab, r in score_rows], "")
@@ -478,7 +480,7 @@ def main():
     # -- seasonal -----------------------------------------------------------
     if srows:
         with _tex("seasonal.tex") as fh:
-            fh.write("\\begin{tabular}{lcccccccc}\n\\toprule\n")
+            fh.write("{\\footnotesize\n\\begin{tabular}{lcccccccc}\n\\toprule\n")
             fh.write("run & amp. & period & $\\hat H$ & centroid amp. & gain & "
                      "lag & summer jet & winter jet\\\\\n")
             fh.write(" & (km) & (d) & & (km) & & (d) & (m\\,s$^{-1}$) & "
@@ -491,7 +493,7 @@ def main():
                          f"{r['amp_itcz_km']:.0f} & {r['gain']:.3f} & "
                          f"{r['lag_days']:.1f} & {r['jetN_max']:.1f} & "
                          f"{r['jetS_max']:.1f}\\\\\n")
-            fh.write("\\bottomrule\n\\end{tabular}\n")
+            fh.write("\\bottomrule\n\\end{tabular}\n}\n")
         note("seasonal_rows", srows, "")
         lines.append("seasonal composites:")
         for r in sorted(srows, key=lambda r: (r["a"], r["period"], r["amp_km"])):

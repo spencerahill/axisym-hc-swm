@@ -9,3 +9,13 @@ era5-data
 # those into the cwd, and that root cause is fixed (tests now route output
 # under tmp_path). Ignoring them would silently mask a regression of the
 # same bug rather than surfacing it in git status.
+
+# LaTeX build intermediates (only .tex and .pdf are tracked in docs/)
+docs/*.aux
+docs/*.fdb_latexmk
+docs/*.fls
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/*.bbl
+docs/*.blg
