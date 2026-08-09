@@ -224,7 +224,13 @@ def load_run(path: str, last_n: int = 1000,
         y_0=_attr(att, "theta_e_y_0", float, 0.0),
         y_0_seas_amp=_attr(att, "theta_e_y_0_seasonal_amp", float, 0.0),
         seas_period=_attr(att, "theta_e_seasonal_period_days", float, 360.0),
-        theta_e_type=str(att.get("theta_e_type", "sin2")),
+        # The forcing-profile type lives under the theta_e_ prefix, because
+        # save_results writes SWConfig's fields bare and ThetaEConfig's with
+        # that prefix. Reading the bare name returned None for every run, which
+        # defaulted them all to "sin2" and silently merged the two profile
+        # families into one series on the off-equatorial figure.
+        theta_e_type=str(att.get("theta_e_theta_e_type",
+                                 att.get("theta_e_type", "sin2"))),
     )
 
 

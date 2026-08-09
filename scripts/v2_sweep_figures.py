@@ -223,7 +223,7 @@ def fig_collapse(rows, out):
 # 3. Profiles across the transition
 # ---------------------------------------------------------------------------
 def profile_panels(eq, names, labels, out, title, colors=None,
-                   label_x=None, extra=None):
+                   label_x=None, extra=None, label_panel=3, label_key="w"):
     colors = colors or SEQ
     panels = [
         (r"$u$ (m s$^{-1}$)", lambda r: (r["y"], r["u"])),
@@ -253,17 +253,27 @@ def profile_panels(eq, names, labels, out, title, colors=None,
     # Direct labels on the W panel. Placed in the quiescent collar at the far
     # right, where W is flat at W_c + tau_c E_0 and the curves are as far apart
     # as they ever get, so each label is nearer its own curve than any other.
-    ax = axes[3]
-    frac = label_x if label_x is not None else 0.74
+    ax = axes[label_panel]
+    scale = 86400.0 if label_key == "p" else 1.0
     for j, (nm, lab) in enumerate(zip(names, labels)):
         if nm not in eq:
             continue
         r = eq[nm]
-        i = min(int(frac * len(r["y"])), len(r["y"]) - 1)
-        ax.text(r["y"][i] * MM, r["w"][i], " " + lab,
+        arr = np.asarray(r[label_key]) * scale
+        grid = r["y_face"] if label_key == "v_face" else r["y"]
+        if label_x is None:
+            # Place at the curve's own extremum, where a family of curves is
+            # furthest apart. Placing every label at one fixed abscissa puts
+            # them all at the same point wherever the curves coincide, which is
+            # what happened on the off-equatorial series, whose quiescent W is
+            # identical for every member.
+            i = int(np.argmax(np.abs(arr)))
+        else:
+            i = min(int(label_x * len(arr)), len(arr) - 1)
+        ax.text(grid[i] * MM, arr[i], " " + lab,
                 color=colors[j % len(colors)], fontsize=8, fontweight="bold",
                 va="center", ha="left")
-    ax.margins(x=0.16)
+    ax.margins(x=0.16, y=0.10)
     if extra:
         extra(axes)
     fig.suptitle(title, fontsize=12)
@@ -488,7 +498,7 @@ def fig_offeq_summary(rows, out):
          and r["theta_e_type"] == "SB08" and abs(r["a"] - 0.85) < 1e-9, OI["orange"]),
     ]
     metrics = [
-        ("itcz", "precipitation centroid (Mm)", MM),
+        ("itcz_peak", "rain maximum (Mm)", MM),
         ("efe", "energy flux equator (Mm)", MM),
         ("u_eq", r"equatorial $u$ (m s$^{-1}$)", 1),
         ("jet", "summer-side jet (m s$^{-1}$)", 1),
@@ -503,7 +513,10 @@ def fig_offeq_summary(rows, out):
                 continue
             x = [r["y_0"] * MM for r in sub]
             v = [r[key] * scale for r in sub]
-            ax.plot(x, v, "o-", color=col, lw=1.5, ms=5)
+            ax.plot(x, v, "-", color=col, lw=1.5)
+            for xi, vi, st in zip(x, v, [bool(r["steady"]) for r in sub]):
+                ax.plot([xi], [vi], "o", color=col, ms=5,
+                        mfc=col if st else "white", mew=1.2)
             ax.text(x[-1], v[-1], "  " + lab, color=col, fontsize=8,
                     fontweight="bold", va="center", ha="left")
         ax.set_ylabel(ylab, fontsize=9)
@@ -513,6 +526,8 @@ def fig_offeq_summary(rows, out):
         ax.set_xlabel("forcing maximum $y_0$ (Mm)")
     axes[0].plot([0, 2.8], [0, 2.8], color="gray", ls=":", lw=1)
     axes[0].text(1.9, 2.3, "1:1", color="gray", fontsize=8)
+    axes[0].text(0.03, 0.90, "hollow markers never settle", fontsize=7.5,
+                 color="0.25", transform=axes[0].transAxes)
     fig.suptitle("Time-invariant off-equatorial forcing: where the rain, the "
                  "energy flux equator and the jets go", fontsize=12)
     fig.tight_layout()
@@ -818,12 +833,13 @@ def main():
     tlab = [f"$W_c$={w}" for w in (30, 35, 40, 44, 50, 55, 60)]
     profile_panels(eq, transect, tlab, o("03_transect_profiles.png"),
                    r"Crossing $\hat H=0$ by raising $W_c$ at $a=0.85$: "
-                   r"$r$ from 0.69 to 1.37")
+                   r"$r$ from 0.69 to 1.37", label_x=0.74)
     profile_panels(eq, ["A_a085_wc40", "B_a085_wc42", "B_a085_wc44",
                         "B_a085_wc46", "A_a085_wc50"],
                    [f"$W_c$={w}" for w in (40, 42, 44, 46, 50)],
                    o("03b_transition_zoom.png"),
-                   r"The transition resolved: $r$ from 0.92 to 1.14 at $a=0.85$")
+                   r"The transition resolved: $r$ from 0.92 to 1.14 at $a=0.85$",
+                   label_x=0.74)
     fig_budget(eq, ["A_a079_wc40", "A_a085_wc50"],
                [r"$a$=0.79, $W_c$=40 ($r$=0.76, positive $\hat H$)",
                 r"$a$=0.85, $W_c$=50 ($r$=1.14, negative $\hat H$)"],
@@ -903,7 +919,8 @@ def main():
         profile_panels(eq, names,
                        [f"$y_0$={v} km" for v in (0, 700, 1400, 2100, 2800)],
                        o(f"12_offeq_profiles_{ref}.png"),
-                       f"Time-invariant off-equatorial SB08 forcing, {lab}")
+                       f"Time-invariant off-equatorial SB08 forcing, {lab}",
+                       label_panel=1, label_key="v_face")
 
     seas_names = ["M_P_amp0350_p360", "M_P_amp0700_p360", "M_P_amp1400_p360",
                   "M_P_amp2100_p360", "M_P_amp2800_p360"]
