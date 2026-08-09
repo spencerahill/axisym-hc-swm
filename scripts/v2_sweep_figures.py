@@ -431,8 +431,13 @@ LADDER_METRICS = [
 
 
 def fig_ladder(rows, out, xkey, xlabel, series, title, logx=False,
-               metrics=None):
-    """series: list of (label, selector, colour). Each becomes one curve."""
+               metrics=None, xdiv=1.0):
+    """series: list of (label, selector, colour). Each becomes one curve.
+
+    xdiv rescales the abscissa so matplotlib does not add a shared exponent at
+    the right end of the axis, which collides with the axis label and made one
+    figure read "(m$^2$ s$^{-1}$1e6". Fold the factor into xlabel instead.
+    """
     metrics = metrics or LADDER_METRICS
     nrow = int(np.ceil(len(metrics) / 4))
     fig, axes = _panel_grid(nrow, 4, (16, 3.4 * nrow), sharex=True)
@@ -441,9 +446,14 @@ def fig_ladder(rows, out, xkey, xlabel, series, title, logx=False,
             sub = sorted([r for r in rows if sel(r)], key=lambda r: r[xkey])
             if not sub:
                 continue
-            x = [r[xkey] for r in sub]
+            x = [r[xkey] / xdiv for r in sub]
             v = [r[key] for r in sub]
-            ax.plot(x, v, "o-", color=col, lw=1.5, ms=5)
+            ax.plot(x, v, "-", color=col, lw=1.5)
+            # Hollow markers are runs that never settle, so their value is a
+            # 1000-day mean of a fluctuating state rather than an equilibrium.
+            for xi, vi, st in zip(x, v, [bool(r["steady"]) for r in sub]):
+                ax.plot([xi], [vi], "o", color=col, ms=5,
+                        mfc=col if st else "white", mew=1.2)
             ax.text(x[-1], v[-1], "  " + lab, color=col, fontsize=9,
                     fontweight="bold", va="center", ha="left")
         if logx:
@@ -838,16 +848,17 @@ def main():
                  OI["verm"])],
                "Forcing strength: the radiative-equilibrium contrast")
     fig_ladder(rows, o("06_ladder_D.png"), "d_w",
-               r"eddy moisture diffusivity $D$ (m$^2$ s$^{-1}$)",
+               r"eddy moisture diffusivity $D$ ($10^6$ m$^2$ s$^{-1}$)",
                [("positive $\\hat H$", lambda r: r["block"] in ("A", "F")
                  and abs(r["a"] - 0.79) < 1e-9 and r["w_crit"] == 40.0,
                  OI["blue"]),
                 ("negative $\\hat H$", lambda r: r["block"] in ("A", "F")
                  and abs(r["a"] - 0.85) < 1e-9 and r["w_crit"] == 50.0,
                  OI["verm"])],
-               "The eddy moisture flux, the only brake on aggregation")
+               "The eddy moisture flux, the only brake on aggregation",
+               xdiv=1e6)
     fig_ladder(rows, o("07_ladder_tauc.png"), "tau_c",
-               r"convective timescale $\tau_c$ (s)",
+               r"convective timescale $\tau_c$ (hours)",
                [(r"$a$=0.85, $W_c$=40", lambda r: r["block"] in ("A", "E")
                  and abs(r["a"] - 0.85) < 1e-9 and r["w_crit"] == 40.0,
                  OI["green"]),
@@ -857,7 +868,7 @@ def main():
                 ("negative $\\hat H$", lambda r: r["block"] in ("A", "E")
                  and abs(r["a"] - 0.85) < 1e-9 and r["w_crit"] == 50.0,
                  OI["verm"])],
-               "Convective timescale", logx=True)
+               "Convective timescale", logx=True, xdiv=3600.0)
     fig_ladder(rows, o("08_ladder_vd.png"), "v_d",
                r"eddy momentum flux velocity $v_d$ (m s$^{-1}$)",
                [("positive $\\hat H$", lambda r: r["block"] in ("A", "H")
@@ -877,14 +888,14 @@ def main():
                  OI["verm"])],
                "Feedback strength, from the severed bridge to the physical value")
     fig_ladder(rows, o("10_ladder_evap.png"), "evap",
-               r"evaporation $E_0$ (kg m$^{-2}$ s$^{-1}$)",
+               r"evaporation $E_0$ (mm day$^{-1}$)",
                [("positive $\\hat H$", lambda r: r["block"] in ("A", "G")
                  and abs(r["a"] - 0.79) < 1e-9 and r["w_crit"] == 40.0,
                  OI["blue"]),
                 ("negative $\\hat H$", lambda r: r["block"] in ("A", "G")
                  and abs(r["a"] - 0.85) < 1e-9 and r["w_crit"] == 50.0,
                  OI["verm"])],
-               "The water source")
+               "The water source", xdiv=1.0 / 86400.0)
 
     fig_offeq_summary(rows, o("11_offequatorial.png"))
     for ref, lab in (("P", "positive $\\hat H$"), ("N", "negative $\\hat H$")):
