@@ -52,7 +52,7 @@ from ss09.moist_constants import (  # noqa: E402
 )
 from ss09.read_output import load_centered  # noqa: E402
 from ss09.sw_model import (  # noqa: E402
-    cwv_integral, mc_face_values, v_divergence_at_centers,
+    cwv_integral, mc_face_values, v_divergence_at_centers, v_faces_to_centers,
 )
 
 SEC_DAY = 86400.0
@@ -413,20 +413,31 @@ def cell_edges(r):
     return asc, dn, dsx
 
 
+RO_BAND = (1.0e6, 4.0e6)  # |y|, about 8 to 33 degrees equivalent latitude
+
+
 def rossby(r):
-    """Local Rossby number du/dy / (beta y), NaN within one grid point of the
-    equator, and its area mean over the northern cell."""
+    """Local Rossby number du/dy / (beta y), and its mean over a fixed band.
+
+    The band is |y| between 1 and 4 Mm, roughly 8 to 33 degrees equivalent
+    latitude, in the hemisphere holding the strongest |v|: the core of the
+    dominant cell. Fixed rather than tied to the cell edges, for two reasons.
+    beta*y vanishes at the equator, so a band that reaches in toward it returns
+    a ratio of two small numbers; an earlier version averaging from the rain
+    centroid outward reported Ro = 9.7 for a solstitial run purely from that
+    division. And on a solstitial solution the cell-finding picked the weak
+    summer cell rather than the dominant cross-equatorial one, so it was
+    answering about the wrong circulation.
+    """
     y, u, dy = r["y"], r["u"], r["dy"]
     du = np.gradient(u, dy)
     ro = np.divide(du, BETA * y, out=np.full_like(du, np.nan),
                    where=np.abs(y) >= dy)
-    asc, dn, _ = cell_edges(r)
-    if np.isfinite(asc) and np.isfinite(dn) and dn > asc:
-        m = (y > max(asc, dy)) & (y < dn)
-        cell = float(np.nanmean(ro[m])) if m.any() else np.nan
-    else:
-        cell = np.nan
-    return ro, cell
+    v = r["v"]
+    hemi = 1.0 if y[int(np.argmax(np.abs(v)))] > 0 else -1.0
+    m = (hemi * y >= RO_BAND[0]) & (hemi * y <= RO_BAND[1])
+    band = float(np.nanmean(ro[m])) if m.any() else np.nan
+    return ro, band
 
 
 def scalars(r, name="", block="", note="") -> Dict[str, Any]:
@@ -626,12 +637,8 @@ def load_seasonal(path: str, n_cycles: int = 2) -> Optional[Dict[str, Any]]:
     with np.errstate(invalid="ignore", divide="ignore"):
         ro_all = np.where(np.abs(y) >= dy, du / (BETA * y), np.nan)
     for k in range(u2.shape[0]):
-        zs = zero_crossings(v2[k], y_face)
-        c = itcz_t[k] if np.isfinite(itcz_t[k]) else 0.0
-        north = [z for z in zs if z > c + dy]
-        if not north:
-            continue
-        m = (y > max(c, dy)) & (y < min(north))
+        hemi = 1.0 if y[int(np.argmax(np.abs(v_faces_to_centers(v2[k]))))] > 0 else -1.0
+        m = (hemi * y >= RO_BAND[0]) & (hemi * y <= RO_BAND[1])
         if m.any():
             ro_t[k] = float(np.nanmean(ro_all[k][m]))
     repeat = float(np.max(np.abs(p2 - p1)) * SEC_DAY)
