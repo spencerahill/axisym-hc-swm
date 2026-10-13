@@ -7,7 +7,7 @@ time-mean fields to npz for figure scripts. Generalizes the per-arm analysis
 from the 2026-07-10 gate experiment so parameter sweeps get it for free.
 
 Usage:
-    python scripts/climatology_report.py OUTPUT_NC [--days N] [--save-npz PATH]
+    python validation/climatology_report.py OUTPUT_NC [--days N] [--save-npz PATH]
 """
 import argparse
 import pathlib

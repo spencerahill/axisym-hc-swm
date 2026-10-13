@@ -144,10 +144,12 @@ pytest ss09/tests/ -v
 pip install -e .
 ```
 
+The scripts in `validation/` are the numerics studies, the reproduction of Zhang et al. (2025)'s published code, and the timing probes behind the model's formulation choices. Until 2026-10-13 they were in `scripts/` and, for `analyze_v_smoothness.py`, at the repository root.
+
 Run repo scripts and the model through the `claude-swm` conda env, which is **not** the default interpreter on berimbau (plain `python` there is miniconda `base`, Python 3.7.6, with no numba and no `ss09`):
 
 ```bash
-conda run -n claude-swm --no-capture-output python scripts/<name>.py
+conda run -n claude-swm --no-capture-output python validation/<name>.py
 conda run -n claude-swm --no-capture-output run-sw-model --dt 1800
 conda run -n claude-swm --no-capture-output pytest ss09/tests/
 ```
@@ -599,7 +601,7 @@ When steady-state detection is enabled, the model automatically monitors the smo
 run-sw-model --stop-at-steady-state --v-smooth-thresh 0.7
 ```
 
-**Physical Interpretation**: Grid-scale oscillations typically occur when friction (especially `--kv`) is too weak to damp the 2Δy computational mode inherent to leapfrog schemes. Increasing `--kv` suppresses these oscillations. See the `analyze_v_smoothness.py` script for detailed smoothness analysis.
+**Physical Interpretation**: Grid-scale oscillations typically occur when friction (especially `--kv`) is too weak to damp the 2Δy computational mode inherent to leapfrog schemes. Increasing `--kv` suppresses these oscillations. See the `validation/analyze_v_smoothness.py` script for detailed smoothness analysis.
 
 ## Hadley Cell Diagnostics
 

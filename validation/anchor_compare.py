@@ -14,7 +14,7 @@ where u touches zero exactly (e.g. u(0) = 0 by symmetry) is not counted,
 unlike climatology_report.py, so that crossing clusters are meaningful.
 
 Usage:
-    python scripts/anchor_compare.py TEST REF_NPZ REF_SUMMARY [--days N]
+    python validation/anchor_compare.py TEST REF_NPZ REF_SUMMARY [--days N]
                                      [--json PATH]
 
 TEST is a model output NetCDF (time-averaged over the last --days records)

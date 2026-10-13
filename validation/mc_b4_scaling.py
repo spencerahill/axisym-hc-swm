@@ -8,7 +8,7 @@ upwind arms measured ~2, first order); the pre-registered B4 target is
 dp(401, mc) <= ~0.1 on [1.5, 7] deg.
 
 Usage:
-    python scripts/mc_b4_scaling.py [--json PATH]
+    python validation/mc_b4_scaling.py [--json PATH]
 """
 import argparse
 import json

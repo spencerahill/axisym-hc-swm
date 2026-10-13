@@ -13,7 +13,7 @@ exceed. Checks: no equatorial superrotation (u_eq ~ 0), no super-AMC (u <= parab
 in the cell), jet / exponent / T_eq match the patch, mirror parity EXACTLY 0, and
 agreement with the patch to ~1e-3.
 
-Usage: python scripts/staggered_prod_v2_amc.py [--run DIR]
+Usage: python validation/staggered_prod_v2_amc.py [--run DIR]
 """
 import argparse
 import json

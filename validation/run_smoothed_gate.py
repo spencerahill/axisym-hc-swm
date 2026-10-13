@@ -18,7 +18,7 @@ westerlies (u < 5 m/s inside |y| < 2 Mm), corrupting the u ~ y^3 regime
 -- report G(u(y)) and the exponent/amp shift vs the gateless anchors.
 
 Usage:
-    python scripts/run_smoothed_gate.py [--ndays 5475] [--u-w 5.0]
+    python validation/run_smoothed_gate.py [--ndays 5475] [--u-w 5.0]
         [--outdir model_output/formulation_suite/tier2_r6_smoothed_gate]
 """
 import argparse

@@ -7,7 +7,7 @@ fixed y, vs grid spacing, with a slope-1 (first-order) reference line.
 gateless ny=801 reference, showing the fixed-physical-width, convergent
 structure.
 
-Usage: python scripts/ladder_figs.py [OUTPATH]
+Usage: python validation/ladder_figs.py [OUTPATH]
 """
 import pathlib
 import sys

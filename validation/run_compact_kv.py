@@ -14,7 +14,7 @@ magnitude, the coupled interior u sawtooth (0.010) falls with it, and the
 resolved anchors (jets, v extrema, T_eq) move negligibly.
 
 Usage:
-    python scripts/run_compact_kv.py [--extend-days 200]
+    python validation/run_compact_kv.py [--extend-days 200]
         [--restart model_output/formulation_suite/tier1_y0p0000_gateon_upwind/restart_day5475.nc]
         [--outdir model_output/formulation_suite/tier1_compact_kv]
 """

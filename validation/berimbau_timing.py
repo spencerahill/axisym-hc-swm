@@ -6,11 +6,11 @@ concurrency, so the worker cap can be set from a contended timing rather than
 a solo one (per the timing-under-contention rule).
 
 Usage:
-    python scripts/berimbau_timing.py --ny 801 --dt 30 --backend numba \
+    python validation/berimbau_timing.py --ny 801 --dt 30 --backend numba \
         --ndays 10 --workers 1
 
     # concurrency sweep
-    python scripts/berimbau_timing.py --workers 1 2 4 8 12 16
+    python validation/berimbau_timing.py --workers 1 2 4 8 12 16
 """
 
 import argparse

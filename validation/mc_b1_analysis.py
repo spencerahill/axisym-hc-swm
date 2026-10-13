@@ -17,7 +17,7 @@ pre-registered criteria of ~/.claude/plans/mc-limited-emfd-stencil.md:
   ripple    REPORT banded sawtooth(v) vs upwind (no target, expect <=)
 
 Usage:
-    python scripts/mc_b1_analysis.py [--test PATH] [--json PATH]
+    python validation/mc_b1_analysis.py [--test PATH] [--json PATH]
 """
 import argparse
 import json

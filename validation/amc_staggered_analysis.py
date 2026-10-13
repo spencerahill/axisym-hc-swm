@@ -16,7 +16,7 @@ Pre-registered targets (task #20, set before the run):
   max(u - u_amc) inside the cell).
 
 Usage:
-    python scripts/amc_staggered_analysis.py [--run DIR]
+    python validation/amc_staggered_analysis.py [--run DIR]
 """
 import argparse
 import pathlib

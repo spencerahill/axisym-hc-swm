@@ -18,7 +18,7 @@ equilibrate by day ~200 (ripple_equilibration.py), but the near-equator
 exponent is a multi-year observable and is NOT assessed here.
 
 Usage:
-    python scripts/v5_ny1601_probe.py [--test DIR] [--ref DIR] [--days N]
+    python validation/v5_ny1601_probe.py [--test DIR] [--ref DIR] [--days N]
 """
 import argparse
 import json

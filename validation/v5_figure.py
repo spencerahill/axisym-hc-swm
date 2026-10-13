@@ -8,7 +8,7 @@ Three panels:
       stays on the floor at doubled resolution.
 
 Usage:
-    python scripts/v5_figure.py [--test DIR] [--ref DIR] [--days N] [--out PNG]
+    python validation/v5_figure.py [--test DIR] [--ref DIR] [--days N] [--out PNG]
 """
 import argparse
 import pathlib
