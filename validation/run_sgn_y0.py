@@ -13,7 +13,7 @@ gate zeroes the EMFD either way -- so max|du| <~ 0.1 m/s outside the
 terminus band after re-equilibration.
 
 Usage:
-    python scripts/run_sgn_y0.py [--extend-days 730] [--y-split 1.0e6]
+    python validation/run_sgn_y0.py [--extend-days 730] [--y-split 1.0e6]
         [--restart model_output/gate_y0_experiment/armA_gateon_upwind/restart_day5475.nc]
         [--outdir model_output/formulation_suite/tier3_r11_sgn_fork]
 """

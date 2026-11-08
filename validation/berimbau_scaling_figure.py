@@ -1,7 +1,7 @@
 """Plot berimbau's parallel scaling for the SS09 model.
 
 Data measured 2026-07-28 on berimbau (2x Xeon E5-2620 v4, 16 physical cores /
-32 threads) with scripts/berimbau_timing.py, config ny=801 dt=30 ndays=200
+32 threads) with validation/berimbau_timing.py, config ny=801 dt=30 ndays=200
 backend=numba, machine otherwise idle (load average <1 at launch).
 
 Panel (a): aggregate throughput vs concurrency, against ideal linear scaling.

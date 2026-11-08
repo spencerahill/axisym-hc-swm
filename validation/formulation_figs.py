@@ -8,7 +8,7 @@ is drawn as a solid gray line, test as a dashed blue line (redundant
 color/dash/width encoding so exact overlap stays visible).
 
 Usage:
-    python scripts/formulation_figs.py OUTPUT_NC REF_NPZ OUTDIR
+    python validation/formulation_figs.py OUTPUT_NC REF_NPZ OUTDIR
         [--days N] [--test-label L] [--ref-label L]
 """
 import argparse

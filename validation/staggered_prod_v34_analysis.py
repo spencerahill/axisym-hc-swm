@@ -23,7 +23,7 @@ Reference anchors:
       (from the A2 armA warm-start smoke, collocated gate-on+mc).
 
 Usage:
-    python scripts/staggered_prod_v34_analysis.py --run DIR [--symmetric]
+    python validation/staggered_prod_v34_analysis.py --run DIR [--symmetric]
 """
 import argparse
 import json

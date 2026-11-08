@@ -8,7 +8,7 @@ cold-start run whose target is the ripple amplitude (e.g. a short
 ny=1601 probe).
 
 Usage:
-    python scripts/ripple_equilibration.py [OUTPUT_NC]
+    python validation/ripple_equilibration.py [OUTPUT_NC]
 """
 import pathlib
 import sys

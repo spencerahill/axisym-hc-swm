@@ -22,7 +22,7 @@ wall), a symmetric over-constraint confined to the dynamically dead wall
 cells.
 
 Usage:
-    python scripts/run_staggered_v.py [--extend-days 200]
+    python validation/run_staggered_v.py [--extend-days 200]
         [--restart .../b1_y0p0000_gateon_mc/restart_day5475.nc]
         [--outdir model_output/formulation_suite/mc_stencil/staggered_v]
 """

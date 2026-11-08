@@ -18,7 +18,7 @@ import xarray as xr
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-sys.path.insert(0, str(REPO / "scripts"))
+sys.path.insert(0, str(REPO / "validation"))
 
 from ss09.sw_config import SWConfig
 from ss09.sw_model import SWModel
@@ -53,7 +53,7 @@ def main():
     dir_c = OUTBASE / "repo30_gate_off"
 
     subprocess.run(
-        [PYEXE, "-u", str(REPO / "scripts" / "run_original_ss_model.py"),
+        [PYEXE, "-u", str(REPO / "validation" / "run_original_ss_model.py"),
          "--src", str(ORIG_SRC), "--outdir", str(dir_a),
          "--vd", "2.5", "--days", str(DAYS)],
         check=True, capture_output=True,

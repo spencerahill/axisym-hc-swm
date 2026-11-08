@@ -1,6 +1,6 @@
 """V1: does the production staggered model reproduce the staggered-v patch?
 
-The patch (scripts/run_staggered_v.py, an in-process StaggeredVModel with a
+The patch (validation/run_staggered_v.py, an in-process StaggeredVModel with a
 padding slot and the naive Laplacian association) removed the standing interior
 v ripple 24-91x. The production StaggeredSWModel replaces that with no padding,
 the symmetric-association Laplacian, and the mirror wall ghost. V1 continues the
