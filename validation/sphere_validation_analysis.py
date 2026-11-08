@@ -298,10 +298,16 @@ def fig_item_ii(sph, twin, sph_terms, twin_terms, path):
     for ax, run, terms, title in ((axes[0], sph, sph_terms, "(a) sphere"),
                                   (axes[1], twin, twin_terms, "(b) beta-plane twin")):
         x = sx(run.lat)
+        mid = np.abs(run.lat) <= 60
         for (name, term), col in zip(terms.items(), colors):
             ax.plot(x, term, color=col, lw=1.2, label=name)
+        lim = 1.15 * max(float(np.max(np.abs(np.asarray(t) * np.ones_like(x))[mid]))
+                         for t in terms.values())
+        ax.set_ylim(-lim, lim)
         ax.text(0.02, 0.95, title + ": u budget terms, 30-day means",
                 transform=ax.transAxes)
+        ax.text(0.02, 0.88, "range set within 60 degrees; spikes at the polar "
+                "notch run off the axis", transform=ax.transAxes, fontsize=8)
         lat_axis(ax, 90)
     axes[0].set_ylabel("m s$^{-2}$")
     axes[1].legend(loc="lower right", fontsize=8)
@@ -423,6 +429,14 @@ def main() -> int:
     if sph and twin and sph_f and twin_f:
         r_s, r_t = resolution(sph, sph_f), resolution(twin, twin_f)
         ledger["iii"] = dict(sphere=r_s, twin=r_t)
+        for run in (sph, sph_f, twin, twin_f):
+            nh = np.where(run.lat > 0)[0]
+            jmax = nh[np.argmax(run.u[nh])]
+            pole = nh[nh > jmax]
+            jmin = pole[np.argmin(run.u[pole])]
+            print(f"(iii) {'sphere' if run.sphere else 'twin'} ny={run.y.size}: northern "
+                  f"max u {run.u[jmax]:.2f} m/s at {run.lat[jmax]:.2f} deg, min u poleward "
+                  f"of it {run.u[jmin]:.2f} m/s at {run.lat[jmin]:.2f} deg")
         for name in ("u", "v", "theta"):
             a, b = r_s[name]["within_40"], r_t[name]["within_40"]
             print(f"(iii) {name}: max|fine - coarse| within 40 deg / max|field| = "
@@ -432,15 +446,42 @@ def main() -> int:
         fig_item_iii({"sphere": (sph, sph_f), "twin": (twin, twin_f)},
                      os.path.join(args.fig_dir, "sphere_item_iii_resolution.pdf"))
 
+    # Diagnostic beyond the plan: item (iii)'s comparison with the eddy term
+    # off (v_d = 0), which removes the polar westerly jet and its notch.
+    d = [load(f"diag_vd0_{x}") for x in
+         ("sphere_ny325", "sphere_ny649", "twin_ny509", "twin_ny1017")]
+    if all(d):
+        r_s, r_t = resolution(d[0], d[1]), resolution(d[2], d[3])
+        ledger["diagnostic_vd0_resolution"] = dict(sphere=r_s, twin=r_t)
+        for name in ("u", "v", "theta"):
+            a, b = r_s[name]["within_40"], r_t[name]["within_40"]
+            print(f"(diagnostic, v_d = 0) {name}: max|fine - coarse| within 40 deg / "
+                  f"max|field| = {a:.2e} on the sphere, {b:.2e} on the twin "
+                  f"(ratio {a / b:.2f}); poleward of 40 deg "
+                  f"{r_s[name]['poleward_of_40']:.2e} and {r_t[name]['poleward_of_40']:.2e}")
+        fig_item_iii({"sphere": (d[0], d[1]), "twin": (d[2], d[3])},
+                     os.path.join(args.fig_dir, "sphere_diagnostic_vd0_resolution.pdf"))
+
     runs_iv = {}
     for r in ("12.5", "25", "50"):
         for label in ("sphere", "twin"):
             run = load(f"iv_{label}_dy{r}")
             if run:
                 runs_iv[f"{label}_dy{r}"] = run
-                print(f"(iv) {label} Delta_y = {r} K: {run.ndays} days, finite {run.finite}, "
-                      f"max u {np.max(run.u):.2f} m/s at {run.lat[np.argmax(run.u)]:.2f} deg, "
-                      f"max|v| {np.max(np.abs(run.v)):.3f} m/s")
+                nh = np.where(run.lat > 0)[0]
+                jmax = nh[np.argmax(run.u[nh])]
+                pole = nh[nh > jmax]
+                jmin = pole[np.argmin(run.u[pole])] if pole.size else jmax
+                dth = run.theta - run.theta_e
+                jth = nh[np.argmin(dth[nh])]
+                print(f"(iv) {label} Delta_y = {r} K: {run.ndays} days, finite {run.finite}; "
+                      f"northern max u {run.u[jmax]:.2f} m/s at {run.lat[jmax]:.2f} deg "
+                      f"({run.y.size - 1 - jmax} cells from the pole or wall); min u "
+                      f"poleward of it {run.u[jmin]:.2f} m/s at {run.lat[jmin]:.2f} deg "
+                      f"({run.y.size - 1 - jmin} cells); u at 30 deg "
+                      f"{np.interp(30, run.lat, run.u):.2f} m/s; max|v| "
+                      f"{np.max(np.abs(run.v)):.3f} m/s; min(theta - theta_E) "
+                      f"{dth[jth]:.2f} K at {run.lat[jth]:.2f} deg")
     if runs_iv:
         fig_item_iv(runs_iv, os.path.join(args.fig_dir, "sphere_item_iv_profiles.pdf"))
 

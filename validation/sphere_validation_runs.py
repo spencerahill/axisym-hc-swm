@@ -61,6 +61,16 @@ def run_list(dt, dt_fine):
         runs.append((f"iv_twin_dy{delta_y}", twin(509) + ["--delta-y", delta_y], DAYS, dt))
     runs.append(("iii_sphere_ny649_dy50", sphere(649) + ["--delta-y", "50"], DAYS, dt_fine))
     runs.append(("iii_twin_ny1017_dy50", twin(1017) + ["--delta-y", "50"], DAYS, dt_fine))
+    # Diagnostic beyond the plan (added 2026-11-08 after item (iii) failed):
+    # the resolution quartet with the eddy term off (v_d = 0), which removes
+    # the polar westerly jet and its easterly notch, to separate the
+    # spherical discretization's own resolution dependence in the tropics
+    # from the remote effect of the polar feature's unconverged position.
+    vd0 = ["--delta-y", "50", "--vd", "0"]
+    runs.append(("diag_vd0_sphere_ny325", sphere(325) + vd0, DAYS, dt))
+    runs.append(("diag_vd0_twin_ny509", twin(509) + vd0, DAYS, dt))
+    runs.append(("diag_vd0_sphere_ny649", sphere(649) + vd0, DAYS, dt_fine))
+    runs.append(("diag_vd0_twin_ny1017", twin(1017) + vd0, DAYS, dt_fine))
     return runs
 
 

@@ -157,6 +157,35 @@ with $\langle h\rangle = C\theta + L_vW$ and gross moist stability $\hat{H} = \h
 
 The vertical-advection gate switches to SS09's kinematic form for this version, for the reason given at the end of §3.3.
 
+### 3.7 Spherical Geometry
+
+`--geometry sphere` (`SWConfig(geometry="sphere")`) replaces the equatorial beta plane with the sphere, from pole to pole. The plan behind it, with the derivation of each term, is `docs/spherical-swm-plan/spherical-swm-plan.pdf`. Every beta-plane run is bit-for-bit what it was before the option existed: the geometry enters the operators only through arrays (`ss09/geometry.py`) that are exactly 1.0 on the beta plane, where $f$ is $\beta y$.
+
+**Coordinate and grid.** The meridional coordinate is $y = a\sin\varphi$, for planetary radius $a$ and latitude $\varphi$, on a grid uniform in $y$ from $y = -a$ to $y = +a$, so cells of equal width in $y$ have equal area. The meridional distance between neighboring centers is $\Delta y/\cos\varphi$. Writing $c = \cos\varphi = (1 - y^2/a^2)^{1/2}$, the relative vorticity is $\zeta = -\partial_y(cu)$, the divergence is $\partial_y(cv)$, a derivative along the meridian is $c\,\partial_y$, and $u\tan\varphi/a = yu/(a^2c)$. The Coriolis parameter is exactly $f = 2\Omega\sin\varphi = (2\Omega/a)\,y$. The defaults are Earth's mean radius, 6371 km, and the WGS84 rotation rate, $7.292115\times10^{-5}$ s$^{-1}$, one turn per sidereal day. `ny` must be odd, so that a center sits on the equator, and `--ny 325` gives the production grid spacing, 39.3 km at the equator.
+
+**Equations**, as implemented in `StaggeredSWModel`:
+
+$$\partial_t u - v\big[f - \partial_y(cu)\big] = -\mathcal{G}\,u\,\partial_y(cv) - \epsilon_u u - \mathcal{S}$$
+
+$$2\,\partial_t v + \Big(f + \frac{u\tan\varphi}{a}\Big)u = -\frac{gH}{T_0}\,c\,\partial_y T + k_v\,c\,\partial_y\big[\partial_y(cv)\big]$$
+
+$$\partial_t\theta + \frac{\delta\Delta_z}{H}\,\partial_y(cv) = \frac{\theta_E - \theta}{\tau} + \kappa_\theta\,\partial_y\big(c^2\,\partial_y\theta\big)$$
+
+with $\mathcal{G}$ either gate of §3.3, unchanged. Setting $c = 1$, dropping the metric term $u^2\tan\varphi/a$ and writing $f = \beta y$ recovers §2. Most of these forms are fixed by physics, given SS09's two-layer assumptions: the Coriolis and advection terms are the meridional flux of absolute vorticity, the vertical advection assumes that air rising into the upper layer has the lower layer's angular momentum, which is zero relative angular momentum, the metric and pressure-gradient terms follow from Xian and Miller's (2008) two-layer derivation, and the adiabatic and eddy-heat terms are the spherical divergence and the diffusion of a scalar. Two forms are choices, both Spencer's of 2026-11-07:
+
+- **The eddy momentum flux divergence** is $\mathcal{S} = v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)\,c^{-1}\partial_y(c^2u)$, the spherical divergence of the eddy angular-momentum flux $\overline{u'v'} = v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)\,u$ whose beta-plane divergence is SS09's term. Of the three spherical readings of SS09's empirical closure it is the only one that conserves angular momentum: $c\,\mathcal{S}$ is an exact derivative in $y$, so the eddy torque over the westerlies reduces to boundary values. For a uniform-Rossby-number wind it is $1 - \tan^2\varphi/2$ times the reading that keeps the closure $\mathrm{Ro} = v/(v + v_d)$ exact, 17% smaller at 30 degrees.
+- **The smoothing of $v$** is the meridional component of the vector Laplacian, $k_v[\nabla^2 v - v/(a^2\cos^2\varphi)]$, which for an axisymmetric field is the gradient of the divergence. The smoothing's discrete form is the face gradient of the discrete divergence, and summed over the faces $v$ times it is minus the equal-area sum of the squared divergence, so it never raises $\sum v^2$.
+
+**Forcing.** The spherical profile (`--theta-e-type sphere`, §4.4) is the only one allowed on the sphere, and `--lat-0` sets its heating maximum in degrees; `--y0`, `--y1`, `--beta` and `--domain-size` are refused there.
+
+**Discretization.** The scheme is the beta plane's: the staggered grid, leapfrog stepping with the Asselin filter, first-order upwind advection (now of $cu$), the MC stencil of the eddy term (now applied to $c^2u$), and both Heaviside gates. The outermost centers are the poles, where $u = 0$: that is the regularity condition, since $\zeta$ contains $u\tan\varphi/a$, and it is the wall condition the model already imposes. $v$ stays on the interior faces, and since $c = 0$ at the poles no flux crosses them. The reciprocal $1/c$ is set to zero at the two pole centers, whose $u$ tendency the condition $u = 0$ discards. The grid is built as $a\,(k/m)$ for the integers $k = -m,\dots,m$, which is exactly antisymmetric, where `np.linspace(-a, a, ny)` is not at these sizes; with it, a hemispherically symmetric forcing keeps $u$ and $\theta$ exactly symmetric and $v$ exactly antisymmetric, bit for bit, as on the beta plane.
+
+**Accuracy, measured 2026-11-08** on regular axisymmetric test fields (`ss09/tests/test_sphere_model.py`). Within 60 degrees of the equator every operator converges at its design order: second order, and first for the upwind advection. Near the poles, the operators acting on fields that are odd in colatitude (the face-to-center average of $v$, the eddy term's derivative of $c^2u$) and the half-cell divergence at the poles lose accuracy. Over the whole domain the divergence converges at first order, the smoothing and the face-to-center average of $v$ at half order, and the eddy term's error in the outermost interior cells stays near 0.9% of its maximum without shrinking as the grid is refined. The angular-momentum-conserving wind is steady up to the upwind truncation, and the steady $v$ equation is the full-angle gradient-wind balance to second order.
+
+**The polar westerly jet (measured 2026-11-08, unresolved).** With the eddy term on, the spherical steady state has westerlies increasing poleward to a jet near 75 degrees (53 m/s at $\Delta_y = 50$ K), which ends one grid cell poleward in an easterly notch (-42 m/s) with $\theta$ 20 K below $\theta_E$. The beta-plane twin with the same forcing in latitude has its westerly maximum at 52 degrees (24 m/s). The eddy term transports westerly momentum poleward wherever $u > 0$, and the angular-momentum-conserving form makes that flux converge toward the pole, where little angular momentum makes a large $u$: the literal and vorticity forms put the westerly maximum at 55 and 59 degrees instead. The jet's position is not converged with resolution, and through it the tropical fields are 3 to 6 times as resolution-dependent as the twin's; with $v_d = 0$ they converge exactly as the twin's do. Whether to keep this form, change it, or confine the closure is Spencer's open decision; see the Spherical Geometry section of `CLAUDE.md` for the numbers.
+
+**Not yet supported on the sphere:** moisture (moist V1 and V2), seasonal forcing and the collocated grid, each refused with an error. The spherical moisture flux, $\partial_y\{c[-(2a-1)vW - D\,c\,\partial_y W]\}$, is implemented and tested for exact water conservation and second-order convergence, but no moist run on the sphere has been validated. The numba backend supports the sphere, bitwise identical to the numpy reference.
+
 ## 4. Equilibrium Temperature Profiles ($\theta_E$)
 
 ### 4.1 SS09 Profile (Parabolic)
@@ -180,6 +209,12 @@ Adds an off-equator term via $y_0$, the latitude of maximum RCE temperature: wit
 - **Solstitial/monsoon conditions** ($y_0 \neq 0$): asymmetric single dominant cell
 
 Seasonal cycles are imposed by varying $y_0$ sinusoidally in time.
+
+### 4.4 Spherical Profile (geometry="sphere")
+
+$$\theta_E = \theta_{00} - \Delta_y\left(\sin^2\varphi - 2\sin\varphi_0\sin\varphi\right) = \theta_{00} - \Delta_y\,\frac{y^2 - 2y_0y}{a^2}, \qquad y_0 = a\sin\varphi_0$$
+
+The profile of Schneider and Bordoni's (2008) idealized GCM, with the heating maximum at latitude $\varphi_0$ (`--lat-0`) and $\Delta_y$ the equator-to-pole drop for $\varphi_0 = 0$. The three beta-plane profiles are renderings of it: the sin² and SB08 profiles replace $\sin\varphi$ with $\sin(\pi y/2y_1)$, so that $y_1$ stands in for the pole, and SS09's parabola is its small-angle form. In the spherical model's coordinate it is SS09's parabola with $y_1 = a$, exact on the sphere and with no plateau, since $y$ ends at $\pm a$; $y_1$ and the beta-plane offset $y_0$ have no other spherical counterpart and are refused.
 
 ## 5. Dynamical Regimes
 

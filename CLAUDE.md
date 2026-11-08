@@ -427,6 +427,30 @@ run-sw-model --grid collocated
 
 **Run-output storage.** On berimbau, `model_output/` is a symlink to `/data3/shill/axisym-swm-output/model_output` (2.1 GB of ported runs as of 2026-07-28), keeping large NetCDF output off the home filesystem and out of the repo. Check free space before a large campaign: `/data3` was 96% full with 1.1 TB free on 2026-07-28. Historical, for the retired macOS laptop: the directory was marked `com.dropbox.ignored` (via `xattr -w com.dropbox.ignored 1 model_output`) so run outputs did not churn Dropbox sync, which had varied the per-day cost by 0.55-0.9 s/day. Neither the attribute nor that cost variation applies on berimbau.
 
+### Spherical Geometry (beta plane vs sphere)
+
+`--geometry sphere` (`SWConfig(geometry="sphere")`, added 2026-11-08 from `docs/spherical-swm-plan/spherical-swm-plan.pdf`) runs the model from pole to pole in the coordinate `y = a sin(lat)`, on a grid uniform in `y`. The equations, the two formulation choices (Spencer's, 2026-11-07: the eddy term as the divergence of an eddy angular-momentum flux, and the smoothing of `v` as the vector Laplacian) and the pole treatment are in SCIENCE.md §3.7 and §4.4.
+
+```bash
+# The production grid spacing, 39.3 km at the equator
+run-sw-model --geometry sphere --ny 325 --dt 30 --backend numba --ndays 5800
+
+# An off-equatorial heating maximum, in degrees, and another planet
+run-sw-model --geometry sphere --ny 325 --dt 30 --lat-0 6 --radius 3.4e6 --rot-rate 7.1e-5
+```
+
+**The beta plane is bit-for-bit unchanged.** The geometry enters every operator through arrays computed once by the configuration (`config.geom`, from `ss09/geometry.py`), which are exactly 1.0 on the beta plane, where `f` is `beta*y`; the metric term is skipped there. `validation/sphere_flat_reduction.py --reference <checkout of the base commit> --test . --out-dir <scratch>` runs the four regression configurations with both trees on one machine and compares every output variable: on 2026-11-08, 91 of 91 bitwise equal on numpy and 71 of 71 on numba. Run it after any change to an operator.
+
+**Constraints** (hard errors): `ny` odd; staggered grid only; `--theta-e-type sphere` (the default on the sphere) is the only forcing profile there; `--beta`, `--domain-size`, `--y0` and `--y1` are refused on the sphere, and `--radius`, `--rot-rate`, `--lat-0` on the beta plane; moisture (moist V1 and V2) and seasonal forcing are not yet supported on the sphere. Both backends support it, bitwise identical. Restart files refuse a geometry, radius or rotation-rate mismatch.
+
+**Output.** `y` stays the coordinate, in m (as `a sin(lat)`, described as such in its attributes), so existing analysis code reads spherical files unchanged; `lat` and `lat_face` (degrees) sit beside it, and each position diagnostic (`north_jet_lat` and the rest, in `y`) has a `_deg` companion in latitude. Hadley widths stay differences of `y`.
+
+**Timestep and cost** (measured on the Mac, 2026-11-08, `validation/sphere_dt_bisection.py`, 400-day cold starts at the production parameters). At `ny=325` the ceiling is 80 s (90 s goes NaN on day 2); its beta-plane twin at the same spacing (`ny=509` on walls at `+-pi a/2`) reaches 72 s. At `ny=649` every candidate up to 30 s completes. Use `dt=30` at `ny=325` and `dt=15` at `ny=649`. Under three-way contention on the Mac, `ny=325`/`dt=30` costs 0.025 to 0.029 s per model day (a 58,000-day run took 28 minutes) and `ny=649`/`dt=15` 0.13 s; berimbau has not been timed.
+
+**The polar westerly jet: an open question for Spencer (measured 2026-11-08).** With the eddy term on, the spherical steady state (5,800 days, `ny=325`) has a westerly jet near 75 degrees ending in an easterly notch one cell poleward: at `--delta-y` 12.5, 25 and 50 K, the jet is 18, 32 and 53 m/s at 74 to 76 degrees, the notch -25, -33 and -42 m/s, and theta at the jet 5, 10 and 20 K below theta_E (halving the grid spacing moves these by about 2 m/s and 2.6 degrees). The beta-plane twin's westerlies peak at 51 to 52 degrees (6, 12 and 24 m/s) and end in a notch at 81 to 83 degrees spread over about 20 cells. The eddy term transports westerly momentum poleward wherever u > 0, and the chosen form, which conserves angular momentum, makes that flux converge toward the pole: in 200-day cold starts, the literal form `c du/dy` and the vorticity form `d(c u)/dy` put the westerly maximum at 55 and 59 degrees, against 75.7 for the chosen form. The notch appears with all three forms and is the gated closure's westerly-terminus notch, here 4 to 6 cells from the pole. Two consequences: `north_jet_lat` and `south_jet_lat` (the maximum of u in each hemisphere) return this polar jet on the sphere, although their output attributes describe a subtropical jet; and the jet's position is not converged (75.7 degrees at `ny=325`, 73.1 at `ny=649`), which changes the tropics remotely, so that within 40 degrees the coarse-to-fine differences of u, v and theta are 3.3, 4.7 and 6.0 times the twin's, while with `--vd 0` they equal the twin's (ratios 1.03, 0.94, 1.00). Until Spencer decides, treat high-latitude results on the sphere as formulation-dependent, and define a subtropical jet on the sphere by something other than the maximum of u.
+
+**Tests:** `test_sphere_geometry.py` (grid and geometry arrays), `test_sphere_model.py` (operators, identities, convergence orders, physics properties, restart, output, command line), `test_sphere_numba.py` (bitwise parity on the sphere). Validation runs and their scoring: `validation/sphere_validation_runs.py` and `validation/sphere_validation_analysis.py`; code check 4 (30-day mirror parity and restart at `ny=325`, both backends): `validation/sphere_code_check4.py`.
+
 ### Integration Backends (numpy vs numba)
 
 The integration loop has two backends, selected by `--backend`:
@@ -564,6 +588,7 @@ Tests are organized by functionality:
 - `test_moist_v2.py`: Moist V2 (column constants, config/CLI validation, the default unsteepened target and the optional radiative one, both vertical-advection gates, the discrete MSE-budget closure, the Lambda=0 dry-twin identity, parity and restart under coupling)
 - `test_regression.py`: End-to-end regression tests against baseline output in `ss09/tests/baseline/`
 - `test_numba_backend.py`: Bitwise parity of the numba backend against the numpy reference (operator oracles, single-step planted-zeros, integration variants, restarts, early-stop paths, full dataset, CLI baseline reproduction)
+- `test_sphere_geometry.py`, `test_sphere_model.py`, `test_sphere_numba.py`: the spherical geometry option (see the Spherical Geometry section)
 
 Regression tests run short simulations (5 days) and compare against stored baseline using `xarray.testing.assert_allclose`.
 
