@@ -28,6 +28,23 @@ plus tests, since every fix changes user-visible behavior.
   for the output and restart parents at startup, so a doomed path fails
   fast instead of after the run.
 
+- **The steady-state detector has no moisture metric, so a moist run can
+  look converged while its rain moves**: the detector tracks domain kinetic
+  energy and the spatial standard deviation of theta, and the slow-drift gate
+  adds the northern jet latitude, the maximum |v| and the equatorial
+  theta_E - theta. Nothing tracks W or P. In the 2026-08-09 moist V2
+  parameter sweep, two solutions (both above r = 1.13, where r = W_q/W* is
+  the regime parameter in the CLAUDE.md Moist V2 section) held their jet
+  magnitude within 0.7 m/s while their rain bands wandered across the
+  domain, which showed up as pointwise u differences of 10% and 62% between
+  consecutive 1000-day means. Whether `--stop-at-steady-state` or
+  `--slow-drift-gate` would have stopped either run is untested; the sweep
+  avoided the question by integrating every run a fixed 5800 days and
+  classifying steadiness afterwards. Workaround: a fixed `--ndays` of at
+  least 5 drag timescales for moist runs. Candidate fix: add a moisture
+  diagnostic (peak P, or the pointwise drift of the daily P profile) to the
+  detector history, with its own threshold.
+
 ## Fixed
 
 - **`--seas-conv` could never trigger without `--stop-at-steady-state`**
