@@ -143,10 +143,12 @@ def mc_face_values(w, dy, c_f):
 
 
 @njit(cache=True)
-def moisture_transport_tendency(w_adv, w_diff, v_f, cwv_frac, d_w, dy):
+def moisture_transport_tendency(w_adv, w_diff, v_f, cwv_frac, d_w, dy, cos_face=1.0):
     c_f = -(2.0 * cwv_frac - 1.0) * v_f
     w_face = mc_face_values(w_adv, dy, c_f)
-    flux = c_f * w_face - d_w * (w_diff[1:] - w_diff[:-1]) / dy
+    flux = cos_face * (
+        c_f * w_face - d_w * (cos_face * (w_diff[1:] - w_diff[:-1])) / dy
+    )
     return -v_divergence_at_centers(flux, dy)
 
 
@@ -162,8 +164,10 @@ def run_day(
     theta_e_day,
     temp_u, temp_v, temp_theta, temp_time,
     start_step, dt,
-    y, y_v, dy,
-    beta, v_d, epsilon_u, k_v, gravity, height, t_ref,
+    y, dy,
+    f, f_face, cos_lat, cos_lat_face, cos2_lat, inv_cos_lat, metric_face,
+    metric_on,
+    v_d, epsilon_u, k_v, gravity, height, t_ref,
     tau, delta, delta_z, theta_to_temp, asselin_coef, coeff_eddy_heat_diff,
     gate_on, include_merid, include_vert, stencil_code, gate_kinematic,
     moist_on, w, w_prev, temp_w, temp_precip,
@@ -197,8 +201,10 @@ def run_day(
     - the eddy heat term is ADDED even when its coefficient is 0, because
       adding +0.0 flips -0.0 to +0.0 exactly as the reference's zeros-array
       add does;
-    - each one-sided difference (u[j+1]-u[j])/dy is precomputed once per
-      step into `diff` and reused, matching the reference's shared array.
+    - each one-sided difference is precomputed once per step and reused,
+      matching the reference's shared arrays: (q1[j+1]-q1[j])/dy into
+      `diff_cu` and (q2[j+1]-q2[j])/dy into `diff_c2u`, with q1 = cos(lat) u
+      and q2 = cos^2(lat) u (both u itself on the beta plane).
 
     Moist V1 (moist_on): the prognostic column water vapor W rides passively
     on the dry circulation. Its leapfrog step is interleaved per step here,
@@ -222,6 +228,16 @@ def run_day(
     gate_kinematic selects SS09's H(dv/dy) gate on the vertical momentum
     advection in place of the thermodynamic H(theta_E - theta); it is
     independent of the moist switches (dry runs may select it too).
+
+    Geometry: the arrays of geometry.py (config.geom), in the same positions
+    as in the numpy operators. f and f_face replace beta*y and beta*y_v
+    (they are those products on the beta plane); the cosine arrays multiply
+    exactly as in sw_model.py and are exactly 1.0 on the beta plane, which
+    leaves every beta-plane value bit-for-bit unchanged; metric_on (the
+    sphere) adds the metric term metric_face*uf*uf. The single difference
+    array of the beta-plane kernel splits in two: diff_cu, of cos(lat) u,
+    for the meridional advection, and diff_c2u, of cos^2(lat) u, for the
+    eddy term's stencil; on the beta plane both equal the old one exactly.
     """
     nsteps = temp_u.shape[0]
     te_rows = theta_e_day.shape[0]
@@ -230,7 +246,11 @@ def run_day(
     two_dt = 2 * dt
 
     # scratch, allocated once per day
-    diff = np.empty(ny - 1)  # (u[j+1] - u[j]) / dy
+    q1 = np.empty(ny)  # cos(lat) u
+    q2 = np.empty(ny)  # cos^2(lat) u
+    diff_cu = np.empty(ny - 1)  # (q1[j+1] - q1[j]) / dy
+    diff_c2u = np.empty(ny - 1)  # (q2[j+1] - q2[j]) / dy
+    cv = np.empty(nv)  # cos(lat) v at the faces
     vc = np.empty(ny)  # v at centers
     dvdy = np.empty(ny)  # compact divergence at centers
     sigma = np.empty(ny)  # MC-limited slopes
@@ -251,59 +271,67 @@ def run_day(
         row = k if te_rows > 1 else 0
 
         # --- grid-coupling scratches from the current state ---
+        for j in range(ny):
+            q1[j] = cos_lat[j] * u[j]
+            q2[j] = cos2_lat[j] * u[j]
         for j in range(ny - 1):
-            diff[j] = (u[j + 1] - u[j]) / dy
+            diff_cu[j] = (q1[j + 1] - q1[j]) / dy
+            diff_c2u[j] = (q2[j + 1] - q2[j]) / dy
+        for j in range(nv):
+            cv[j] = cos_lat_face[j] * v[j]
         vc[0] = 0.0
         vc[ny - 1] = 0.0
-        dvdy[0] = 2.0 * v[0] / dy
-        dvdy[ny - 1] = -2.0 * v[nv - 1] / dy
+        dvdy[0] = 2.0 * cv[0] / dy
+        dvdy[ny - 1] = -2.0 * cv[nv - 1] / dy
         for j in range(1, ny - 1):
             vc[j] = 0.5 * (v[j - 1] + v[j])
-            dvdy[j] = (v[j] - v[j - 1]) / dy
+            dvdy[j] = (cv[j] - cv[j - 1]) / dy
 
-        # EMFD du/dy stencil
+        # EMFD stencil, applied to q2 = cos^2(lat) u (u on the beta plane)
         if stencil_code == 1:  # upwind: one-sided from the equatorward side
             for j in range(ny):
-                backward = diff[j - 1] if j >= 1 else 0.0
-                forward = diff[j] if j <= ny - 2 else 0.0
+                backward = diff_c2u[j - 1] if j >= 1 else 0.0
+                forward = diff_c2u[j] if j <= ny - 2 else 0.0
                 du_dy[j] = backward if y[j] > 0 else forward
         elif stencil_code == 2:  # mc
             for j in range(ny):
-                dm = diff[j - 1] if j >= 1 else 0.0
-                dp = diff[j] if j <= ny - 2 else 0.0
+                dm = diff_c2u[j - 1] if j >= 1 else 0.0
+                dp = diff_c2u[j] if j <= ny - 2 else 0.0
                 centered = 0.5 * (dm + dp)
                 mag = np.minimum(
                     np.minimum(np.abs(2.0 * dm), np.abs(2.0 * dp)), np.abs(centered)
                 )
                 sigma[j] = np.sign(dm) * mag if dm * dp > 0 else 0.0
             for j in range(ny):
-                dm = diff[j - 1] if j >= 1 else 0.0
-                dp = diff[j] if j <= ny - 2 else 0.0
+                dm = diff_c2u[j - 1] if j >= 1 else 0.0
+                dp = diff_c2u[j] if j <= ny - 2 else 0.0
                 sigma_m = sigma[j - 1] if j >= 1 else 0.0
                 sigma_p = sigma[j + 1] if j <= ny - 2 else 0.0
                 backward = dm + 0.5 * (sigma[j] - sigma_m)
                 forward = dp - 0.5 * (sigma_p - sigma[j])
                 du_dy[j] = backward if y[j] > 0 else forward
         else:  # centered: np.gradient replica
-            du_dy[0] = (u[1] - u[0]) / dy
-            du_dy[ny - 1] = (u[ny - 1] - u[ny - 2]) / dy
+            du_dy[0] = (q2[1] - q2[0]) / dy
+            du_dy[ny - 1] = (q2[ny - 1] - q2[ny - 2]) / dy
             for j in range(1, ny - 1):
-                du_dy[j] = (u[j + 1] - u[j - 1]) / (2.0 * dy)
+                du_dy[j] = (q2[j + 1] - q2[j - 1]) / (2.0 * dy)
 
-        # eddy heat flux first pass: d1 = np.gradient(theta, dy)
+        # eddy heat flux first pass: d1 = cos^2(lat) * np.gradient(theta, dy)
         if coeff_eddy_heat_diff != 0.0:
             d1[0] = (theta[1] - theta[0]) / dy
             d1[ny - 1] = (theta[ny - 1] - theta[ny - 2]) / dy
             for j in range(1, ny - 1):
                 d1[j] = (theta[j + 1] - theta[j - 1]) / (2.0 * dy)
+            for j in range(ny):
+                d1[j] = cos2_lat[j] * d1[j]
 
         # --- u: tendency, leapfrog, Asselin (state committed later) ---
         for j in range(ny):
             if include_merid:
                 if vc[j] > 0 and j >= 1:
-                    grad = diff[j - 1]
+                    grad = diff_cu[j - 1]
                 elif vc[j] < 0 and j <= ny - 2:
-                    grad = diff[j]
+                    grad = diff_cu[j]
                 else:
                     grad = 0.0
                 merid = vc[j] * grad
@@ -322,8 +350,8 @@ def run_day(
                 gate = 1.0 if u[j] > 0.0 else (0.0 if u[j] < 0.0 else 0.5)
             else:
                 gate = 1.0
-            emfd = v_d * gate * np.sign(y[j]) * du_dy[j]
-            dudt = beta * y[j] * vc[j] - merid - vert - u[j] * epsilon_u - emfd
+            emfd = v_d * gate * np.sign(y[j]) * (inv_cos_lat[j] * du_dy[j])
+            dudt = f[j] * vc[j] - merid - vert - u[j] * epsilon_u - emfd
             un = u_prev[j] + two_dt * dudt
             u_prev[j] = u[j] + asselin_coef * (un + u_prev[j] - 2 * u[j])
             u_next[j] = un
@@ -332,12 +360,14 @@ def run_day(
         for j in range(nv):
             uf = 0.5 * (u[j] + u[j + 1])
             dtemp_dy = (theta[j + 1] * theta_to_temp - theta[j] * theta_to_temp) / dy
-            dp_term = gravity * height * dtemp_dy / t_ref
-            coriolis = beta * y_v[j] * uf
-            left = -v[0] if j == 0 else v[j - 1]
-            right = -v[nv - 1] if j == nv - 1 else v[j + 1]
-            lap = ((right + left) - 2.0 * v[j]) / dy**2
-            dvdt = (-coriolis - dp_term + lap * k_v) / 2
+            dp_term = gravity * height * (cos_lat_face[j] * dtemp_dy) / t_ref
+            coriolis = f_face[j] * uf
+            if metric_on:
+                coriolis = coriolis + metric_face[j] * uf * uf
+            left = -cv[0] if j == 0 else cv[j - 1]
+            right = -cv[nv - 1] if j == nv - 1 else cv[j + 1]
+            lap = ((right + left) - 2.0 * cv[j]) / dy**2
+            dvdt = (-coriolis - dp_term + cos_lat_face[j] * lap * k_v) / 2
             vn = v_prev[j] + two_dt * dvdt
             v_prev[j] = v[j] + asselin_coef * (vn + v_prev[j] - 2 * v[j])
             v_next[j] = vn
@@ -388,7 +418,10 @@ def run_day(
                     w_face = w[j] + 0.5 * dy * w_sigma[j]
                 else:
                     w_face = w[j + 1] - 0.5 * dy * w_sigma[j + 1]
-                w_flux[j] = c_f * w_face - d_w * (w_prev[j + 1] - w_prev[j]) / dy
+                w_flux[j] = cos_lat_face[j] * (
+                    c_f * w_face
+                    - d_w * (cos_lat_face[j] * (w_prev[j + 1] - w_prev[j])) / dy
+                )
             for j in range(ny):  # -div(flux) - P + E_0, leapfrog + Asselin
                 if j == 0:
                     transport = -(2.0 * w_flux[0] / dy)
@@ -469,9 +502,15 @@ def day_kernel_args(model, theta_e_day, start_step):
         start_step=int(start_step),
         dt=int(config.dt),
         y=config.y,
-        y_v=config.y_v,
         dy=float(config.dy),
-        beta=float(config.beta),
+        f=config.geom.f,
+        f_face=config.geom.f_face,
+        cos_lat=config.geom.cos_lat,
+        cos_lat_face=config.geom.cos_lat_face,
+        cos2_lat=config.geom.cos2_lat,
+        inv_cos_lat=config.geom.inv_cos_lat,
+        metric_face=config.geom.metric_face,
+        metric_on=bool(config.geom.sphere),
         v_d=float(config.v_d),
         epsilon_u=float(config.epsilon_u),
         k_v=float(config.k_v),
