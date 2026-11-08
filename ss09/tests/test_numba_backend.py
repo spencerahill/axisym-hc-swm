@@ -1001,3 +1001,30 @@ def test_cli_numba_reproduces_moist_baseline(tmp_path):
         )
     baseline.close()
     test_ds.close()
+
+
+@pytest.mark.regression
+def test_cli_numba_reproduces_moist_v2_baseline(tmp_path):
+    """The moist V2 counterpart of the test above: the numba backend with
+    --enable-moisture --enable-latent-heating at the production defaults
+    reproduces the moist V2 regression baseline, to the same cross-machine
+    relative tolerance."""
+    out = str(tmp_path / "numba_moist_v2_baseline.nc")
+    subprocess.run(
+        [
+            "run-sw-model", "--ndays", "5", "--ny", "801", "--dt", "30",
+            "--enable-moisture", "--enable-latent-heating",
+            "--backend", "numba", "--output-path", out,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    baseline = xr.open_dataset("ss09/tests/baseline/output_moist_v2.nc")
+    test_ds = xr.open_dataset(out)
+    for var in ("u", "v", "T", "W", "P", "W_mean", "W_min"):
+        assert_matches_baseline(
+            baseline[var].values, test_ds[var].values, var
+        )
+    baseline.close()
+    test_ds.close()

@@ -15,9 +15,6 @@ MOIST_PARAMS = ("cwv_frac", "d_w", "w_crit", "tau_c", "evap", "w_init")
 # Moist V2 (latent heating) parameter fields, inert unless
 # enable_latent_heating; same hard-error treatment.
 LATENT_PARAMS = ("delta_y_rad", "lambda_conv")
-# Spec's provisional radiative-equilibrium contrast (75-100 K); the low end,
-# closest to the V1 RCE contrast of 50 K.
-DEFAULT_DELTA_Y_RAD = 75.0
 
 
 @dataclass
@@ -110,26 +107,35 @@ class SWConfig:
     restart_output_dir: str = "./model_output"  # Directory for restart files
     # Moist V1: prognostic passive column water vapor W(y, t), one-way coupled
     # to the circulation (guides/moist_axisymmetric_model_spec.pdf Eq. Q1).
-    # Defaults are the V1 plan's placeholders, to be replaced by the
-    # ERA5-calibrated values when they land. Staggered grid only; both the
-    # numpy and numba backends are supported (validated below).
+    # cwv_frac and w_crit are the positive-gross-moist-stability reference of
+    # the 2026-08-09 V2 sweep, adopted as defaults 2026-11-07: a = 0.79 is the
+    # ERA5-calibrated value, and with W_c = 40 the undisturbed column
+    # W_c + tau_c E_0 = 40.66 sits at 0.76 of the Hhat = 0 crossover
+    # W* = 53.4, well below the onset of aggregated rain near 0.94. The
+    # earlier placeholders (a = 0.85, W_c = 50) put that ratio at 1.145, in
+    # the aggregated regime. The other values are the V1 plan's. Staggered
+    # grid only; both the numpy and numba backends are supported (validated
+    # below).
     enable_moisture: bool = False
-    cwv_frac: float = 0.85  # a: lower-layer CWV fraction; mean transport ~ (2a-1)
+    cwv_frac: float = 0.79  # a: lower-layer CWV fraction; mean transport ~ (2a-1)
     d_w: float = 1.0e6  # D: eddy moisture diffusivity (m^2/s)
-    w_crit: float = 50.0  # W_c: critical CWV for precipitation onset (kg/m^2)
+    w_crit: float = 40.0  # W_c: critical CWV for precipitation onset (kg/m^2)
     tau_c: float = 14400.0  # convective relaxation time (s)
     evap: float = 4.6e-5  # E_0: uniform evaporation (kg m^-2 s^-1)
     w_init: Optional[float] = None  # uniform W(y, 0); None means w_crit
-    # Moist V2: the latent-heating feedback (spec Eq. T2). The single
-    # structural change is thermodynamic: the relaxation retargets from the
-    # warm RCE profile to the steeper radiative one (contrast delta_y_rad in
-    # place of the theta_e profile's delta_y), and explicit latent heating
-    # lambda_conv * P is added. Keeping convective heating inside the
-    # relaxation AND adding lambda_conv * P would double-count it. Both
-    # parameters stay None on a dry or V1 config (not applicable) and resolve
-    # to their defaults when latent heating is on.
+    # Moist V2: the latent-heating feedback (spec Eq. T2), explicit latent
+    # heating lambda_conv * P in the thermodynamic equation. By default the
+    # relaxation target is the theta_e profile as given, at its own contrast
+    # (Spencer, 2026-11-07): with uniform evaporation a column with no
+    # circulation precipitates at E_0 everywhere, so its latent heating
+    # offsets the no-circulation theta by the same tau * lambda_conv * E_0 at
+    # every latitude and leaves the gradient alone. delta_y_rad, when set,
+    # rebuilds the target at that contrast (the spec's steeper radiative
+    # profile). Both parameters stay None on a dry or V1 config (not
+    # applicable); under latent heating lambda_conv resolves to L_v/C and
+    # delta_y_rad stays None unless given.
     enable_latent_heating: bool = False
-    delta_y_rad: Optional[float] = None  # Delta_theta^rad (K); None -> 75
+    delta_y_rad: Optional[float] = None  # Delta_theta^rad (K); None -> no change
     lambda_conv: Optional[float] = None  # Lambda = L_v/C; None -> derived
 
     def __post_init__(self):
@@ -242,8 +248,6 @@ class SWConfig:
                     "prognostic column water vapor); pass --enable-moisture "
                     "alongside --enable-latent-heating"
                 )
-            if self.delta_y_rad is None:
-                self.delta_y_rad = DEFAULT_DELTA_Y_RAD
             if self.lambda_conv is None:
                 # Lambda = L_v/C with the same column heat capacity C that
                 # sets the gross dry stability, so C*Lambda = L_v and

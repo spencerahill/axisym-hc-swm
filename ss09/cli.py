@@ -404,7 +404,7 @@ def parse_arguments():
         type=float,
         default=None,
         dest="cwv_frac",
-        help="Lower-layer CWV fraction a; mean transport ~ (2a-1) (default: 0.85)",
+        help="Lower-layer CWV fraction a; mean transport ~ (2a-1) (default: 0.79)",
     )
     parser.add_argument(
         "--dw",
@@ -418,7 +418,7 @@ def parse_arguments():
         type=float,
         default=None,
         dest="w_crit",
-        help="Critical CWV W_c for precipitation onset in kg/m^2 (default: 50)",
+        help="Critical CWV W_c for precipitation onset in kg/m^2 (default: 40)",
     )
     parser.add_argument(
         "--tau-c",
@@ -451,10 +451,9 @@ def parse_arguments():
         default=False,
         dest="enable_latent_heating",
         help=(
-            "Let precipitation heat the column (moist V2): the relaxation "
-            "retargets from the radiative-convective profile to the steeper "
-            "radiative one (--delta-y-rad) and Lambda*P is added to the "
-            "thermodynamic equation; requires --enable-moisture "
+            "Let precipitation heat the column (moist V2): Lambda*P is added "
+            "to the thermodynamic equation, and the vertical-advection gate "
+            "becomes kinematic; requires --enable-moisture "
             "(default: disabled)"
         ),
     )
@@ -464,9 +463,10 @@ def parse_arguments():
         default=None,
         dest="delta_y_rad",
         help=(
-            "Meridional radiative-equilibrium theta contrast Delta_theta^rad "
-            "in K, the V2 relaxation target's contrast in place of --delta-y "
-            "(default: 75, the spec's provisional 75-100 K range)"
+            "Optional meridional theta contrast Delta_theta^rad in K for an "
+            "explicit V2 radiative relaxation target, in place of --delta-y "
+            "(default: none, so V2 relaxes to the --delta-y profile at its "
+            "own contrast)"
         ),
     )
     parser.add_argument(
@@ -477,7 +477,7 @@ def parse_arguments():
         help=(
             "Latent-heating coefficient Lambda in K per kg m^-2 s^-1 "
             "(default: the derived L_v/C ~ 0.484; 0 gives the V2_0 bridge, "
-            "the retarget with the feedback severed)"
+            "V2 with the latent feedback severed)"
         ),
     )
     # Restart/checkpoint arguments

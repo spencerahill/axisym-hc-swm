@@ -4,7 +4,6 @@ This file shows the python code for S-S model.
 
 import os
 import logging
-import warnings
 import numpy as np
 from typing import Optional, Tuple, NamedTuple
 from dataclasses import asdict, replace
@@ -174,23 +173,16 @@ def cwv_integral(w: np.ndarray, dy: float) -> float:
 def radiative_target_profile(
     theta_e_profile: ThetaEProfile, delta_y_rad: float
 ) -> ThetaEProfile:
-    """The moist V2 relaxation target theta_rad: the same forcing-profile
-    family and parameters as theta_E, with the meridional contrast raised
-    from the radiative-convective delta_y to the purely radiative
-    delta_y_rad (spec Eq. T2).
+    """An explicit moist V2 relaxation target theta_rad: the same
+    forcing-profile family and parameters as theta_E, with the meridional
+    contrast set to delta_y_rad (the spec's Eq. T2 radiative profile).
 
-    V2 must relax to radiation alone, because the convective heating that
-    the V1 relaxation bundles in is now explicit as Lambda * P; keeping both
-    would double-count it.
+    Used only when delta_y_rad is given. The default V2 target is theta_E
+    itself, at its own contrast (Spencer, 2026-11-07): with uniform evaporation the
+    latent heating of a column with no circulation is Lambda * E_0 at every
+    latitude, so it raises the no-circulation theta uniformly and adds no
+    gradient that a steeper target would need to remove.
     """
-    if delta_y_rad <= theta_e_profile.config.delta_y:
-        warnings.warn(
-            f"delta_y_rad={delta_y_rad} K is not steeper than the "
-            f"radiative-convective delta_y={theta_e_profile.config.delta_y} K; "
-            "a radiative-equilibrium target has the larger contrast (the spec "
-            "gives 75-100 K), and a flatter one leaves convective heating "
-            "inside the relaxation that Lambda * P then adds again"
-        )
     return type(theta_e_profile)(
         replace(theta_e_profile.config, delta_y=delta_y_rad)
     )
@@ -242,18 +234,24 @@ class SWModel:
 
     def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
         self.config = config
-        if config.enable_latent_heating:
-            # Moist V2 relaxes to radiation alone; swap the target here (not
-            # at the call site) so every entry point -- CLI, tests, scripts --
-            # gets the retarget from the config alone, and so theta_E in the
-            # relaxation, the output, and the diagnostics is one field.
+        if config.enable_latent_heating and config.delta_y_rad is not None:
+            # An explicit radiative target; swap it in here, at construction,
+            # so every entry point (CLI, tests, scripts) gets it from the
+            # config alone, and so theta_E in the relaxation, the output, and
+            # the diagnostics is one field.
             theta_e_profile = radiative_target_profile(
                 theta_e_profile, config.delta_y_rad
             )
             logging.info(
-                "Latent heating on: relaxing to the radiative target "
+                "Latent heating on: relaxing to the explicit radiative target "
                 "delta_y_rad=%.4g K (Lambda=%.4g K per kg m^-2 s^-1)",
                 config.delta_y_rad, config.lambda_conv,
+            )
+        elif config.enable_latent_heating:
+            logging.info(
+                "Latent heating on: relaxing to the theta_E profile as given "
+                "(Lambda=%.4g K per kg m^-2 s^-1)",
+                config.lambda_conv,
             )
         self.theta_e_profile = theta_e_profile
         # u and theta live on the ny centers; v may live on a different grid

@@ -1,25 +1,29 @@
 """Tests for moist V2: the latent-heating feedback.
 
-V2 (guides/moist_axisymmetric_model_spec.pdf Eq. T2/Q2) makes exactly one
-structural change to V1: the thermodynamic relaxation is retargeted from the
-warm radiative-convective profile to a steeper, purely radiative one, and
-explicit latent heating is added,
+V2 (guides/moist_axisymmetric_model_spec.pdf Eq. T2/Q2) adds explicit latent
+heating to V1's thermodynamic equation,
 
-    dtheta/dt + (d Delta_z/H) dv/dy = (theta_rad - theta)/tau + Lambda P,
+    dtheta/dt + (d Delta_z/H) dv/dy = (theta_E - theta)/tau + Lambda P,
 
 with Lambda = L_v/C pinned to the model's own column accounting (C Lambda =
-L_v). The moisture equation is unchanged. Three invariants define success:
+L_v). The moisture equation is unchanged. By default the relaxation target
+theta_E is V1's own profile, at V1's contrast (Spencer, 2026-11-07): with
+uniform evaporation, a column with no circulation precipitates at E_0 at every
+latitude, so its latent heating offsets the no-circulation temperature by the
+same tau Lambda E_0 everywhere and leaves the gradient unchanged. The spec's
+steeper radiative target remains available through an explicit delta_y_rad.
+Three invariants define success:
 
 1. The same P array heats theta and drains W, so L_v P cancels exactly in the
    column MSE budget d<h>/dt + d/dy[v Hhat - L_v D dW/dy] = radiation + L_v E_0.
 2. With Lambda = 0 the run reduces, bit-for-bit, to a dry run against the
-   radiative target (the V2_0 bridge that separates the retarget from the
-   latent feedback).
+   same relaxation target under the same gate (the V2_0 bridge, which
+   separates any change of target from the latent feedback).
 3. The vertical-advection gate switches to SS09's kinematic H(dv/dy): the
-   V1 gate H(theta_E - theta) reads the *current* relaxation target, which in
-   V2 is theta_rad, and the column runs warmer than theta_rad wherever it
-   precipitates, so that gate would switch off exactly where convection is
-   strongest (spec item 11).
+   V1 gate H(theta_E - theta) switches off wherever the column is warmer than
+   its relaxation target, and latent heating makes the column warmer than
+   the target wherever it precipitates, so that gate would switch off exactly
+   where convection is strongest (spec item 11).
 """
 
 import numpy as np
@@ -49,11 +53,12 @@ def _sin2_profile(y_0=0.0, delta_y=50.0):
     )
 
 
-# dt=900, not the dry suite's 1800: the radiative target's steeper contrast
-# (75 K vs 50 K) drives a stronger circulation (max|u| 46 vs 27 m/s at ny=51)
-# and tightens the advective CFL, so dt=1800 diverges by day 5 at ny=51 under
-# EITHER gate, dry or moist (measured 2026-07-30). dt=900 is stable and
-# resolution-converged there (max|u| within 1.3% of dt=450).
+# dt=900: several tests here set an explicit steeper radiative target, and at
+# 75 K against 50 K the circulation is stronger (max|u| 46 vs 27 m/s at
+# ny=51) and tightens the advective CFL, so the dry suite's dt=1800 diverges
+# by day 5 at ny=51 under EITHER gate, dry or moist (measured 2026-07-30).
+# dt=900 is stable and resolution-converged there (max|u| within 1.3% of
+# dt=450).
 V2_DT = 900
 
 
@@ -136,7 +141,9 @@ def test_config_latent_param_without_latent_heating_raises(param, value):
 
 def test_config_latent_defaults_resolve():
     config = _v2_config()
-    assert config.delta_y_rad == 75.0  # spec's provisional 75-100 K, low end
+    # None under latent heating means "relax to the theta_E profile as given,
+    # at its own contrast" (Spencer, 2026-11-07)
+    assert config.delta_y_rad is None
     assert config.lambda_conv == latent_heating_coeff(config.gravity)
 
 
@@ -182,9 +189,33 @@ def test_config_rejects_unknown_vert_advec_gate():
 
 # --- the radiative relaxation target ---------------------------------------
 
+def test_v2_default_target_is_the_unsteepened_theta_e():
+    """With no delta_y_rad, V2 relaxes to exactly the profile V1 relaxes to:
+    the same contrast and the same field, so the latent heating is the only
+    difference between the two thermodynamic equations."""
+    profile = _sin2_profile(delta_y=50.0)
+    v2 = SWModel(_v2_config(), profile)
+    v1 = SWModel(
+        SWConfig(total_integration_days=2, ny=51, dt=V2_DT, enable_moisture=True),
+        profile,
+    )
+    assert v2.theta_e_profile.config.delta_y == 50.0
+    np.testing.assert_array_equal(v2.current_theta_e(), v1.current_theta_e())
+    theta_e = v2.current_theta_e()
+    assert np.max(theta_e) - np.min(theta_e) == pytest.approx(50.0)
+
+
+def test_v2_default_target_follows_a_non_default_theta_e_contrast():
+    """The default tracks whatever contrast the theta_E profile has, so a V2
+    run at --delta-y 60 relaxes to 60 K, never to a fixed number."""
+    v2 = SWModel(_v2_config(), _sin2_profile(delta_y=60.0))
+    assert v2.theta_e_profile.config.delta_y == 60.0
+
+
 def test_v2_relaxes_to_the_radiative_target():
-    """The model rebuilds its relaxation target at delta_y_rad, so theta_E in
-    every term (relaxation, output, diagnostics) is theta_rad."""
+    """An explicit delta_y_rad rebuilds the relaxation target at that
+    contrast, so theta_E in every term (relaxation, output, diagnostics) is
+    theta_rad."""
     model = SWModel(_v2_config(delta_y_rad=80.0), _sin2_profile(delta_y=50.0))
     assert model.theta_e_profile.config.delta_y == 80.0
     theta_rad = model.current_theta_e()
@@ -200,13 +231,6 @@ def test_v1_target_untouched_without_latent_heating():
         _sin2_profile(delta_y=50.0),
     )
     assert model.theta_e_profile.config.delta_y == 50.0
-
-
-def test_v2_warns_when_radiative_target_is_not_steeper():
-    """Delta_theta^rad <= Delta_theta means the relaxation still carries
-    convective heating that Lambda P now adds a second time."""
-    with pytest.warns(UserWarning, match="radiative"):
-        SWModel(_v2_config(delta_y_rad=40.0), _sin2_profile(delta_y=50.0))
 
 
 # --- the kinematic vertical-advection gate ---------------------------------
@@ -323,6 +347,31 @@ def test_zero_lambda_reproduces_the_dry_radiative_twin_bitwise():
         ) == 0.0, f"final {name} differs from the Lambda=0 dry twin"
 
 
+def test_zero_lambda_at_default_target_reproduces_the_dry_twin_bitwise():
+    """At the default (unsteepened) target the Lambda = 0 run is bit-for-bit a
+    dry run against the SAME theta_E profile under the kinematic gate, the
+    integration-level statement that the default changes no target."""
+    v2 = SWModel(
+        _v2_config(total_integration_days=5, lambda_conv=0.0),
+        _sin2_profile(delta_y=50.0),
+    )
+    dry = SWModel(
+        SWConfig(
+            total_integration_days=5, ny=51, dt=V2_DT,
+            vert_advec_gate="kinematic",
+        ),
+        _sin2_profile(delta_y=50.0),
+    )
+    v2.run_sim()
+    dry.run_sim()
+    assert np.all(np.isfinite(v2.state.u)), "run diverged; comparison is vacuous"
+    assert np.max(np.abs(v2.state.v)) > 0.0, "no circulation; test is vacuous"
+    for name in ("u", "v", "theta"):
+        assert np.max(
+            np.abs(getattr(v2.results, name) - getattr(dry.results, name))
+        ) == 0.0, f"daily {name} differs from the Lambda=0 dry twin"
+
+
 def test_latent_heating_warms_the_column_and_moves_the_circulation():
     """The V2 feedback is live: against its own Lambda=0 twin (identical
     target, identical gate), latent heating warms theta and changes v."""
@@ -406,10 +455,35 @@ def test_v2_parameters_land_in_the_output_attrs(tmp_path):
     model.save_results()
     ds = xr.open_dataset(config.output_path)
     assert ds.attrs["enable_latent_heating"] == "True"
-    assert ds.attrs["delta_y_rad"] == 75.0
+    # netCDF attrs cannot store None; the unset default is written as its str
+    # form, and the contrast actually used is theta_e_delta_y
+    assert ds.attrs["delta_y_rad"] == "None"
+    assert ds.attrs["theta_e_delta_y"] == 50.0
     assert ds.attrs["lambda_conv"] == pytest.approx(latent_heating_coeff(9.81))
     assert ds.attrs["vert_advec_gate"] == "kinematic"
-    # the relaxation target written to file is theta_rad
+    # the relaxation target written to file is the unsteepened theta_E
+    assert float(ds["theta_e"].max()) - float(ds["theta_e"].min()) == pytest.approx(
+        50.0
+    )
+    ds.close()
+
+
+def test_explicit_radiative_target_lands_in_the_output_attrs(tmp_path):
+    import xarray as xr
+
+    config = _v2_config(
+        total_integration_days=2,
+        ny=21,
+        delta_y_rad=75.0,
+        output_path=str(tmp_path / "v2rad.nc"),
+        restart_output_dir=str(tmp_path),
+    )
+    model = SWModel(config, _sin2_profile(delta_y=50.0))
+    model.run_sim()
+    model.save_results()
+    ds = xr.open_dataset(config.output_path)
+    assert ds.attrs["delta_y_rad"] == 75.0
+    assert ds.attrs["theta_e_delta_y"] == 75.0
     assert float(ds["theta_e"].max()) - float(ds["theta_e"].min()) == pytest.approx(
         75.0
     )
