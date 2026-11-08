@@ -71,13 +71,22 @@ def baseline_moist_path():
 
 
 @pytest.fixture
+def baseline_moist_v2_path():
+    return "ss09/tests/baseline/output_moist_v2.nc"
+
+
+@pytest.fixture
 def test_path():
     with tempfile.TemporaryDirectory() as temp_dir:
         yield os.path.join(temp_dir, "test_output.nc")
 
 
 def run_model(
-    output_path, grid: "str | None" = "collocated", legacy=False, moist=False
+    output_path,
+    grid: "str | None" = "collocated",
+    legacy=False,
+    moist=False,
+    latent=False,
 ):
     args = [
         "run-sw-model",
@@ -100,6 +109,8 @@ def run_model(
         args.extend(["--no-emfd-heaviside-gate", "--emfd-stencil", "centered"])
     if moist:
         args.append("--enable-moisture")
+    if latent:
+        args.append("--enable-latent-heating")
     try:
         subprocess.run(args, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
@@ -218,6 +229,26 @@ def test_regression_moist(baseline_moist_path, test_path):
     ), "Moist regression test failed: Outputs differ."
     # and the moisture fields themselves
     baseline_ds = xr.open_dataset(baseline_moist_path)
+    test_ds = xr.open_dataset(test_path)
+    for var in ("W", "P", "W_mean", "W_min"):
+        assert var in test_ds, f"Missing moisture variable: {var}"
+        assert np.allclose(
+            baseline_ds[var], test_ds[var], atol=1e-6
+        ), f"Difference found in moisture variable: {var}"
+
+
+@pytest.mark.regression
+def test_regression_moist_v2(baseline_moist_v2_path, test_path):
+    """The production default path with --enable-moisture
+    --enable-latent-heating reproduces the moist V2 baseline: guards the
+    latent heating, the kinematic vertical-advection gate, and the default
+    relaxation target (V1's theta_E profile at its own contrast), all of which
+    move u, v and T, plus the coupled W and P."""
+    run_model(test_path, grid=None, moist=True, latent=True)
+    assert compare_outputs(
+        baseline_moist_v2_path, test_path
+    ), "Moist V2 regression test failed: Outputs differ."
+    baseline_ds = xr.open_dataset(baseline_moist_v2_path)
     test_ds = xr.open_dataset(test_path)
     for var in ("W", "P", "W_mean", "W_min"):
         assert var in test_ds, f"Missing moisture variable: {var}"

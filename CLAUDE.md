@@ -327,6 +327,8 @@ The model execution follows this sequence:
 
 **read_output (`read_output.py`)**: `load_centered(path)` reads a model output file and returns `(y, u, v, T)` with v reconstructed onto the centers for either grid layout
 
+**moist_constants (`moist_constants.py`)**: the column thermodynamic constants shared by the model and the analysis scripts. `column_heat_capacity(g)` = c_p Pi Delta_p/g = 5.16e6 J/m^2/K, `latent_heating_coeff(g)` = L_v/C = 0.4843 K per kg m^-2 s^-1, `gross_dry_stability(...)` = C d Delta_z/H, plus L_V and the Exner/pressure constants they derive from. Import these rather than re-deriving: C*Lambda = L_v is what makes precipitation cancel in the MSE budget, and the older V1 analysis scripts hard-code a rounded C = 5.2e6 that breaks the cancellation at the 0.7% level
+
 **numba_backend (`numba_backend.py`)**: Optional JIT-compiled integration backend (`--backend numba`), bitwise-identical to the reference; a fused `@njit` day kernel plus unit-tested array-style operator oracles. See the Integration Backends section
 
 **ThetaEProfile (`theta_e.py`)**: Abstract base class with three implementations
@@ -465,8 +467,8 @@ Constraints: staggered grid only (the collocated layout is the bit-exact Zhang e
 # Production moist run: W rides passively on the dry circulation
 run-sw-model --ndays 10 --ny 801 --dt 30 --enable-moisture
 
-# Moist parameters (defaults are V1-plan placeholders, ERA5 calibration pending)
-run-sw-model --enable-moisture --cwv-frac 0.85 --dw 1e6 --w-crit 50 --tau-c 14400 --evap 4.6e-5
+# Moist parameters, at their defaults (a and W_c changed 2026-11-07; see below)
+run-sw-model --enable-moisture --cwv-frac 0.79 --dw 1e6 --w-crit 40 --tau-c 14400 --evap 4.6e-5
 ```
 
 dW/dt + d/dy[-(2a-1) v W - D dW/dy] = E_0 - P, with P = (W - W_c)^+/tau_c. W is **one-way coupled**: nothing feeds back on u/v/theta, and the dry fields of a moist run are bit-for-bit identical to the dry twin (tested; V2 will deliberately break this).
@@ -475,9 +477,50 @@ dW/dt + d/dy[-(2a-1) v W - D dW/dy] = E_0 - P, with P = (W - W_c)^+/tau_c. W is 
 
 **Constraints** (hard errors in `SWConfig`): moist parameters without `--enable-moisture`; `--grid collocated` (the frozen Zhang et al. 2025 reproduction path). `--backend numba` is supported for moist runs (the W step is mirrored into the kernel, bitwise-identical; see the Integration Backends section).
 
-**Output.** Daily `W` and `P` fields plus scalars `W_mean` (FV cell-weighted) and `W_min` (minimum instantaneous value each day); all moist parameters land in the global attrs. Regression baseline: `ss09/tests/baseline/output_moist.nc`.
+**Defaults for a and W_c (changed 2026-11-07).** `--cwv-frac 0.79` and `--w-crit 40` are the positive-gross-moist-stability reference of the 2026-08-09 V2 parameter sweep (in the private `trop-eddies-swm` project), with a = 0.79 the ERA5-calibrated value. Until 2026-11-07 the defaults were the V1 plan's placeholders a = 0.85 and W_c = 50, which put V2 in the aggregated regime described below; pass those two flags to reproduce a run made before then. V1 itself is passive, so the change moves only W and P in a V1 run; the dry fields stay bit-for-bit those of the dry twin.
+
+**Output.** Daily `W` and `P` fields plus scalars `W_mean` (FV cell-weighted) and `W_min` (minimum instantaneous value each day); all moist parameters land in the global attrs. Regression baseline: `ss09/tests/baseline/output_moist.nc` (regenerated 2026-11-07 for the new a and W_c).
 
 **Restart.** Format version 3 adds `w`/`w_prev`, written only for moist runs, so dry v3 files read exactly as v2 did. A moist checkpoint refuses to continue dry; a moist run from a dry checkpoint requires an explicit `--w-init` (W is freshly initialized, logged). Moist continuation is bit-exact, W included.
+
+### Moist V2: Latent Heating Feedback
+
+`--enable-latent-heating` adds the moist extension's Version 2 (spec Eq. T2), the first version in which moisture can move the ITCZ:
+
+```bash
+# Production V2 run: the coupled moist model at the production formulation
+run-sw-model --ndays 10 --ny 801 --dt 30 --enable-moisture --enable-latent-heating --backend numba
+
+# An explicit, steeper radiative relaxation target (the spec's 75-100 K);
+# off by default, so V2 relaxes to the --delta-y profile
+run-sw-model --enable-moisture --enable-latent-heating --delta-y-rad 75
+
+# The V2_0 bridge: V2 with the latent feedback severed
+run-sw-model --enable-moisture --enable-latent-heating --lambda-conv 0
+```
+
+dtheta/dt + (d Delta_z/H) dv/dy = (theta_E - theta)/tau + Lambda P. The moisture equation is V1's, unchanged, now riding the coupled circulation. Two changes from V1:
+
+1. **Latent heating.** `Lambda = L_v/C` with the column constants in `ss09/moist_constants.py` (C = c_p Pi Delta_p / g = 5.16e6 J/m^2/K, Lambda = 0.4843 K per kg m^-2 s^-1, the same C that sets the gross dry stability Shat). `C Lambda = L_v` is what makes precipitation cancel in the column MSE budget, and the discrete scheme keeps that cancellation exact: `latent_heating()` reads the SAME lagged (n-1) P array the moisture step drains from W, and theta and W leapfrog with the same dt and Asselin coefficient, so d/dt(C theta + L_v W) contains no P at all (tested term-by-term on a spun-up state). `--lambda-conv 0` severs the feedback and is then bit-for-bit a dry run against the same relaxation target under the same gate (tested).
+2. **The vertical-advection gate switches to kinematic** (`--vert-advec-gate`, `theta` | `kinematic`). V1's H(theta_E - theta) gate switches off wherever the column is warmer than its relaxation target, and latent heating makes a precipitating column warmer than the target, so that gate would switch off exactly where convection is strongest (spec item 11). V2 therefore defaults to SS09 Eq. 2.1's own H(dv/dy), validated as an equivalent dry formulation by the 2026-07-18 steady-state A/B twins (climate anchors within 2%, exact mirror parity, the only persistent difference a 433 km shift of the westerly terminus notch). Dry and V1 runs default to `theta`, so every regression baseline is unchanged, and the flag is independent of the moist switches (a dry `--vert-advec-gate kinematic` run is the twin the V2_0 bridge reproduces). Asking for `theta` under latent heating is allowed but warns.
+
+**The relaxation target stays V1's (Spencer, 2026-11-07).** The spec has V2 relax to a steeper, purely radiative profile (Delta_theta^rad = 75-100 K against V1's 50 K), on the argument that V1's target already contains the convective heating that Lambda P now adds. With uniform evaporation E_0 that argument does not reach the gradient. Switch off every transport term and each latitude relaxes to P = E_0, W = W_c + tau_c E_0 and theta = theta_E + tau Lambda E_0, so the latent heating that would be counted twice raises the no-circulation temperature by the same tau Lambda E_0 = 71 K at every latitude and adds no gradient. V2 therefore relaxes to the `--delta-y` profile as given, and theta_E means the same field in V1 and V2. `--delta-y-rad` remains as an option that rebuilds the target at the stated contrast. From 2026-07-30 to 2026-11-07 the default was `--delta-y-rad 75`; pass it, with `--cwv-frac 0.85 --w-crit 50`, to reproduce a V2 run made then. In the 2026-08-09 sweep, the jet rises 0.708 m/s per K of Delta_theta^rad on the positive-stability reference, and at 75 K it is 53.6 m/s against 35.8 at 50 K and 31.0 in ERA5.
+
+**What the defaults produce.** At the defaults (a = 0.79, W_c = 40, 50 K target) the sweep's 5800-day run at ny=801, dt=30 is steady and is a single broad Hadley cell that rains everywhere: jet 35.8 m/s at 4.9 Mm, peak |v| 0.79 m/s, peak precipitation 5.1 mm/day at the equator against uniform evaporation of 4.0 mm/day, gross moist stability Hhat positive everywhere (minimum 18.2 MJ/m^2), and an equator-to-24-degree theta contrast of 2.38 K against 3.21 K in ERA5. The new regression baseline reproduces that run's spin-up: its minimum W, 27.8907 kg/m^2, matches the sweep run's to every printed digit.
+
+**The mean state runs warm, harmlessly.** Away from the circulation the steady balance is (theta_E - theta)/tau + Lambda E_0 = 0, so theta settles tau*Lambda*E_0 = 71 K above theta_E at the default parameters (measured: 71.22 K at the default E_0, and the analytic tau*Lambda*E_0 to 4e-7 relative across eight sweep runs spanning a fourfold range of E_0). Every theta term is invariant under theta -> theta + c with theta_E -> theta_E + c, so `--theta00` is a purely cosmetic dial: shifting it by -71 K leaves u unchanged to 1.8e-11 m/s on a 72.8 m/s field (measured 2026-07-30, ny=201, at the 75 K target). Lower `--theta00` if realistic absolute temperatures matter for a figure; it changes no dynamics.
+
+**Gross moist stability regime: compute r before choosing V2 parameters.** Most of V2's behavior depends on one ratio (2026-08-09 sweep, 151 runs, all at the 75 K target except its Delta_theta^rad ladder): r = W_q/W*, where W_q = W_c + tau_c E_0 is the column water vapor of an undisturbed column and W* = Shat/(L_v(2a-1)) is the column water vapor at which Hhat = Shat - L_v(2a-1)W changes sign. Banded, aggregated rain begins near r = 0.94 (raining everywhere at r = 0.919, three bands at 0.964), and above r of about 1.3 solutions stop reaching a steady state (18 of 131 never settled; the largest settled r was 1.310). The defaults give r = 0.761. The old defaults gave r = 1.145, the aggregated state described next. Where the boundary sits at the 50 K default target has not been measured; aggregation itself does not need the steeper target, since the sweep's negative-stability reference aggregates at 50 K too (peak precipitation 67.5 mm/day).
+
+**The aggregated regime: the pre-2026-11-07 default `--w-crit 50` with `a = 0.85` puts V2 in the negative-gross-moist-stability corner, and the solution there is not a Hadley circulation** (measured 2026-07-31, ny=801, at the 75 K target, all runs in `model_output/moist_v2/`). Hhat = Shat - L_v(2a-1)W crosses zero at W = 44.25 kg/m^2 while the quiescent column sits at W_c + tau_c E_0, so W_c = 50 makes Hhat negative over 84% of the domain. The mean circulation then imports MSE into the ascending column instead of exporting it, ascent reinforces itself, and the only brake is the eddy flux, which needs a steep moisture gradient. The equilibrium aggregates: a 78 mm/day equatorial spike 394 km wide (peak precipitation is exactly (W_max - W_c)/tau_c), a second precipitating band at +/-5.6 Mm at 18.7 mm/day, a bone-dry gap where P is identically zero over 36% of the domain, and an extra easterly notch carved into the jet at 5.59 Mm with the terminus notch dragged equatorward to 7.48 Mm and deepened to -45 m/s. It is resolution-converged (ny=1601 reproduces the secondary band at 5.61 Mm, same 18.7 mm/day), so it is a real solution of these equations rather than grid noise. One step across the crossover at `--w-crit 40` restores a recognizable Hadley cell: one broad ITCZ at 9.0 mm/day, one jet, one notch, W nearly flat, and the mean MSE flux back to +14.5 MW/m poleward with the eddy flux a 1.5 MW/m bit player (against -104.7 and 106.2 MW/m at W_c = 50). Spencer's call 2026-07-31: the V2 default must be a positive-GMS one; the aggregated regime is real but not of current interest, with slightly negative GMS the possible exception. The ERA5 calibration (2026-08-01) found the 44.25 crossover an artifact of the spec's `a = 0.85`, which is at or just beyond the strong-transport end of what ERA5 supports, and recommended `a ~ 0.79` with range 0.77-0.84. Lowering `a` raises the crossover instead of lowering the column, moving the model toward the observations: `--cwv-frac 0.77` puts W* at 57.4, above the undisturbed 50.66, and `model_output/moist_v2/wc50_a077/` confirms that at `W_c = 50` the aggregated state then does not appear. The defaults were changed on 2026-11-07 to a = 0.79, W_c = 40. Note that a = 0.79 alone, with W_c = 50, gives r = 0.949, between the r = 0.919 run that rains everywhere and the r = 0.964 run with three bands, which is why W_c moved too. The calibration report and its model check (`era5_calibration_report.pdf`, `era5_calibration_v2_check.py`) are in the private `trop-eddies-swm` project.
+
+**Stability: the timestep a V2 run needs depends on its parameters, and nothing in the code warns.** At ny=801, dt=30 is the documented ceiling (at the 75 K target, a 200-day probe ran clean at dt=30 and went NaN on day 1 at dt=60), and it is enough only near the reference parameters: in the 2026-08-09 sweep, 22 of 149 configurations diverged within 100 days of a cold start at dt=30, 16 of them needing dt=15 and 5 needing dt=6. The failures came with a strong circulation (deeply negative Hhat, a steep Delta_theta^rad, a small Delta_z) or a forcing maximum at |y_0| >= 700 km, and they were cold-start transients: a seasonal run whose forcing moved out to y_0 = 1400 km survived at dt=30 where a run started there did not. At the coarse ny=51 test grid, the default 50 K target ran 60 days cleanly at dt=1800 (max|u| 36-39 m/s, 2026-11-07), while a 75 K target diverges by day 5 at dt=1800 under either gate and needs dt=900 (2026-07-30). Run a 100-day smoke of every new V2 configuration before a long campaign.
+
+**Resolution: the tropics converge, the westerly terminus does not.** Across eight resolution and timestep twins in the 2026-08-09 sweep, the jet moves at most 0.3% and peak precipitation at most 0.9%. On the pre-2026-11-07 default (75 K target, a = 0.85, W_c = 50), u at |y| of about 7 to 11 Mm differs by up to 10% of its peak between ny=801 and 1601, and the terminus easterly notch deepens from -45.5 to -51.1 m/s between those grids; the new defaults have not been resolution-tested. Quote a whole-field max|du| for V2 only with that region named.
+
+**The steady-state detector has no moisture metric** (see `KNOWN_ISSUES.md`). The sweep therefore integrated every run for a fixed 5800 days (5.01 drag timescales) and classified steadiness afterwards.
+
+**Constraints** (hard errors in `SWConfig` and the CLI): `--enable-latent-heating` requires `--enable-moisture` (P comes from the prognostic W); `--delta-y-rad` and `--lambda-conv` require `--enable-latent-heating`. All V2 parameters land in the output global attrs (an unset `delta_y_rad` is written as the string "None", and the contrast actually used is `theta_e_delta_y`); no new prognostic state, so restart format 3 is unchanged and V2 continuation is bit-exact. Regression baseline: `ss09/tests/baseline/output_moist_v2.nc` (5 days, ny=801, dt=30, defaults), guarded for both backends.
 
 ### Seasonal Cycle Types
 
@@ -518,6 +561,7 @@ Tests are organized by functionality:
 - `test_read_output.py`: `load_centered` v-reconstruction for both grid layouts
 - `test_cli.py`: Command-line interface tests
 - `test_moisture.py`: Moist V1 (config validation, transport operators, budget/parity/dry-invariance invariants, moist output and restart v3)
+- `test_moist_v2.py`: Moist V2 (column constants, config/CLI validation, the default unsteepened target and the optional radiative one, both vertical-advection gates, the discrete MSE-budget closure, the Lambda=0 dry-twin identity, parity and restart under coupling)
 - `test_regression.py`: End-to-end regression tests against baseline output in `ss09/tests/baseline/`
 - `test_numba_backend.py`: Bitwise parity of the numba backend against the numpy reference (operator oracles, single-step planted-zeros, integration variants, restarts, early-stop paths, full dataset, CLI baseline reproduction)
 

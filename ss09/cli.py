@@ -246,6 +246,20 @@ def parse_arguments():
         help="Deprecated alias for --emfd-stencil upwind",
     )
     parser.add_argument(
+        "--vert-advec-gate",
+        type=str,
+        choices=["theta", "kinematic"],
+        default=None,  # None resolves by version in SWConfig
+        dest="vert_advec_gate",
+        help=(
+            "Gate on the vertical momentum advection u*(dv/dy): 'theta' "
+            "(H(theta_E - theta), the production gate and the default for dry "
+            "and V1 runs) or 'kinematic' (SS09 Eq. 2.1's H(dv/dy), the "
+            "default under --enable-latent-heating, where the theta gate "
+            "would read the retargeted theta_rad)"
+        ),
+    )
+    parser.add_argument(
         "--grid",
         type=str,
         choices=["staggered", "collocated"],
@@ -390,7 +404,7 @@ def parse_arguments():
         type=float,
         default=None,
         dest="cwv_frac",
-        help="Lower-layer CWV fraction a; mean transport ~ (2a-1) (default: 0.85)",
+        help="Lower-layer CWV fraction a; mean transport ~ (2a-1) (default: 0.79)",
     )
     parser.add_argument(
         "--dw",
@@ -404,7 +418,7 @@ def parse_arguments():
         type=float,
         default=None,
         dest="w_crit",
-        help="Critical CWV W_c for precipitation onset in kg/m^2 (default: 50)",
+        help="Critical CWV W_c for precipitation onset in kg/m^2 (default: 40)",
     )
     parser.add_argument(
         "--tau-c",
@@ -428,6 +442,42 @@ def parse_arguments():
         help=(
             "Uniform initial W in kg/m^2 (default: w_crit); required when "
             "starting a moist run from a dry restart file"
+        ),
+    )
+    # Moist V2 arguments (latent-heating feedback)
+    parser.add_argument(
+        "--enable-latent-heating",
+        action="store_true",
+        default=False,
+        dest="enable_latent_heating",
+        help=(
+            "Let precipitation heat the column (moist V2): Lambda*P is added "
+            "to the thermodynamic equation, and the vertical-advection gate "
+            "becomes kinematic; requires --enable-moisture "
+            "(default: disabled)"
+        ),
+    )
+    parser.add_argument(
+        "--delta-y-rad",
+        type=float,
+        default=None,
+        dest="delta_y_rad",
+        help=(
+            "Optional meridional theta contrast Delta_theta^rad in K for an "
+            "explicit V2 radiative relaxation target, in place of --delta-y "
+            "(default: none, so V2 relaxes to the --delta-y profile at its "
+            "own contrast)"
+        ),
+    )
+    parser.add_argument(
+        "--lambda-conv",
+        type=float,
+        default=None,
+        dest="lambda_conv",
+        help=(
+            "Latent-heating coefficient Lambda in K per kg m^-2 s^-1 "
+            "(default: the derived L_v/C ~ 0.484; 0 gives the V2_0 bridge, "
+            "V2 with the latent feedback severed)"
         ),
     )
     # Restart/checkpoint arguments
@@ -505,6 +555,30 @@ def parse_arguments():
                 "(moist parameters have no effect on a dry run)."
             )
 
+    # V2: latent heating is Lambda*P, so it needs the prognostic W that
+    # produces P; and its parameters are inert without the feedback.
+    if args.enable_latent_heating and not args.enable_moisture:
+        raise SystemExit(
+            "Error: --enable-latent-heating requires --enable-moisture (the "
+            "latent heating is Lambda * P, and P comes from the prognostic "
+            "column water vapor)."
+        )
+    if not args.enable_latent_heating:
+        latent_flags = {
+            "delta_y_rad": "--delta-y-rad",
+            "lambda_conv": "--lambda-conv",
+        }
+        provided = [
+            flag for attr, flag in latent_flags.items()
+            if getattr(args, attr) is not None
+        ]
+        if provided:
+            raise SystemExit(
+                f"Error: {', '.join(provided)} requires "
+                "--enable-latent-heating (the radiative target and the latent "
+                "heating coefficient have no effect without the feedback)."
+            )
+
     # Apply conditional default for ndays
     if args.total_integration_days is None:
         if args.enable_steady_state:
@@ -561,6 +635,7 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         include_merid_advec_u=args.include_merid_advec_u,
         emfd_heaviside_gate=getattr(args, "emfd_heaviside_gate", False),
         emfd_stencil=_resolve_emfd_stencil(args),
+        vert_advec_gate=getattr(args, "vert_advec_gate", None),
         grid=getattr(args, "grid", "staggered"),
         backend=getattr(args, "backend", "numpy"),
         enable_steady_state=args.enable_steady_state,
@@ -582,9 +657,14 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         # SWConfig's own defaults (and its moist-params-without-moisture
         # validation) stay authoritative.
         enable_moisture=getattr(args, "enable_moisture", False),
+        # Moist V2: same treatment for the latent-heating parameters.
+        enable_latent_heating=getattr(args, "enable_latent_heating", False),
         **{
             attr: val
-            for attr in ("cwv_frac", "d_w", "w_crit", "tau_c", "evap", "w_init")
+            for attr in (
+                "cwv_frac", "d_w", "w_crit", "tau_c", "evap", "w_init",
+                "delta_y_rad", "lambda_conv",
+            )
             if (val := getattr(args, attr, None)) is not None
         },
     )

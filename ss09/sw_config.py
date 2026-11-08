@@ -1,6 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Optional
+import warnings
+
 import numpy as np
+
+from .moist_constants import latent_heating_coeff
 
 SECONDS_PER_DAY = 86400
 
@@ -8,6 +12,9 @@ SECONDS_PER_DAY = 86400
 # validation that rejects a non-default moist parameter on a dry config
 # (repo style: a hard error, never a silent no-op).
 MOIST_PARAMS = ("cwv_frac", "d_w", "w_crit", "tau_c", "evap", "w_init")
+# Moist V2 (latent heating) parameter fields, inert unless
+# enable_latent_heating; same hard-error treatment.
+LATENT_PARAMS = ("delta_y_rad", "lambda_conv")
 
 
 @dataclass
@@ -48,6 +55,16 @@ class SWConfig:
     coeff_eddy_heat_diff: float = 0.0  # values <1e4 make little difference
     include_vert_advec_u: bool = True
     include_merid_advec_u: bool = True  # Toggle for v*du/dy meridional advection term
+    # Gate on the vertical momentum advection u*(dv/dy). "theta": the
+    # production H(theta_E - theta) gate (convecting columns), the default for
+    # dry and V1 runs and the formulation every regression baseline was
+    # generated with. "kinematic": SS09 Eq. 2.1's own H(dv/dy), validated as an
+    # equivalent dry formulation by the 2026-07-18 steady-state A/B twins and
+    # adopted for V2, where the theta gate would read the retargeted
+    # theta_rad and switch off exactly where convection is strongest (spec
+    # item 11). None resolves by version: kinematic under latent heating,
+    # theta otherwise.
+    vert_advec_gate: Optional[str] = None
     # H(u) gate on the EMFD, per SS09 eq. (2.5) / Zhang et al. (2025) eq. (5).
     # On by default (2026-07-12): the production formulation gates the EMFD.
     # Set False (--no-emfd-heaviside-gate) for the published Zhang et al. (2025)
@@ -90,16 +107,36 @@ class SWConfig:
     restart_output_dir: str = "./model_output"  # Directory for restart files
     # Moist V1: prognostic passive column water vapor W(y, t), one-way coupled
     # to the circulation (guides/moist_axisymmetric_model_spec.pdf Eq. Q1).
-    # Defaults are the V1 plan's placeholders, to be replaced by the
-    # ERA5-calibrated values when they land. Staggered grid only; both the
-    # numpy and numba backends are supported (validated below).
+    # cwv_frac and w_crit are the positive-gross-moist-stability reference of
+    # the 2026-08-09 V2 sweep, adopted as defaults 2026-11-07: a = 0.79 is the
+    # ERA5-calibrated value, and with W_c = 40 the undisturbed column
+    # W_c + tau_c E_0 = 40.66 sits at 0.76 of the Hhat = 0 crossover
+    # W* = 53.4, well below the onset of aggregated rain near 0.94. The
+    # earlier placeholders (a = 0.85, W_c = 50) put that ratio at 1.145, in
+    # the aggregated regime. The other values are the V1 plan's. Staggered
+    # grid only; both the numpy and numba backends are supported (validated
+    # below).
     enable_moisture: bool = False
-    cwv_frac: float = 0.85  # a: lower-layer CWV fraction; mean transport ~ (2a-1)
+    cwv_frac: float = 0.79  # a: lower-layer CWV fraction; mean transport ~ (2a-1)
     d_w: float = 1.0e6  # D: eddy moisture diffusivity (m^2/s)
-    w_crit: float = 50.0  # W_c: critical CWV for precipitation onset (kg/m^2)
+    w_crit: float = 40.0  # W_c: critical CWV for precipitation onset (kg/m^2)
     tau_c: float = 14400.0  # convective relaxation time (s)
     evap: float = 4.6e-5  # E_0: uniform evaporation (kg m^-2 s^-1)
     w_init: Optional[float] = None  # uniform W(y, 0); None means w_crit
+    # Moist V2: the latent-heating feedback (spec Eq. T2), explicit latent
+    # heating lambda_conv * P in the thermodynamic equation. By default the
+    # relaxation target is the theta_e profile as given, at its own contrast
+    # (Spencer, 2026-11-07): with uniform evaporation a column with no
+    # circulation precipitates at E_0 everywhere, so its latent heating
+    # offsets the no-circulation theta by the same tau * lambda_conv * E_0 at
+    # every latitude and leaves the gradient alone. delta_y_rad, when set,
+    # rebuilds the target at that contrast (the spec's steeper radiative
+    # profile). Both parameters stay None on a dry or V1 config (not
+    # applicable); under latent heating lambda_conv resolves to L_v/C and
+    # delta_y_rad stays None unless given.
+    enable_latent_heating: bool = False
+    delta_y_rad: Optional[float] = None  # Delta_theta^rad (K); None -> no change
+    lambda_conv: Optional[float] = None  # Lambda = L_v/C; None -> derived
 
     def __post_init__(self):
         self.dy = self.domain_size / (self.ny - 1)
@@ -201,6 +238,52 @@ class SWConfig:
                         "enable_moisture=True) to run with moisture"
                     )
 
+        if self.enable_latent_heating:
+            # Latent heating is Lambda * P, and P is a function of the
+            # prognostic W: V2 is V1 plus the feedback, never a standalone.
+            if not self.enable_moisture:
+                raise ValueError(
+                    "enable_latent_heating=True requires enable_moisture=True "
+                    "(the latent heating is Lambda * P, and P comes from the "
+                    "prognostic column water vapor); pass --enable-moisture "
+                    "alongside --enable-latent-heating"
+                )
+            if self.lambda_conv is None:
+                # Lambda = L_v/C with the same column heat capacity C that
+                # sets the gross dry stability, so C*Lambda = L_v and
+                # precipitation cancels exactly in the column MSE budget.
+                self.lambda_conv = latent_heating_coeff(self.gravity)
+        else:
+            for name in LATENT_PARAMS:
+                if getattr(self, name) is not None:
+                    raise ValueError(
+                        f"{name}={getattr(self, name)} has no effect without "
+                        "enable_latent_heating=True; pass "
+                        "--enable-latent-heating (or set "
+                        "enable_latent_heating=True) to run with the latent "
+                        "heating feedback"
+                    )
+
+        valid_gates = ("theta", "kinematic")
+        if self.vert_advec_gate is None:
+            self.vert_advec_gate = (
+                "kinematic" if self.enable_latent_heating else "theta"
+            )
+        elif self.vert_advec_gate not in valid_gates:
+            raise ValueError(
+                f"vert_advec_gate must be one of {valid_gates}, got "
+                f"{self.vert_advec_gate!r}"
+            )
+        if self.enable_latent_heating and self.vert_advec_gate == "theta":
+            # Reachable only on explicit request, and left reachable so the
+            # pathology can be demonstrated; it is never a V2 default.
+            warnings.warn(
+                "vert_advec_gate='theta' under latent heating gates the "
+                "vertical momentum advection on H(theta_rad - theta), which "
+                "switches off wherever the column precipitates (the spec's "
+                "item 11); use the kinematic gate for V2 physics"
+            )
+
         # The seasonal year-to-year convergence check reads the daily history
         # the steady-state detector records, and the detector records only
         # when enabled: without enable_steady_state the history stays empty
@@ -239,7 +322,6 @@ class SWConfig:
 
         # Validate steady-state parameters
         if self.enable_steady_state and self.steady_state_window_size > self.total_integration_days:
-            import warnings
             warnings.warn(
                 f"Steady-state window size ({self.steady_state_window_size}) exceeds "
                 f"total integration days ({self.total_integration_days}). "

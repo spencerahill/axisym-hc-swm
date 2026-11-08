@@ -75,10 +75,12 @@ def _moist_config(**overrides):
 def test_config_enable_moisture_accepted_on_defaults():
     config = _moist_config()
     assert config.enable_moisture is True
-    # placeholder defaults from the V1 plan (ERA5-calibrated values pending)
-    assert config.cwv_frac == 0.85
+    # a and W_c are the positive-gross-moist-stability reference of the
+    # 2026-08-09 V2 sweep (a from the ERA5 calibration), adopted 2026-11-07;
+    # the rest are the V1 plan's values
+    assert config.cwv_frac == 0.79
     assert config.d_w == 1.0e6
-    assert config.w_crit == 50.0
+    assert config.w_crit == 40.0
     assert config.tau_c == 14400.0
     assert config.evap == 4.6e-5
     assert config.w_init is None  # None means "use w_crit"
@@ -89,7 +91,7 @@ def test_config_enable_moisture_accepted_on_defaults():
     [
         ("cwv_frac", 0.9),
         ("d_w", 2.0e6),
-        ("w_crit", 40.0),
+        ("w_crit", 45.0),
         ("tau_c", 7200.0),
         ("evap", 5.0e-5),
         ("w_init", 45.0),
@@ -149,7 +151,7 @@ def test_cli_enable_moisture_flag(monkeypatch):
     args = parse_arguments()
     config = setup_sw_config(args, setup_theta_e_config(args))
     assert config.enable_moisture is True
-    assert config.w_crit == 50.0
+    assert config.w_crit == 40.0
 
 
 def test_cli_moist_values_reach_config(monkeypatch):
@@ -346,7 +348,7 @@ def test_precipitation_relaxation_rate_above_w_crit():
 def test_moist_model_initializes_w_uniform_at_w_crit():
     config = _moist_config()
     model = SWModel(config, _sin2_profile())
-    np.testing.assert_array_equal(model.w, np.full(config.ny, 50.0))
+    np.testing.assert_array_equal(model.w, np.full(config.ny, 40.0))
 
 
 def test_moist_model_initializes_w_uniform_at_explicit_w_init():
@@ -542,7 +544,7 @@ def test_moist_output_contains_moisture_fields(tmp_path):
     assert np.all(ds["W_min"].values <= ds["W"].values.min(axis=1) + 1e-12)
     # moist parameters landed in the global attrs
     assert ds.attrs["enable_moisture"] == "True"
-    assert ds.attrs["w_crit"] == 50.0
+    assert ds.attrs["w_crit"] == 40.0
     ds.close()
 
 
