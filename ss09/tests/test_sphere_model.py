@@ -302,6 +302,54 @@ def test_spherical_operator_convergence(name):
     assert np.all(orders_60 >= lo_60), (name, orders_60)
 
 
+def _heat_and_moisture(model, name):
+    """Numerical and exact values of the eddy heat diffusion, kappa
+    d/dy(c^2 d(theta)/dy), on theta = 300 - DTH s^2 e^(s/2), and of the
+    moisture transport tendency, -d/dy{c [c_W W - D c dW/dy]} with
+    c_W = -(2 a_W - 1) v, on W = 40 + 10 e^s and v = c V s e^(-s/2)."""
+    cfg, g = model.config, model.config.geom
+    s = cfg.y / A
+    if name == "eddy heat diffusion":
+        model.state = model.state._replace(theta=300.0 - DTH * s**2 * np.exp(s / 2))
+        num = model.eddy_heat_flux() / cfg.coeff_eddy_heat_diff
+        exact = (DTH / 4 * (s**4 + 12 * s**3 + 23 * s**2 - 8 * s - 8)
+                 * np.exp(s / 2) / A**2)
+        return num, exact
+    a_w, d_w = 0.79, 1.0e6
+    w = 40.0 + 10.0 * np.exp(s)
+    v = g.cos_lat_face * V0 * (cfg.y_v / A) * np.exp(-cfg.y_v / A / 2)
+    num = moisture_transport_tendency(w, w, v, a_w, d_w, cfg.dy,
+                                      cos_face=g.cos_lat_face)
+    k = -(2 * a_w - 1)
+    W, dW, d2W = w, 10.0 * np.exp(s), 10.0 * np.exp(s)
+    F = V0 * s * np.exp(-s / 2)
+    dF = V0 * np.exp(-s / 2) * (1 - s / 2)
+    bracket = k * F * W - d_w / A * dW
+    d_bracket = k * (dF * W + F * dW) - d_w / A * d2W
+    exact = -(-2 * s * bracket + (1 - s**2) * d_bracket) / A
+    return num, exact
+
+
+@pytest.mark.parametrize("name", ["eddy heat diffusion", "moisture transport"])
+def test_spherical_heat_and_moisture_convergence(name):
+    """Measured 2026-11-08 at ny = 161, 321, 641: second order within 60
+    degrees (2.00, 1.99 for both) and first order over the whole domain
+    (0.99, 1.00 and 1.00, 1.00), where the poles' one-sided forms set the
+    error. The moisture operator is tested directly, since moist runs on the
+    sphere are not yet enabled."""
+    errs_all, errs_60 = [], []
+    for ny in (161, 321, 641):
+        model = sphere_model(ny=ny, coeff_eddy_heat_diff=1.0e5)
+        num, exact = _heat_and_moisture(model, name)
+        err = np.abs(num - exact) / np.max(np.abs(exact))
+        errs_all.append(np.max(err))
+        errs_60.append(np.max(err[np.abs(model.config.geom.lat) <= 60.0]))
+    orders_all = np.log2(np.array(errs_all[:-1]) / np.array(errs_all[1:]))
+    orders_60 = np.log2(np.array(errs_60[:-1]) / np.array(errs_60[1:]))
+    assert np.all(orders_all >= 0.95), (name, orders_all)
+    assert np.all(orders_60 >= 1.9), (name, orders_60)
+
+
 def test_spherical_eddy_term_accuracy():
     """Form (c), gate off so it acts in both hemispheres, on u = c U s e^s,
     whose exact value is v_d sgn(y) (U/a) e^s (1 + s - 4 s^2 - s^3).
