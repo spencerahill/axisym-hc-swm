@@ -1,0 +1,754 @@
+\documentclass[11pt]{article}
+\PassOptionsToPackage{obeyspaces,spaces,hyphens}{url}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{tgpagella}
+\usepackage{parskip}
+\usepackage{amsmath,amssymb}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\setlist[enumerate]{itemsep=5pt,topsep=4pt}
+\setlist[itemize]{itemsep=3pt,topsep=4pt}
+
+\newcommand{\Ro}{\mathrm{Ro}}
+\newcommand{\pd}[2]{\frac{\partial #1}{\partial #2}}
+
+\begin{document}
+
+\begin{center}
+  {\Large\bfseries A spherical version of the axisymmetric shallow-water model}\\[0.4em]
+  {\large Plan for \path|spencerahill/axisym-hc-swm|}\\[0.4em]
+  Prepared 2026-11-07, and revised the same day to Spencer's answers on the
+  setup and his choices of the two open terms. Re-derived on 2026-11-08
+  against the model's \path|main|, after the merge of moist V2.
+  This copy covers the model work, phases 1 to 4; the science runs that follow
+  are planned in the private repository \path|spencerahill/fixed-ro-eq-area|.
+  Symbolic and discrete checks, and quoted numbers, from
+  \path|scripts/spherical_swm_plan_checks.py| in that repository.
+\end{center}
+
+\section{Executive Summary}
+
+The axisymmetric shallow-water model (SWM) of the Hadley cell's upper branch in
+\path|spencerahill/axisym-hc-swm|, after Sobel and Schneider (2009, hereafter
+SS09), runs on an equatorial beta plane. The SWM's Coriolis parameter is
+$\beta y$, and its equations contain no metric terms and no planetary radius, so
+they are exactly the small-angle limit of the spherical equations. The SWM
+therefore cannot test a theory of the Hadley cell beyond the small-angle
+limit. This plan adds spherical geometry to the SWM
+as an option, with every beta-plane run left bit-for-bit unchanged.
+
+\paragraph{Where the spherical equations come from.} SS09 adapted their model
+from Xian and Miller (2008), who wrote the same two-layer axisymmetric equations
+on the sphere, pole to pole, in the coordinate $\sin\varphi$ for latitude
+$\varphi$; Adam and Paldor (2009) used the same coordinate. The spherical SWM
+takes its dynamics from Xian and Miller and writes SS09's additional terms on
+the sphere. The spherical SWM's coordinate is $y = a\sin\varphi$, for planetary
+radius $a$, with
+$c = \cos\varphi = (1 - y^2/a^2)^{1/2}$. This $y$ is a coordinate, not
+meridional distance, which is $a\,d\varphi = dy/c$. In it the Coriolis parameter
+is $f = 2\Omega\sin\varphi = (2\Omega/a)\,y$ exactly, for rotation rate $\Omega$.
+The constant $2\Omega/a$ is the equatorial value of the physical
+$\beta = 2\Omega\cos\varphi/a$, which varies with latitude. The upper-layer
+equations are
+\begin{align}
+  \pd{u}{t} - v\left(f - \pd{(cu)}{y}\right)
+    &= -\mathcal{G}\,u\,\pd{(cv)}{y} - \epsilon_u u - \mathcal{S},
+    \label{eq:u}\\
+  2\pd{v}{t} + \left(f + \frac{u\tan\varphi}{a}\right) u
+    &= -\frac{gH}{T_0}\, c\,\pd{T}{y} + \mathcal{K}_v,
+    \label{eq:v}\\
+  \pd{\theta}{t} + \frac{\delta\Delta_z}{H}\,\pd{(cv)}{y}
+    &= \frac{\theta_E - \theta}{\tau},
+    \label{eq:theta}
+\end{align}
+with $\tan\varphi/a = y/(a^2c)$. Here $\mathcal{G}$ is the existing gate on the
+vertical advection of zonal momentum, $\epsilon_u$ the Rayleigh drag
+coefficient, $\mathcal{S}$ the parameterized eddy momentum flux divergence, and
+$\mathcal{K}_v$ the smoothing of $v$. Setting $c = 1$, dropping the metric term
+and writing $f = \beta y$ recovers the current equations symbol for symbol. So
+the sphere differs from the beta plane through the factors of $c$ in three
+derivatives, the metric term, and the domain, which ends at the poles,
+$y = \pm a$. Section~\ref{sec:terms} goes through every term.
+
+Two properties make the spherical SWM a test of full-angle theory. The
+angular-momentum-conserving (AMC) wind $\Omega a\sin^2\varphi/\cos\varphi$ is an
+exact steady state of the inviscid form of Eq.~\eqref{eq:u}. And the steady
+form of Eq.~\eqref{eq:v} is the full-angle gradient wind balance. These
+properties, the coordinate identities, the
+beta-plane limits and the properties claimed in Section~\ref{sec:terms} were
+checked symbolically, with 20 of 20 checks passing. The discrete properties
+claimed in Section~\ref{sec:disc} were checked numerically against prototype
+operators built from the model's own functions, with 9 of 9 checks passing,
+both at the commit the plan was first written against and at the merged
+\path|main|, commit \path|0dc0627|.
+
+\paragraph{Settled, from Spencer's answers of 2026-11-07.}
+\begin{enumerate}
+\item \textbf{Base branch:} the model's \path|main|, into which Spencer merged
+  moist V2, the latent-heating version of the moist model, on 2026-11-07, as
+  commit \path|0dc0627|.
+\item \textbf{Formulation:} every term takes its physically correct spherical
+  form. Where physics does not fix the form, Section~\ref{sec:terms} says so
+  and gives the options.
+\item \textbf{Grid:} uniform in $\sin\varphi$, pole to pole. At the production
+  grid spacing of 39.4 km this is 324 intervals, 0.40 of the production grid's
+  800, with a latitude spacing of 0.35$^\circ$ at the equator widening to
+  6.4$^\circ$ at the poles.
+\item \textbf{Planet:} Earth's mean radius, $a = 6371$ km, and Earth's
+  rotation rate, $\Omega = 7.292115\times10^{-5}$ s$^{-1}$, the value of the
+  WGS84 geodetic system. At that rate one rotation relative to the fixed stars
+  takes 86,164.1 s; the stars define an inertial frame, as the Coriolis force
+  requires.
+  The 86,400 s solar day is 236 s longer, because Earth also advances
+  0.99$^\circ$ a day along its orbit, in the same sense as it spins, and must
+  turn that much further to face the Sun again. puffins'
+  \path|ROT_RATE_EARTH| is $2\pi/86{,}400$ s, the solar-day value, 0.27\%
+  smaller. Then $2\Omega/a = 2.29\times10^{-11}$ m$^{-1}$ s$^{-1}$, and the
+  SWM's default $\beta$ of $2\times10^{-11}$ is 13\% below it, so every
+  beta-plane run used for comparison is a new run at $\beta = 2\Omega/a$.
+\item \textbf{The eddy momentum flux divergence $\mathcal{S}$}
+  (Section~\ref{sec:emfd}): the divergence of an eddy angular-momentum flux,
+  the only one of three spherical forms of SS09's empirical closure that
+  conserves angular momentum. For a uniform-$\Ro$ wind the three differ by up
+  to 17\% at 30$^\circ$.
+\item \textbf{The smoothing of $v$} (Section~\ref{sec:v}): the vector
+  Laplacian. SS09 added the smoothing ``to reduce numerical noise'', so no
+  physical process fixes its form.
+\end{enumerate}
+
+\paragraph{Open, for Spencer.} One choice I would make unless Spencer objects: the forcing on the sphere is
+the spherical profile that all three of the SWM's forcing profiles were adapted
+from (Section~\ref{sec:thermo}), so it needs no decision.
+
+\paragraph{The approach.} The spherical model re-discretizes the current scheme
+and keeps every numerical choice in it: leapfrog stepping with the Asselin
+filter, the staggered grid with $v$ on cell faces, the monotonized-central (MC)
+stencil of the eddy term, first-order upwind meridional advection, and both
+Heaviside gates. Each operator is written so that, with $c = 1$ and the metric
+term off, it performs the same floating-point operations in the same order as
+the current one, apart from multiplications by exactly 1.0, which return their
+operand unchanged. A run in that flat configuration must then reproduce, bit
+for bit on the same machine, the output of the unmodified model in the four
+regression configurations, which checks the restructured code before any
+curvature enters. (The stored regression baselines themselves are reproduced
+only to cross-machine roundoff, a relative $10^{-11}$, so the bit-for-bit
+reference is the unmodified model run beside the new one.) Any departure from the current numerics is
+tested separately, one at a time: in the June 2026 rewrite of the numerics,
+three untested changes bundled into one plan all had to be reverted.
+
+\paragraph{Phases.}
+\begin{enumerate}
+\item \textbf{Specification.} The operators term by term (Section~\ref{sec:terms}),
+  their discretization including the polar cells (Section~\ref{sec:disc}), and
+  a file-by-file change list (Section~\ref{sec:files}). \emph{Verified by} a
+  symbolic check of every continuous claim and a numerical check of every
+  discrete one. Complete with this revision.
+\item \textbf{numpy reference.} Geometry configuration, metric arrays,
+  operators, output, restart files and the command line. \emph{Verified by}
+  unit tests per operator, among them exact discrete conservation of water and
+  exact mirror parity, and by the flat configuration reproducing the
+  unmodified model bit for bit on the same machine.
+\item \textbf{Validation runs on berimbau}, each with pass criteria set before
+  it runs (Section~\ref{sec:valid}): a drag-limited angular-momentum identity
+  with the eddy term and vertical advection off; steady budgets; the timestep
+  ceiling and a resolution twin; and the scaling of the difference between the
+  sphere and a beta-plane twin with the width of the cell. Every run uses
+  Earth's $a$ and $\Omega$.
+\item \textbf{numba kernel.} The fused day kernel with the spherical operators.
+  \emph{Verified by} bitwise parity with the numpy reference, through the
+  existing parity suite.
+\item \textbf{Science runs,} in a separate research project, which takes over
+  once phases 2 to 4 are done (Section~\ref{sec:handoff}).
+\item \textbf{Later, optional.} Moist V1 and V2 and the seasonal forcing on the
+  sphere, verified as in phases 2 to 4.
+\end{enumerate}
+
+\paragraph{Cost.} The spherical grid has 0.40 of the production grid's points,
+so a run should cost no more per model day than the current 0.086 s on
+berimbau. That cost is an estimate pending phase 3's smoke timing: the metric
+arithmetic adds work per point, and the timestep ceiling near the poles is
+unmeasured. For development, the closest precedents in this model are the
+staggered grid and the numba backend, which took about two days of sessions
+each, 2026-07-11 to 07-12 and 2026-07-13 to 07-14. Phases 2 to 4 together are
+comparable to both combined, plus the polar cells, which have no precedent
+here. That comparison is a precedent only; no part of this work has been
+timed.
+
+\section{The spherical equations, term by term}
+\label{sec:terms}
+
+For each term, this section gives the current beta-plane form, as written in
+SS09 with the correction of Sobel and Schneider (2013, hereafter SS13) and as
+implemented in the model; the spherical form; its source; and whether physics
+fixes it. Every spherical form follows from four identities in
+$y = a\sin\varphi$, each checked symbolically:
+\begin{equation}
+  \zeta = -\pd{(cu)}{y},\qquad
+  \nabla\cdot v = \pd{(cv)}{y},\qquad
+  \frac{1}{a}\pd{}{\varphi} = c\,\pd{}{y},\qquad
+  \frac{u\tan\varphi}{a} = \frac{y\,u}{a^2 c},
+  \label{eq:identities}
+\end{equation}
+for relative vorticity $\zeta = -(a\cos\varphi)^{-1}\partial_\varphi(u\cos\varphi)$
+and divergence $\nabla\cdot v = (a\cos\varphi)^{-1}\partial_\varphi(v\cos\varphi)$.
+Grid cells of equal width in $y$ have equal area, so the area-weighted budgets
+of mass, heat and water take the same discrete form as on the plane.
+
+\subsection{Zonal momentum}
+
+\paragraph{Coriolis force and meridional advection.} Beta plane:
+$-v(\beta y - \partial_y u)$. Sphere: $-v(f + \zeta) = -v[f - \partial_y(cu)]$,
+the meridional flux of absolute vorticity. Source: Xian and Miller's
+Eqs.~(3) and (4), the advection of angular momentum $M = a\cos\varphi\,(\Omega a\cos\varphi + u)$
+by $v$, which is this term written for $M$. \emph{Fixed by physics.} The model
+keeps its split into a Coriolis term and first-order upwind advection, the
+latter now of $cu$.
+
+\paragraph{Vertical advection of zonal momentum.} Beta plane:
+$-\mathcal{G}\,u\,\partial_y v$, where mass entering the upper layer from below
+carries zero zonal velocity. Sphere: $-\mathcal{G}\,u\,\partial_y(cv)$. Source:
+Xian and Miller's Eq.~(4), in which rising air carries the lower layer's angular
+momentum $M_B = \Omega a^2\cos^2\varphi$, that is, zero relative angular
+momentum; since $M - M_B = a\cos\varphi\,u$, the term for $u$ is the one above.
+\emph{Fixed by physics.} Both gates apply unchanged: Xian and Miller's gate is
+SS09's kinematic one, on where the divergence is positive.
+
+\paragraph{Rayleigh drag.} $-\epsilon_u u$ on both, a local term. \emph{Fixed.}
+
+\subsection{The eddy momentum flux divergence}
+\label{sec:emfd}
+
+Beta plane: $\mathcal{S} = v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)\,\partial_y u$
+(SS09 Eq.~2.5), which SS09 describe as ``empirical, motivated by the eddy
+momentum flux divergence in the idealized GCM integrations of Schneider and
+Bordoni (2008)''. \emph{Not fixed by physics.} On the plane the term has two
+readings, and on the sphere each reading gives a different form, beside a
+third, literal one:
+\begin{enumerate}[label=(\alph*)]
+\item \textbf{A closure on the eddy vorticity flux.} By the Taylor identity, the
+  eddy momentum flux divergence is minus the eddy flux of relative vorticity
+  for nondivergent eddies, on the plane and the sphere alike. SS09's term sets that flux to
+  $v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)$ times the mean relative vorticity, and
+  the same statement on the sphere gives
+  \[
+    \mathcal{S} = -v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)\,\zeta
+      = v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)\,\pd{(cu)}{y}.
+  \]
+  Form (a) keeps the drag-free steady closure $\Ro = v/(v + v_d)$ exact.
+\item \textbf{The literal transcription,} with $\partial_y$ read as a derivative
+  along meridional distance:
+  \[
+    \mathcal{S} = v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)\,c\,\pd{u}{y}.
+  \]
+  That closure becomes $\Ro = [v - v_d u/(2\Omega a c)]/(v + v_d)$.
+\item \textbf{The divergence of an eddy angular-momentum flux.} SS09's term is,
+  away from the equator, the beta-plane divergence of the eddy momentum flux
+  $\overline{u'v'} = v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)\,u$. The spherical
+  divergence of that flux is
+  \[
+    \mathcal{S} = \frac{1}{a\cos^2\varphi}\pd{}{\varphi}
+      \left(\cos^2\varphi\;\overline{u'v'}\right)
+      = \frac{v_d\,\mathcal{H}(u)\,\mathrm{sgn}(y)}{c}\,\pd{(c^2 u)}{y}.
+  \]
+  Because $c\,\mathcal{S}$ is then an exact derivative in $y$, the global torque
+  it exerts reduces to boundary values, which vanish where $u = 0$ bounds the
+  westerlies, just as on the plane. The closure becomes
+  $\Ro = [v + v_d u/(2\Omega a c)]/(v + v_d)$.
+\end{enumerate}
+For a uniform-$\Ro$ wind, forms (b) and (c) equal form (a) times
+$1 \pm \tan^2\varphi/2$: a difference of 2\% at 10$^\circ$, 7\% at 20$^\circ$
+and 17\% at 30$^\circ$. \emph{Chosen by Spencer, 2026-11-07:} (c). Eddies
+redistribute angular momentum and cannot create it, and (c) is the only form
+that respects that; the exact closure of (a) is a convenience for theory. The
+reading of SS09's term
+as a vorticity closure in (a), and as a flux divergence in (c), are mine; SS09
+give neither.
+
+\subsection{Meridional momentum}
+\label{sec:v}
+
+\paragraph{Tendency, Coriolis, metric and pressure-gradient terms.} Beta plane:
+$2\partial_t v + \beta y u = -(gH/T_0)\,\partial_y T$. Sphere:
+$2\partial_t v + (f + u\tan\varphi/a)\,u = -(gH/T_0)\,c\,\partial_y T$. Source:
+Xian and Miller's Eq.~(9), from integrating the vertical derivative of the
+meridional momentum equation over the troposphere, with the lower layer's
+meridional wind equal and opposite to the upper layer's and the surface zonal
+wind negligible. SS13 add that the factor of 2 requires the two layers to be
+equally thick. The advection $v\,\partial v/\partial y$, which SS13 removed,
+cancels exactly between the two layers when the lower layer's meridional wind is
+minus the upper layer's, on either geometry; that reason is my own derivation. The metric term
+$u^2\tan\varphi/a$ comes from the upper layer alone. \emph{Fixed by physics},
+given SS09's two-layer assumptions.
+
+\paragraph{The smoothing of $v$.} Beta plane: $k_v\,\partial_y^2 v$, which SS09
+added ``to reduce numerical noise''. \emph{Not fixed by physics}, since the term
+represents no physical process. Two candidates: (a)~the meridional component
+of the vector Laplacian, which for any axisymmetric field is the meridional
+gradient of the divergence, since the rotational part $\mathbf{k}\times\nabla\zeta$
+is then purely zonal:
+$k_v\,c\,\partial_y[\partial_y(cv)] = k_v[\nabla^2 v - v/(a^2\cos^2\varphi)]$;
+(b)~the scalar Laplacian applied to $v$ as though it were a scalar, the literal
+transcription of $\partial_y^2 v$, which drops the curvature term.
+\emph{Chosen by Spencer, 2026-11-07:} (a). The vector Laplacian is a vector operator, so its
+form does not depend on the coordinate, and it acts on the divergence, which is where the grid-scale
+noise appears. Whether it damps that noise as well as the current form does is
+a hypothesis, to be tested against the model's $v$-smoothness monitor and its
+timestep ceiling.
+
+\subsection{Thermodynamics}
+\label{sec:thermo}
+
+\paragraph{Adiabatic warming and cooling.} Beta plane:
+$(\delta\Delta_z/H)\,\partial_y v$. Sphere: $(\delta\Delta_z/H)\,\partial_y(cv)$,
+from the spherical continuity equation, Xian and Miller's Eq.~(6).
+\emph{Fixed by physics.} SS09's thermodynamic equation has no horizontal
+advection of $\theta$, unlike Xian and Miller's Eq.~(12); that is SS09's
+modeling choice, independent of the geometry, and it is kept.
+
+\paragraph{Newtonian cooling.} $(\theta_E - \theta)/\tau$ on both, a local term.
+\emph{Fixed.}
+
+\paragraph{The forcing $\theta_E$.} The SWM's three profiles are beta-plane
+renderings of one spherical profile, that of Schneider and Bordoni's (2008)
+idealized GCM, $\hat{T}_{se} - \Delta_h(\sin^2\varphi - 2\sin\varphi_0
+\sin\varphi)$ for a heating maximum at $\varphi_0$. The model's seasonal profile,
+and its sin$^2$ profile with no offset, are that profile with $\sin\varphi$
+replaced by $\sin(\pi y/2y_1)$, so that $y_1$ stands in for the pole. The
+parabolic profile of SS09 is its small-angle form,
+$\sin^2\varphi \approx (y/a)^2$, with $y_1$ in the place of $a$. On the sphere the three therefore collapse to
+$\theta_E = \theta_{00} - \Delta_y(\sin^2\varphi - 2\sin\varphi_0\sin\varphi)$,
+with $\Delta_y$ the equator-to-pole drop for $\varphi_0 = 0$, as SS09 define it.
+In the coordinate $y = a\sin\varphi$ that profile is
+$\theta_{00} - \Delta_y(y^2 - 2y_0 y)/a^2$, with $y_0 = a\sin\varphi_0$: SS09's
+parabolic profile with $y_1 = a$, exact on the sphere, and with no plateau,
+since $y$ ends at $\pm a$. The half-width
+$y_1$ and the parabolic profile's plateau have no other spherical
+counterpart. That spherical forcing is the choice I would make unless Spencer
+objects.
+
+\paragraph{Eddy heat diffusion.} Beta plane: $\kappa_\theta\,\partial_y^2\theta$.
+Sphere: $\nabla\cdot(\kappa_\theta\nabla\theta) =
+\partial_y(\kappa_\theta\,c^2\,\partial_y\theta)$, which follows from the
+identities~\eqref{eq:identities}. \emph{Fixed}, as the diffusion of a scalar.
+
+\subsection{Moisture, for moist V1 and V2}
+
+Beta plane: $\partial_t W + \partial_y[-(2a_W - 1)\,vW - D\,\partial_y W] = E_0 - P$,
+for column water vapor $W$ with lower-layer fraction $a_W$, eddy diffusivity $D$,
+evaporation $E_0$ and precipitation $P$. Sphere:
+$\partial_t W + \partial_y\{c[-(2a_W - 1)\,vW - D\,c\,\partial_y W]\} = E_0 - P$,
+the spherical divergence of the same flux. Precipitation and the latent heating
+of moist V2 are local. \emph{Fixed by physics.}
+
+\subsection{The poles}
+
+Xian and Miller (2008) and Adam and Paldor (2009) both run pole to pole, with
+the meridional wind zero at the poles. On the staggered grid, the outermost $u$
+and $\theta$ points sit at the poles. There $u = 0$ is the regularity condition,
+since the relative vorticity contains $u\tan\varphi/a$ and stays finite only if
+$u$ vanishes at the poles, and it coincides with the wall condition the model
+already imposes. The
+meridional wind stays on interior faces, and since $c = 0$ at the poles, no flux
+crosses them.
+
+\subsection{Diagnostics}
+
+The local Rossby number becomes $\Ro = -\zeta/f$ with the spherical $\zeta$.
+Jet and cell-edge latitudes are
+$\arcsin(y/a)$. The output keeps $y$ in meters as its coordinate, so that
+existing analysis code reads the files unchanged, and adds latitude beside it.
+
+\section{Discretization on the grid uniform in sin(latitude)}
+\label{sec:disc}
+
+Every operator below is transcribed from the model's code at the tip of the
+moist V2 branch, commit \path|6503a62| of \path|feature/moist-v2-sweep|, with
+the function it modifies named. The merge into \path|main|, commit
+\path|0dc0627|, changed none of these functions: its changes to
+\path|ss09/sw_model.py| are confined to the moist V2 relaxation target, in
+\path|radiative_target_profile| and the model's constructor.
+
+\subsection{The grid and its geometry arrays}
+
+The spherical model keeps the staggered layout of the current one: $u$,
+$\theta$ and the column water vapor $W$ at $n_y$ cell centers, $v$ at the
+$n_y - 1$ faces between them, and the outermost centers on the boundaries,
+which are now the poles, $y = \pm a$. At the production equatorial spacing
+this gives $n_y = 325$ centers and $\Delta y = 2a/324 = 39.33$ km. Since the
+coordinate is $a\sin\varphi$, $\Delta y$ is the distance between centers only at
+the equator. Elsewhere the distance is $\Delta y/\cos\varphi$: 45.4 km at
+30$^\circ$ and 78.7 km at 60$^\circ$. The outermost interior centers sit at
+83.63$^\circ$, and the outermost faces at 85.50$^\circ$.
+
+The centers are $y_k = a\,(k/m)$ for the integers $k = -m, \dots, m$, with
+$m = 162$. The model's configuration builds its grid with \path|np.linspace|,
+which is exactly antisymmetric about the equator for the production beta plane
+($n_y = 801$) but not on the sphere: \path|np.linspace(-a, a, 325)| puts 248 of
+its 325 points off minus their mirror images, by up to $1.9\times10^{-9}$ m.
+The model's exact mirror parity, under which a hemispherically symmetric
+forcing keeps $u$ and $\theta$ exactly symmetric and $v$ exactly
+antisymmetric, requires an exactly antisymmetric $y$, as the comment on
+\path|y_v| in \path|sw_config.py| states. The values $a\,(k/m)$ are
+antisymmetric by construction, since negating $k$ negates the quotient
+exactly, and the endpoints are exactly $\pm a$.
+
+The configuration computes these geometry arrays once:
+\begin{itemize}
+\item $c = [(1 - y/a)(1 + y/a)]^{1/2}$ at the centers and the faces, exactly
+  zero at the pole centers and exactly symmetric;
+\item $c^2$ at the centers;
+\item $1/c$ at the interior centers, set to zero at the two pole centers, whose
+  $u$ tendency the condition $u = 0$ there discards;
+\item $f = (2\Omega/a)\,y$ at the centers and the faces;
+\item the metric factor $\tan\varphi/a = y/(a^2c)$ at the faces.
+\end{itemize}
+On the beta plane the same arrays are $c = c^2 = 1/c = 1$ exactly and
+$f = \beta y$, and the metric term is skipped. A multiplication by exactly 1.0
+returns its operand unchanged in IEEE arithmetic, so every operator below then
+reproduces the current one bit for bit. The checks script tests this on
+prototype operators built from the model's own functions. On 20 random states
+with exact and signed zeros planted, for both gates on the vertical advection,
+and with the eddy heat diffusion off and on, every prototype tendency of $u$,
+$v$, $\theta$ and $W$ equals the model's bit for bit. Two plausible slips both
+fail that test: the smoothing computed in an algebraically equal but
+re-associated form, and the factor of $c$ in the pressure gradient applied
+after the division by $T_0$.
+
+\subsection{The operators}
+
+Notation, for a face field $g$ and a center field $q$, with the pole centers at
+$k = \pm m$ and the faces at half-integer indices:
+\begin{itemize}
+\item $\mathrm{div}_k[g] = (g_{k+1/2} - g_{k-1/2})/\Delta y$ at the interior
+  centers, and $2g_{-m+1/2}/\Delta y$ and $-2g_{m-1/2}/\Delta y$ at the two
+  poles (\path|v_divergence_at_centers|). Each pole value is the finite-volume
+  divergence of a half cell with one face, and since cells of equal width in
+  $y$ have equal area, $\mathrm{div}$ is the finite-volume divergence on the
+  sphere.
+\item $\bar{g}_k$ and $\bar{q}_{k+1/2}$: the two-point averages between the
+  grids (\path|v_faces_to_centers|, and the face average of $u$ in
+  \path|dv_dt|), with $\bar v = 0$ at the poles.
+\item $\delta^{\mathrm{up}}_k[q]$: the first-order upwind difference of $q$ on
+  the sign of $\bar v_k$ (\path|merid_advec_u|).
+\item $M_k[q]$: the MUSCL derivative with monotonized-central limited slopes,
+  upwinded from the equatorward side (\path|muscl_mc_du_dy|).
+\item $L_{k+1/2}[g]$: the three-point face Laplacian in the mirror-symmetric
+  association, with mirror ghosts beyond the outermost faces
+  (\path|v_face_laplacian|).
+\end{itemize}
+
+\paragraph{Coriolis force and meridional advection of $u$} (\path|du_dt|,
+\path|merid_advec_u|). Now $\beta y_k\,\bar v_k - \bar v_k\,\delta^{\mathrm{up}}_k[u]$;
+on the sphere $f_k\,\bar v_k - \bar v_k\,\delta^{\mathrm{up}}_k[cu]$.
+
+\paragraph{Vertical advection of $u$} (\path|vert_advec_u|).
+$\mathcal{G}_k\,u_k\,\mathrm{div}_k[cv]$, with the kinematic gate reading
+$\mathrm{div}_k[cv]$.
+
+\paragraph{The eddy term, form (c)} (\path|edd_mom_flux_div_u|).
+$\mathcal{S}_k = v_d\,\mathcal{H}(u_k)\,\mathrm{sgn}(y_k)\,c_k^{-1}M_k[c^2u]$.
+The MUSCL derivative is a difference of reconstructed face values: in the
+north, $M_k[q] = (q^L_{k+1/2} - q^L_{k-1/2})/\Delta y$, with
+$q^L_{k+1/2} = q_k + \tfrac12\Delta y\,\sigma_k$ the reconstruction from the
+equatorward cell and $\sigma$ the limited slope, and in the south the mirror
+form. So $c_k\mathcal{S}_k\,\Delta y$ is a difference of face values within
+each hemisphere's westerly region, and the sum over that region equals $v_d$
+times its boundary values, as in the continuous form. The checks script
+confirms this for $u = U\sin\varphi\cos\varphi$ to a relative
+$5\times10^{-17}$, and the literal form (b) fails the same check. The limiter
+acts on $c^2u$, the quantity form (c) differentiates, so the existing function
+is reused unchanged. The alternative, limiting $u$ and multiplying its face
+values by $c^2$, also reduces to the current operator on the plane, and it is
+the first change to test if the spherical eddy term proves noisy.
+
+\paragraph{Meridional momentum} (\path|dv_dt|). At each face,
+\[
+  2\,\partial_t v = -\Bigl(f + \frac{\tan\varphi}{a}\,\bar u\Bigr)\bar u
+    - \frac{gH}{T_0}\,c\,\frac{T_{k+1} - T_k}{\Delta y} + k_v\,c\,L[cv].
+\]
+The smoothing $c\,L[cv]$ is algebraically
+$c\,(\mathrm{div}_{k+1}[cv] - \mathrm{div}_k[cv])/\Delta y$, the face gradient
+of the discrete divergence, because the mirror ghost reproduces the half-cell
+divergence at the pole. The smoothing is therefore the discrete form of the chosen vector
+Laplacian, and it is exactly dissipative: summed over the faces, $v$ times
+$c\,L[cv]$ equals minus the sum over centers of $\mathrm{div}[cv]^2$, with half
+weights at the two pole half cells. So the smoothing never increases the sum
+of $v^2$ over the faces, and lowers it whenever the divergence is nonzero. The
+checks script confirms both
+identities to relative differences of $3\times10^{-16}$ and $1\times10^{-16}$. With $c = 1$ they hold for the
+current smoothing too, which is already the gradient of the discrete
+divergence.
+
+\paragraph{Thermodynamics.} The adiabatic term, in
+\path|vert_advec_theta|, is $-(\delta\Delta_z/H)\,\mathrm{div}_k[cv]$. The eddy
+heat diffusion, in \path|eddy_heat_flux| and off by default, becomes
+$\kappa_\theta\,\partial_y(c^2\partial_y\theta)$, with the current centered
+\path|np.gradient| applied twice.
+
+\paragraph{Moisture} (\path|moisture_transport_tendency|). The face flux is
+$F = c\,[\,c_W W^{\mathrm{MC}} - D\,c\,(W_{k+1} - W_k)/\Delta y\,]$, with
+$c_W = -(2a_W - 1)v$ the column transport velocity and $W^{\mathrm{MC}}$ the
+current limited upwind face value; the tendency is $-\mathrm{div}_k[F]$. Total
+water is conserved exactly, since the flux vanishes at the poles, and the
+half-cell weights of \path|cwv_integral| are the equal-area weights. The checks
+script confirms this to a relative $3\times10^{-18}$.
+
+\paragraph{Local terms.} Rayleigh drag, Newtonian cooling, precipitation and
+the latent heating of moist V2 are unchanged.
+
+\paragraph{Forcing} (\path|theta_e.py|). A new profile,
+$\theta_{00} - \Delta_y(s^2 - 2s_0s)$ with $s = y/a$ and $s_0 = \sin\varphi_0$.
+Moist V2 relaxes to this profile itself, as it relaxes to the current
+profiles since the merge; an explicit radiative target, from
+\path|--delta-y-rad|, replaces $\Delta_y$ with $\Delta_y^{\mathrm{rad}}$, as
+now.
+
+\subsection{The polar cells}
+
+Each pole center sits at the edge of a half cell covering 0.154\% of the
+sphere's area, 1/648. There $u = 0$, as at the current walls. No flux crosses a pole, since
+$c = 0$ there, so the pole divergence is that of a half cell with one face.
+The eddy term is zero at the poles, through $1/c = 0$; the condition $u = 0$
+discards the pole tendency anyway, and a zero keeps $u$'s leapfrog history
+there finite.
+
+Near a pole, a regular axisymmetric field is even or odd in the colatitude
+$\chi$. Since $y/a = \cos\chi$ and $\chi^2$ is an analytic function of
+$1 - y/a$, an even field is a smooth function of $y$ up to the pole, while an
+odd field is $(a - y)^{1/2}$ times a smooth function. The winds $u$ and $v$ are
+odd, and so is $c^2u$; $cu$, $cv$, $\theta$, $T$ and $W$ are even. The
+divergence, the pressure gradient, the advection of $cu$, the smoothing and the
+moisture fluxes all act on even fields, so the uniform grid in $y$ resolves
+them up to the poles. Three operations act on odd fields and lose accuracy in
+the outermost cells: the averages of $u$ and $v$ between centers and faces, and
+the eddy term's derivative of $c^2u$. For the regular field
+$v = V\sin\varphi\cos\varphi$, the face-to-center average of $v$ is off by
+3.5\% at 83.6$^\circ$, 0.85\% at 81.0$^\circ$ and 0.22\% at 77.2$^\circ$,
+while within 60$^\circ$ of the equator its error stays below $10^{-4}$ of
+$\max|v|$. The unit tests of phase 2 measure each operator's convergence order
+on regular test fields over the whole domain, polar cells included.
+
+\subsection{The timestep}
+
+In the coordinate $y$, gravity waves travel at $c$ times their physical speed,
+because the pressure gradient and the divergence each carry one factor of $c$.
+With the spacing in $y$ uniform, the wave limit on the timestep is then set at
+the equator and equals the beta plane's at the same $\Delta y$. The advection
+speed in $y$ is $cv$, and the smoothing's rate carries $c^2$, so neither grows
+toward the poles. The one term that does grow is the metric frequency
+$u\tan\varphi/a$: at the outermost faces, where $\tan\varphi = 12.7$, it is
+$2.0\times10^{-5}$ s$^{-1}$ for $u = 10$ m s$^{-1}$ and
+$6.0\times10^{-5}$ s$^{-1}$ for 30 m s$^{-1}$, 0.14 and 0.41 of $2\Omega$.
+These are expectations from the equations: phase 3 finds the ceiling by
+bisection, and no run configuration is chosen from them before then.
+
+\section{Changes, file by file}
+\label{sec:files}
+
+First written against commit \path|6503a62|, and re-derived on 2026-11-08
+against the merged \path|main|, commit \path|0dc0627|, with no change to the
+list. Between the two commits, \path|ss09/sw_config.py| changed two moist
+defaults, the lower-layer water fraction $a$ from 0.85 to 0.79 and the
+critical column water vapor $W_c$ from 50 to 40 kg m$^{-2}$, and made the
+radiative contrast $\Delta_y^{\mathrm{rad}}$ optional where it had defaulted
+to 75 K; \path|ss09/sw_model.py| changed the moist V2 relaxation target;
+\path|ss09/cli.py| changed help text; and the tests gained a fourth regression
+baseline, for moist V2, with its numba counterpart. None of these changes
+touches a field, function or option the list modifies, and the other source
+files in the list are unchanged.
+
+\begin{itemize}
+\item \path|ss09/sw_config.py|: fields \path|geometry| (\path|beta_plane|, the
+  default, or \path|sphere|), \path|radius| ($6.371\times10^6$ m) and
+  \path|rot_rate| ($7.292115\times10^{-5}$ s$^{-1}$); on the sphere, the grid
+  $a\,(k/m)$ with $n_y$ odd, the domain fixed at $2a$ (an explicit
+  \path|domain_size| or \path|beta| refused), the staggered grid only; the
+  geometry arrays, with their flat values on the beta plane.
+\item \path|ss09/sw_model.py|: the operators above, through the geometry
+  arrays; the collocated layout refuses the sphere, since it is kept frozen to
+  reproduce an earlier published version of the model; the output's $y$ described as
+  $a\sin\varphi$ on the sphere, with latitude coordinates for the centers and
+  faces.
+\item \path|ss09/numba_backend.py|: \path|run_day| takes the geometry arrays
+  and a switch for the metric term, and each fused loop gains the same factors
+  in the same positions as the numpy reference. The shared difference array
+  \path|diff| splits in two on the sphere, one for $cu$ and one for $c^2u$,
+  which on the plane both equal the current one exactly.
+\item \path|ss09/theta_e.py|: the spherical profile, with $\varphi_0$ in
+  degrees. The existing profiles are refused on the sphere, since their $y_1$
+  and plateau have no meaning there. Seasonal migration of $\varphi_0$ waits
+  for the later phase.
+\item \path|ss09/hadley_diagnostics.py|: the local Rossby number computed from
+  $\partial_y(cu)/f$ in place of $\partial_y u/(\beta y)$, with the call site
+  passing $f$ and $c$ in place of $\beta$; jet, cell-center and cell-edge
+  positions also reported as latitude. A maximum of $u$ in $y$ is a maximum in
+  latitude, since $y$ increases with $\varphi$, so the positions' definitions
+  are unchanged.
+\item \path|ss09/daily_results.py|: the latitude coordinates and the Rossby
+  number's description.
+\item \path|ss09/restart_state.py|: the compatibility check compares
+  \path|geometry|, \path|radius| and \path|rot_rate|, refusing a beta-plane
+  restart for a spherical run.
+\item \path|ss09/cli.py|: \path|--geometry|, \path|--radius|,
+  \path|--rot-rate|, the spherical forcing type and \path|--lat-0|; on the
+  sphere, \path|--beta|, \path|--domain-size|, \path|--y0| and \path|--y1|
+  refused.
+\item \path|ss09/steady_state.py|: unchanged. Its kinetic-energy metric, the
+  mean of $u^2 + v^2$ over the centers, is already an equal-area mean apart
+  from counting the two pole half cells as whole cells, and the smoothness
+  monitor looks for grid-scale noise in the grid's own coordinate.
+\item Tests: new tests of the geometry (antisymmetry, arrays, flat reduction)
+  and of the operators (convergence order on regular test fields, the
+  dissipation identity, water conservation, the eddy torque, mirror parity over
+  multi-day runs); the numba parity suite extended to spherical
+  configurations; the regression tests unchanged, which since the merge cover
+  four configurations: collocated, staggered, moist V1 and moist V2.
+\item Documentation: a section of \path|SCIENCE.md| on the spherical
+  formulation, and the new options in \path|README.md| and \path|CLAUDE.md|.
+\end{itemize}
+
+\section{Validation, with pass criteria}
+\label{sec:valid}
+
+Every criterion is set before its run. Where a criterion tests the model's
+operators, an analysis script in this repository's \path|validation/|
+directory computes it, independently of those operators.
+
+\paragraph{Code checks, on one machine} (phases 2 and 4).
+\begin{enumerate}
+\item The flat configuration reproduces the unmodified model bit for bit in the
+  four regression configurations, against a reference run, on the same
+  machine, of the \path|main| commit the spherical branch starts from. Commit
+  \path|6503a62| no longer serves, since the merge changed the moist defaults
+  and added the moist V2 configuration.
+\item The unit tests above.
+\item The numba kernel reproduces the numpy reference bit for bit on the
+  sphere, across the existing matrix of physics switches.
+\item A hemispherically symmetric forcing keeps exact mirror symmetry over a
+  30-day spherical run, and a run continued from a restart file reproduces the
+  uninterrupted run bit for bit.
+\end{enumerate}
+
+\paragraph{Runs on berimbau} (phase 3), all with the spherical forcing at
+$\Delta_y = 50$ K and $\varphi_0 = 0$ unless stated, each plotted and inspected
+before any number from it is reported.
+\begin{enumerate}[label=(\roman*)]
+\item \textbf{Drag-limited angular-momentum identity.} With $v_d = 0$ and the
+  vertical advection off, the steady $u$ equation is
+  $\bar v\,(f + \zeta) = \epsilon_u u$, so
+  $1 - \Ro_{\mathrm{loc}} = \epsilon_u u/(f\bar v)$ at every point, for
+  $\Ro_{\mathrm{loc}} = -\zeta/f$. Runs at $\epsilon_u = 10^{-8}$ and
+  $10^{-9}$ s$^{-1}$, the second at five drag timescales, 58,000 model days.
+  \emph{Pass:} between 5$^\circ$ and the jet, the two sides agree to within the residual of the steady
+  $u$ budget, with $\zeta$ computed by the analysis script from $u$. A model
+  missing the metric part of the advection would leave a residual of
+  $u\tan\varphi/(af)$: 0.057 for $u = 50$ m s$^{-1}$ at 20$^\circ$, and 0.022
+  for 20 m s$^{-1}$ at 10$^\circ$.
+\item \textbf{Steady budgets} at the production parameters. \emph{Pass:} the
+  residuals of the $u$, $v$ and $\theta$ budgets from the final 30-day means,
+  relative to each budget's largest term, are no larger than the beta-plane
+  twin's of item (iv).
+\item \textbf{Timestep and resolution.} The timestep ceiling at $n_y = 325$,
+  found by bisection, and a twin at $n_y = 649$, with $\Delta y$ halved.
+  \emph{Pass:} the whole-field $\max|\Delta|$ of $u$, $v$ and $\theta$ within
+  40$^\circ$ of the equator, each scaled by its field's maximum, is no larger
+  than that of the beta-plane twin at the same two spacings. The polar cells
+  are reported separately.
+\item \textbf{Scaling of the curvature effect.} The sphere beside its
+  beta-plane twin: $\beta = 2\Omega/a$, walls at $\pm\pi a/2$, the distance
+  from equator to pole, and the same $\theta_E$ as a function of latitude, with
+  $\varphi = y/a$. That forcing is the existing profile of Schneider and
+  Bordoni (2008) with $y_1 = \pi a/2$ and $y_0 = a\varphi_0$. The two models
+  then differ only through curvature: the factors of $c$, the metric term,
+  $2\Omega\sin\varphi$ in place of $2\Omega\varphi$, and the spherical form of
+  the eddy closure. Each enters at relative order $\varphi^2$, and the square
+  of the cell's latitude extent grows with $\Delta_y$, so the relative
+  difference between sphere and twin in the jet and cell-edge latitudes should
+  scale with the square of the twin's cell-edge latitude, $\varphi_e^2$ in
+  radians. Runs at $\Delta_y = 12.5$, 25 and 50 K, with the twin on 508
+  intervals ($n_y = 509$, keeping a center on the equator), a spacing 0.18\%
+  above the sphere's. \emph{Pass:} that relative difference divided by
+  $\varphi_e^2$ is the same across the three rungs to within the numerical
+  uncertainty from item (iii), once the next-order term in $\varphi_e^2$ is
+  allowed for. A curvature term entering at the wrong order, such as a dropped
+  factor of $c$, breaks the proportionality. The runs belong to phase 3; the
+  next-order term comes from theory, so this criterion is evaluated in the
+  science project of Section~\ref{sec:handoff}. This test
+  replaces the earlier plan's ladder of planetary radii at fixed $2\Omega/a$:
+  at fixed $\Delta_y$ that ladder narrows the cell in latitude in the same way,
+  and it would have required planets other than Earth.
+\end{enumerate}
+
+\section{Handoff to the science runs}
+\label{sec:handoff}
+
+Phases 2 to 4 belong to this repository. Phase 5, the science runs on
+the sphere, belongs to a separate research project in the private repository
+\path|spencerahill/fixed-ro-eq-area|. That project takes over once both of the
+following hold:
+\begin{enumerate}
+\item The spherical option is merged into \path|main|, with code checks 1 to 4
+  of Section~\ref{sec:valid} passing.
+\item Validation runs (i) to (iii) have passed, and the runs of item (iv) are
+  complete, with the evaluation of their pass criterion left to the science
+  project.
+\end{enumerate}
+The science project then needs four things from this repository: the commit of
+\path|main| that adds the spherical option; the location on berimbau of the
+output of validation runs (i) to (iv); the analysis scripts in
+\path|validation/| that scored items (i) to (iii); and the measured timestep
+ceiling at $n_y = 325$ with the cost per model day on the sphere.
+
+\section{Risks}
+
+\begin{enumerate}
+\item \textbf{The polar cells.} The averages between grids and the eddy term
+  lose accuracy there, as the polar-cells subsection quantifies. If grid-scale
+  noise appears near the poles, in the $v$-smoothness monitor or the
+  resolution twin, the first remedy to test is a stronger smoothing confined
+  to the outermost cells, a departure from the current numerics tested on its
+  own.
+\item \textbf{The limiter on $c^2u$.} If the gated eddy term is noisy on the
+  sphere, the alternative of limiting $u$ is the first change to test.
+\item \textbf{The timestep.} The expectation that the ceiling equals the beta
+  plane's at the same $\Delta y$ comes from the equations, and the bisection
+  may contradict it.
+\item \textbf{The bit-for-bit reduction.} The numba kernel shares one
+  difference array between two terms that need different ones on the sphere.
+  Splitting it keeps the flat values exactly, but any reordering made while
+  splitting would show as a failure of code check 1, and the fix belongs in the
+  restructured code.
+\end{enumerate}
+
+\section*{References}
+
+\begin{list}{}{\leftmargin=1.5em \itemindent=-1.5em \itemsep=2pt}
+\item Adam, O., and N. Paldor, 2009: Global circulation in an axially symmetric
+  shallow water model forced by equinoctial differential heating.
+  \emph{J. Atmos. Sci.}, \textbf{66}, 1418--1433,
+  \url{https://doi.org/10.1175/2008JAS2685.1}.
+\item Held, I. M., and A. Y. Hou, 1980: Nonlinear axially symmetric
+  circulations in a nearly inviscid atmosphere. \emph{J. Atmos. Sci.},
+  \textbf{37}, 515--533.
+\item Schneider, T., and S. Bordoni, 2008: Eddy-mediated regime transitions in
+  the seasonal cycle of a Hadley circulation and implications for monsoon
+  dynamics. \emph{J. Atmos. Sci.}, \textbf{65}, 915--934.
+\item Sobel, A. H., and T. Schneider, 2009: Single-layer axisymmetric model for
+  a Hadley circulation with parameterized eddy momentum forcing. \emph{J. Adv.
+  Model. Earth Syst.}, \textbf{1}, 10,
+  \url{https://doi.org/10.3894/JAMES.2009.1.10}.
+\item Sobel, A. H., and T. Schneider, 2013: Correction to ``Single-layer
+  axisymmetric model for a Hadley circulation with parameterized eddy momentum
+  forcing''. \emph{J. Adv. Model. Earth Syst.}, \textbf{5}, 654--657,
+  \url{https://doi.org/10.1002/jame.20030}.
+\item Xian, P., and R. L. Miller, 2008: Abrupt seasonal migration of the ITCZ
+  into the summer hemisphere. \emph{J. Atmos. Sci.}, \textbf{65}, 1878--1895,
+  \url{https://doi.org/10.1175/2007JAS2367.1}.
+\end{list}
+
+\end{document}
