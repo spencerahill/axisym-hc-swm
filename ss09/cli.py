@@ -1,6 +1,8 @@
 import argparse
 import logging
-from .theta_e import ThetaEConfig, SS09Profile, Sin2Profile, SB08Profile
+from .theta_e import (
+    ThetaEConfig, SS09Profile, Sin2Profile, SB08Profile, SphericalProfile,
+)
 from .sw_config import SWConfig
 from .sw_model import SECONDS_PER_DAY, SWModel
 from .output_path_utils import generate_descriptive_path
@@ -30,8 +32,45 @@ def parse_arguments():
     parser.add_argument(
         "--beta",
         type=float,
-        default=2e-11,
-        help="Beta parameter (default: 2e-11)",
+        default=None,  # None to detect it on the sphere, where it is refused
+        help="Beta parameter (default: 2e-11; beta plane only)",
+    )
+    parser.add_argument(
+        "--geometry",
+        type=str,
+        choices=["beta_plane", "sphere"],
+        default="beta_plane",
+        help=(
+            "'beta_plane' (default) or 'sphere': the coordinate y = a sin(lat) "
+            "on a grid uniform in y from pole to pole (odd --ny), with the "
+            "spherical forcing profile; staggered grid, dry, non-seasonal"
+        ),
+    )
+    parser.add_argument(
+        "--radius",
+        type=float,
+        default=None,
+        help="Planetary radius in m (default: 6.371e6; sphere only)",
+    )
+    parser.add_argument(
+        "--rot-rate",
+        type=float,
+        default=None,
+        dest="rot_rate",
+        help=(
+            "Planetary rotation rate in s^-1 (default: 7.292115e-5, Earth's "
+            "sidereal rate; sphere only)"
+        ),
+    )
+    parser.add_argument(
+        "--lat-0",
+        type=float,
+        default=None,
+        dest="lat_0",
+        help=(
+            "Latitude of the forcing's heating maximum in degrees (default: 0; "
+            "sphere only, in place of --y0)"
+        ),
     )
     parser.add_argument(
         "--t-ref",
@@ -62,17 +101,20 @@ def parse_arguments():
     parser.add_argument(
         "--theta-e-type",
         type=str,
-        choices=["SS09", "sin2", "SB08"],
-        default="sin2",
+        choices=["SS09", "sin2", "SB08", "sphere"],
+        default=None,  # None resolves by geometry
         dest="theta_e_type",
-        help="Profile to use for theta_e calculation (default: sin2)",
+        help=(
+            "Profile to use for theta_e calculation (default: sin2 on the "
+            "beta plane; sphere, the only profile there, on the sphere)"
+        ),
     )
     parser.add_argument(
         "--y0",
         type=float,
-        default=0.0,
+        default=None,  # None to detect it on the sphere, where it is refused
         dest="y_0",
-        help="Position in meters north of the domain center where the theta_e profile peaks (default: 0.0)",
+        help="Position in meters north of the domain center where the theta_e profile peaks (default: 0.0; beta plane only)",
     )
     parser.add_argument(
         "--delta-y",
@@ -91,9 +133,9 @@ def parse_arguments():
     parser.add_argument(
         "--y1",
         type=float,
-        default=9439e3,
+        default=None,  # None to detect it on the sphere, where it is refused
         dest="y_one",
-        help="Width parameter for the θₑ profile (default: 9439e3 m)",
+        help="Width parameter for the θₑ profile (default: 9439e3 m; beta plane only)",
     )
     # Seasonal cycle arguments (ITCZ migration)
     parser.add_argument(
@@ -182,9 +224,9 @@ def parse_arguments():
     parser.add_argument(
         "--domain-size",
         type=float,
-        default=15751e3 * 2,
+        default=None,  # None to detect it on the sphere, where it is refused
         dest="domain_size",
-        help="Size of the domain (default: 31502000 m)",
+        help="Size of the domain (default: 31502000 m; beta plane only)",
     )
     parser.add_argument(
         "--asselin-coef",
@@ -579,6 +621,8 @@ def parse_arguments():
                 "heating coefficient have no effect without the feedback)."
             )
 
+    _resolve_geometry_args(args)
+
     # Apply conditional default for ndays
     if args.total_integration_days is None:
         if args.enable_steady_state:
@@ -587,6 +631,62 @@ def parse_arguments():
             args.total_integration_days = 250  # Original default
 
     return args
+
+
+# Beta-plane-only flags, refused on the sphere, with their beta-plane defaults.
+_BETA_PLANE_FLAGS = {
+    "beta": ("--beta", 2e-11),
+    "domain_size": ("--domain-size", 15751e3 * 2),
+    "y_0": ("--y0", 0.0),
+    "y_one": ("--y1", 9439e3),
+}
+# Sphere-only flags, refused on the beta plane (SWConfig and ThetaEConfig hold
+# their defaults).
+_SPHERE_FLAGS = {
+    "radius": "--radius",
+    "rot_rate": "--rot-rate",
+    "lat_0": "--lat-0",
+}
+
+
+def _resolve_geometry_args(args) -> None:
+    """Refuse the flags that do not apply to the chosen geometry, then fill
+    in the beta-plane defaults and the forcing profile."""
+    sphere = args.geometry == "sphere"
+    if sphere:
+        provided = [
+            flag for attr, (flag, _) in _BETA_PLANE_FLAGS.items()
+            if getattr(args, attr) is not None
+        ]
+        if provided:
+            raise SystemExit(
+                f"Error: {', '.join(provided)} cannot be used with --geometry "
+                "sphere (the domain runs pole to pole, f = 2 Omega sin(lat), "
+                "and the forcing's heating maximum is set by --lat-0)."
+            )
+        if args.theta_e_type is None:
+            args.theta_e_type = "sphere"
+        elif args.theta_e_type != "sphere":
+            raise SystemExit(
+                f"Error: --theta-e-type {args.theta_e_type} is a beta-plane "
+                "profile; --geometry sphere uses --theta-e-type sphere."
+            )
+    else:
+        provided = [
+            flag for attr, flag in _SPHERE_FLAGS.items()
+            if getattr(args, attr) is not None
+        ]
+        if args.theta_e_type == "sphere":
+            provided.append("--theta-e-type sphere")
+        if provided:
+            raise SystemExit(
+                f"Error: {', '.join(provided)} requires --geometry sphere."
+            )
+        if args.theta_e_type is None:
+            args.theta_e_type = "sin2"
+    for attr, (_, default) in _BETA_PLANE_FLAGS.items():
+        if getattr(args, attr) is None:
+            setattr(args, attr, default)
 
 
 def _resolve_emfd_stencil(args) -> str:
@@ -659,11 +759,13 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
         enable_moisture=getattr(args, "enable_moisture", False),
         # Moist V2: same treatment for the latent-heating parameters.
         enable_latent_heating=getattr(args, "enable_latent_heating", False),
+        geometry=getattr(args, "geometry", "beta_plane"),
+        # The planet parameters likewise: forwarded only when set.
         **{
             attr: val
             for attr in (
                 "cwv_frac", "d_w", "w_crit", "tau_c", "evap", "w_init",
-                "delta_y_rad", "lambda_conv",
+                "delta_y_rad", "lambda_conv", "radius", "rot_rate",
             )
             if (val := getattr(args, attr, None)) is not None
         },
@@ -698,6 +800,13 @@ def setup_theta_e_config(args) -> ThetaEConfig:
         seasonal_phase_days=getattr(args, 'seasonal_phase_days', 0.0),
         seasonal_cycle_type=getattr(args, 'seasonal_cycle_type', "sin"),
         tanh_steepness=getattr(args, 'tanh_steepness', 4.0),
+        # Spherical profile only: forwarded when set, so ThetaEConfig's
+        # defaults stay authoritative (the radius matches SWConfig's).
+        **{
+            attr: val
+            for attr in ("lat_0", "radius")
+            if (val := getattr(args, attr, None)) is not None
+        },
     )
 
 
@@ -721,6 +830,7 @@ def main():
         "SS09": SS09Profile,
         "sin2": Sin2Profile,
         "SB08": SB08Profile,
+        "sphere": SphericalProfile,
     }[theta_e_config.theta_e_type]
     theta_e_profile = theta_e_profile_class(theta_e_config)
 

@@ -4,6 +4,7 @@ import warnings
 
 import numpy as np
 
+from .geometry import beta_plane_geometry, sphere_geometry, sphere_grid
 from .moist_constants import latent_heating_coeff
 
 SECONDS_PER_DAY = 86400
@@ -46,6 +47,17 @@ class SWConfig:
     grid: str = "staggered"
     nv: int = field(init=False)  # length of the v array (ny or ny-1)
     y_v: np.ndarray = field(init=False)  # v-grid coordinate (centers or faces)
+    # Geometry. "beta_plane" (default): f = beta*y on a channel of width
+    # domain_size, the formulation of every run before 2026-11-08.
+    # "sphere": the coordinate y = a sin(lat) on a grid uniform in y from
+    # pole to pole (ny odd, so a center sits on the equator), f =
+    # (2 Omega / a) y, and the spherical factors of cos(lat) in the operators
+    # (see geometry.py and SCIENCE.md). radius and rot_rate are Earth's mean
+    # radius and the WGS84 rotation rate (one turn per sidereal day); both
+    # are used only on the sphere.
+    geometry: str = "beta_plane"
+    radius: float = 6.371e6
+    rot_rate: float = 7.292115e-5
     # Integration backend. "numpy": the reference implementation (default).
     # "numba": JIT-compiled fused day kernel, bitwise-identical to numpy;
     # staggered grid only (the collocated layout is the bit-exact Zhang et
@@ -139,8 +151,31 @@ class SWConfig:
     lambda_conv: Optional[float] = None  # Lambda = L_v/C; None -> derived
 
     def __post_init__(self):
-        self.dy = self.domain_size / (self.ny - 1)
-        self.y = np.linspace(-self.domain_size / 2, self.domain_size / 2, self.ny)
+        valid_geometries = ("beta_plane", "sphere")
+        if self.geometry not in valid_geometries:
+            raise ValueError(
+                f"geometry must be one of {valid_geometries}, got "
+                f"{self.geometry!r}"
+            )
+        defaults = type(self).__dataclass_fields__
+        if self.geometry == "sphere":
+            self._validate_sphere(defaults)
+            # The domain runs pole to pole in y = a sin(lat).
+            self.domain_size = 2.0 * self.radius
+            self.dy = self.domain_size / (self.ny - 1)
+            self.y = sphere_grid(self.radius, self.ny)
+        else:
+            # A planet parameter on the beta plane would be silently inert;
+            # refuse it instead (repo style).
+            for name in ("radius", "rot_rate"):
+                if getattr(self, name) != defaults[name].default:
+                    raise ValueError(
+                        f"{name}={getattr(self, name)} has no effect on the "
+                        "beta plane; pass geometry='sphere' (--geometry "
+                        "sphere) to use it"
+                    )
+            self.dy = self.domain_size / (self.ny - 1)
+            self.y = np.linspace(-self.domain_size / 2, self.domain_size / 2, self.ny)
 
         valid_stencils = ("centered", "upwind", "mc")
         if self.emfd_stencil not in valid_stencils:
@@ -164,6 +199,14 @@ class SWConfig:
         else:
             self.nv = self.ny
             self.y_v = self.y
+
+        # Geometry arrays, computed once. A plain attribute rather than a
+        # dataclass field, so the restart and output attribute dumps (which
+        # iterate the fields) are unchanged by it.
+        if self.geometry == "sphere":
+            self.geom = sphere_geometry(self.y, self.y_v, self.radius, self.rot_rate)
+        else:
+            self.geom = beta_plane_geometry(self.y, self.y_v, self.beta)
 
         valid_backends = ("numpy", "numba")
         if self.backend not in valid_backends:
@@ -326,4 +369,38 @@ class SWConfig:
                 f"Steady-state window size ({self.steady_state_window_size}) exceeds "
                 f"total integration days ({self.total_integration_days}). "
                 f"Convergence detection will not trigger."
+            )
+
+    def _validate_sphere(self, defaults) -> None:
+        """Refuse the settings that have no meaning on the sphere, or that
+        the spherical option does not support yet."""
+        if self.domain_size != defaults["domain_size"].default:
+            raise ValueError(
+                f"domain_size={self.domain_size} cannot be set on the sphere, "
+                "where the domain runs pole to pole and is fixed at 2*radius "
+                "in the coordinate y = a sin(lat); set radius instead"
+            )
+        if self.beta != defaults["beta"].default:
+            raise ValueError(
+                f"beta={self.beta} cannot be set on the sphere, where the "
+                "Coriolis parameter is (2 * rot_rate / radius) * y; set "
+                "rot_rate and radius instead"
+            )
+        if self.ny < 3 or self.ny % 2 == 0:
+            raise ValueError(
+                f"ny must be odd and at least 3 on the sphere, so that a "
+                f"center sits on the equator; got ny={self.ny}"
+            )
+        if self.grid != "staggered":
+            raise ValueError(
+                "geometry='sphere' requires the staggered grid; the "
+                "collocated layout is kept frozen as the reproduction path of "
+                "an earlier published version of the model"
+            )
+        if self.enable_moisture:
+            raise ValueError(
+                "enable_moisture=True is not yet supported on the sphere: "
+                "moist V1 and V2 on the sphere wait for their own validation "
+                "(the spherical moisture flux is implemented in "
+                "moisture_transport_tendency but not yet run)"
             )

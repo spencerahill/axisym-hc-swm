@@ -386,15 +386,65 @@ class DailyResults:
         )
 
         coords = {"time": time_coord, "y": config.y}
+        sphere = getattr(config, "geometry", "beta_plane") == "sphere"
         if staggered:
             coords["y_face"] = xr.DataArray(
                 data=config.y_v,
                 dims=["y_face"],
                 attrs={
                     "units": "m",
-                    "long_name": "meridional distance from equator (v faces)",
+                    "long_name": (
+                        "a sin(latitude) at the v faces" if sphere
+                        else "meridional distance from equator (v faces)"
+                    ),
                     "grid": "staggered_face",
                 },
             )
 
+        if sphere:
+            self._add_sphere_latitudes(config, data_vars, coords)
+
         return xr.Dataset(data_vars=data_vars, coords=coords)
+
+    @staticmethod
+    def _add_sphere_latitudes(config, data_vars: dict, coords: dict) -> None:
+        """On the sphere, y = a sin(latitude) stays the coordinate, so that
+        existing analysis code reads the files unchanged; latitude is added
+        beside it, for the grid and for every position diagnostic."""
+        coords["lat"] = xr.DataArray(
+            data=config.geom.lat, dims=["y"],
+            attrs={"units": "degrees_north", "long_name": "latitude"},
+        )
+        coords["lat_face"] = xr.DataArray(
+            data=config.geom.lat_face, dims=["y_face"],
+            attrs={"units": "degrees_north", "long_name": "latitude (v faces)"},
+        )
+        for name, _, _ in _HADLEY_VARS:
+            var = data_vars.get(name)
+            if var is None or var.attrs.get("units") != "m":
+                continue
+            var.attrs["description"] = (
+                var.attrs.get("description", "")
+                + "; in the coordinate y = a sin(latitude), not distance"
+            )
+            s = np.clip(np.asarray(var.values) / config.radius, -1.0, 1.0)
+            data_vars[f"{name}_deg"] = xr.DataArray(
+                data=np.rad2deg(np.arcsin(s)),
+                dims=var.dims,
+                attrs={
+                    "units": "degrees_north",
+                    "long_name": var.attrs["long_name"] + ", as latitude",
+                },
+            )
+        for name in ("north_hadley_width", "south_hadley_width"):
+            if name in data_vars:
+                data_vars[name].attrs["description"] += (
+                    "; on the sphere a difference of y = a sin(latitude), "
+                    "not a distance"
+                )
+        if "rossby_number" in data_vars:
+            data_vars["rossby_number"].attrs["description"] = (
+                "-zeta/f, with zeta = -d(cos(lat) u)/dy the relative vorticity "
+                "in the coordinate y = a sin(lat) and f = 2 Omega sin(lat). "
+                "NaN near equator to avoid singularity."
+            )
