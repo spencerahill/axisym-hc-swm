@@ -381,6 +381,83 @@ def test_spherical_eddy_term_accuracy():
     assert max(maxes) < 0.012, maxes
 
 
+# --- the three spherical forms of the eddy term ---------------------------------
+#
+# The plan compared three forms of S on the sphere (emfd_form, sphere only):
+#   "angular_momentum" (default): (v_d H(u) sgn(y) / c) d(c^2 u)/dy
+#   "vorticity":                   v_d H(u) sgn(y) d(c u)/dy
+#   "literal":                     v_d H(u) sgn(y) c du/dy
+# All three are v_d H(u) sgn(y) du/dy on the beta plane, where c = 1.
+
+def test_emfd_form_validation():
+    assert SWConfig(geometry="sphere", ny=41).emfd_form == "angular_momentum"
+    for form in ("vorticity", "literal"):
+        assert SWConfig(geometry="sphere", ny=41, emfd_form=form).emfd_form == form
+    with pytest.raises(ValueError, match="emfd_form must be one of"):
+        SWConfig(geometry="sphere", ny=41, emfd_form="flux")
+    with pytest.raises(ValueError, match="emfd_form=vorticity has no effect on the beta plane"):
+        SWConfig(ny=41, emfd_form="vorticity")
+    assert SWConfig(ny=41).emfd_form == "angular_momentum"
+
+
+@pytest.mark.parametrize("form", ["angular_momentum", "vorticity", "literal"])
+def test_emfd_form_selects_its_formula(form):
+    """With the gate on and a random u, each form's term equals its formula
+    built from the MC stencil, bit for bit."""
+    model = sphere_model(ny=81, emfd_form=form)
+    cfg, g = model.config, model.config.geom
+    rng = np.random.default_rng(3)
+    u = 20.0 * rng.standard_normal(cfg.ny)
+    u[[0, -1]] = 0.0
+    model.state = model.state._replace(u=u)
+    gate = np.heaviside(u, 0.5)
+    sgn = np.sign(cfg.y)
+    if form == "angular_momentum":
+        expected = cfg.v_d * gate * sgn * (
+            g.inv_cos_lat * muscl_mc_du_dy(g.cos2_lat * u, cfg.dy, cfg.y))
+    elif form == "vorticity":
+        expected = cfg.v_d * gate * sgn * muscl_mc_du_dy(g.cos_lat * u, cfg.dy, cfg.y)
+    else:
+        expected = cfg.v_d * gate * sgn * (g.cos_lat * muscl_mc_du_dy(u, cfg.dy, cfg.y))
+    assert np.count_nonzero(expected) > cfg.ny // 4
+    np.testing.assert_array_equal(model.edd_mom_flux_div_u(), expected)
+
+
+# Measured 2026-11-08 at ny = 161, 321, 641, with the pole centers excluded
+# (u is pinned to zero there). The mean error within 60 degrees falls at
+# orders 1.66, 1.57 for the vorticity form and 1.49, 1.70 for the literal
+# form. The largest error over the domain is 6.5e-4, 6.3e-4, 5.3e-4 of max|S|
+# for the vorticity form, whose stencil acts on c u, smooth in y; for the
+# literal form it is 0.186, 0.177, 0.173 of max|S|, in the outermost interior
+# cells, where the stencil acts on u = c F(s), whose y-derivative is
+# unbounded at the poles.
+FORM_BOUNDS = {"vorticity": (3, 1.5, 1e-3), "literal": (2, 1.4, 0.19)}
+
+
+@pytest.mark.parametrize("form", list(FORM_BOUNDS))
+def test_spherical_eddy_term_alternative_forms_accuracy(form):
+    """The vorticity and literal forms, gate off, on u = c U s e^s, whose
+    exact values are v_d sgn(y) (U/a) e^s (1 + s - k s^2 - s^3) with k = 3
+    and k = 2 (k = 4 is the angular-momentum form above; all three were
+    checked with sympy)."""
+    k, order_lo, max_hi = FORM_BOUNDS[form]
+    means, maxes = [], []
+    for ny in (161, 321, 641):
+        model = sphere_model(ny=ny, emfd_heaviside_gate=False, emfd_form=form)
+        cfg, g = model.config, model.config.geom
+        s = cfg.y / A
+        model.state = model.state._replace(u=g.cos_lat * U0 * s * np.exp(s))
+        exact = (cfg.v_d * np.sign(cfg.y) * U0 * np.exp(s)
+                 * (1 + s - k * s**2 - s**3) / A)
+        err = (np.abs(model.edd_mom_flux_div_u() - exact) / np.max(np.abs(exact)))[1:-1]
+        lat = g.lat[1:-1]
+        means.append(np.mean(err[np.abs(lat) <= 60.0]))
+        maxes.append(np.max(err))
+    orders = np.log2(np.array(means[:-1]) / np.array(means[1:]))
+    assert np.all(orders >= order_lo), orders
+    assert max(maxes) < max_hi, maxes
+
+
 def test_metric_term_and_coriolis_in_v_equation():
     """With theta uniform and v = 0 (no pressure gradient, no smoothing),
     2 dv/dt = -(f + u tan(lat)/a) u at the faces, with u the face average."""
@@ -712,6 +789,20 @@ def test_cli_sphere_run(tmp_path):
     assert ds.attrs["geometry"] == "sphere"
     assert ds.attrs["theta_e_lat_0"] == 4.0
     assert ds.sizes["y"] == 41 and "lat" in ds.coords
+    assert ds.attrs["emfd_form"] == "angular_momentum"
+    ds.close()
+
+
+def test_cli_sphere_emfd_form(tmp_path):
+    out = str(tmp_path / "sphere_vorticity.nc")
+    proc = subprocess.run(
+        ["run-sw-model", "--geometry", "sphere", "--ny", "41", "--dt", "300",
+         "--ndays", "1", "--emfd-form", "vorticity", "--output-path", out],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    ds = xr.open_dataset(out, decode_times=False)
+    assert ds.attrs["emfd_form"] == "vorticity"
     ds.close()
 
 
@@ -726,6 +817,7 @@ def test_cli_sphere_run(tmp_path):
         (["--lat-0", "5"], "--lat-0"),
         (["--radius", "3e6"], "--radius"),
         (["--theta-e-type", "sphere"], "--theta-e-type sphere"),
+        (["--emfd-form", "literal"], "--emfd-form requires --geometry sphere"),
     ],
 )
 def test_cli_geometry_refusals(args, message):

@@ -165,7 +165,7 @@ def run_day(
     temp_u, temp_v, temp_theta, temp_time,
     start_step, dt,
     y, dy,
-    f, f_face, cos_lat, cos_lat_face, cos2_lat, inv_cos_lat, metric_face,
+    f, f_face, cos_lat, cos_lat_face, cos2_lat, emfd_coef, emfd_pre, metric_face,
     metric_on,
     v_d, epsilon_u, k_v, gravity, height, t_ref,
     tau, delta, delta_z, theta_to_temp, asselin_coef, coeff_eddy_heat_diff,
@@ -203,8 +203,9 @@ def run_day(
       add does;
     - each one-sided difference is precomputed once per step and reused,
       matching the reference's shared arrays: (q1[j+1]-q1[j])/dy into
-      `diff_cu` and (q2[j+1]-q2[j])/dy into `diff_c2u`, with q1 = cos(lat) u
-      and q2 = cos^2(lat) u (both u itself on the beta plane).
+      `diff_cu` and (qe[j+1]-qe[j])/dy into `diff_qe`, with q1 = cos(lat) u
+      and qe = emfd_coef * u, the field the eddy term's stencil acts on (both
+      u itself on the beta plane).
 
     Moist V1 (moist_on): the prognostic column water vapor W rides passively
     on the dry circulation. Its leapfrog step is interleaved per step here,
@@ -236,8 +237,14 @@ def run_day(
     leaves every beta-plane value bit-for-bit unchanged; metric_on (the
     sphere) adds the metric term metric_face*uf*uf. The single difference
     array of the beta-plane kernel splits in two: diff_cu, of cos(lat) u,
-    for the meridional advection, and diff_c2u, of cos^2(lat) u, for the
+    for the meridional advection, and diff_qe, of emfd_coef * u, for the
     eddy term's stencil; on the beta plane both equal the old one exactly.
+    The eddy term is emfd_pre * (stencil of emfd_coef * u), and the pair
+    (emfd_coef, emfd_pre) from emfd_form_factors selects the form of
+    sw_model's edd_mom_flux_div_u: (cos^2, 1/cos) for the angular-momentum
+    form, (cos, 1) for the vorticity form, (1, cos) for the literal form.
+    A factor of exactly 1.0 stands in for the reference's absent one, which
+    leaves every value unchanged, signed zeros and NaN included.
     """
     nsteps = temp_u.shape[0]
     te_rows = theta_e_day.shape[0]
@@ -247,9 +254,9 @@ def run_day(
 
     # scratch, allocated once per day
     q1 = np.empty(ny)  # cos(lat) u
-    q2 = np.empty(ny)  # cos^2(lat) u
+    qe = np.empty(ny)  # emfd_coef * u, the field the eddy stencil acts on
     diff_cu = np.empty(ny - 1)  # (q1[j+1] - q1[j]) / dy
-    diff_c2u = np.empty(ny - 1)  # (q2[j+1] - q2[j]) / dy
+    diff_qe = np.empty(ny - 1)  # (qe[j+1] - qe[j]) / dy
     cv = np.empty(nv)  # cos(lat) v at the faces
     vc = np.empty(ny)  # v at centers
     dvdy = np.empty(ny)  # compact divergence at centers
@@ -273,10 +280,10 @@ def run_day(
         # --- grid-coupling scratches from the current state ---
         for j in range(ny):
             q1[j] = cos_lat[j] * u[j]
-            q2[j] = cos2_lat[j] * u[j]
+            qe[j] = emfd_coef[j] * u[j]
         for j in range(ny - 1):
             diff_cu[j] = (q1[j + 1] - q1[j]) / dy
-            diff_c2u[j] = (q2[j + 1] - q2[j]) / dy
+            diff_qe[j] = (qe[j + 1] - qe[j]) / dy
         for j in range(nv):
             cv[j] = cos_lat_face[j] * v[j]
         vc[0] = 0.0
@@ -287,34 +294,34 @@ def run_day(
             vc[j] = 0.5 * (v[j - 1] + v[j])
             dvdy[j] = (cv[j] - cv[j - 1]) / dy
 
-        # EMFD stencil, applied to q2 = cos^2(lat) u (u on the beta plane)
+        # EMFD stencil, applied to qe = emfd_coef * u (u on the beta plane)
         if stencil_code == 1:  # upwind: one-sided from the equatorward side
             for j in range(ny):
-                backward = diff_c2u[j - 1] if j >= 1 else 0.0
-                forward = diff_c2u[j] if j <= ny - 2 else 0.0
+                backward = diff_qe[j - 1] if j >= 1 else 0.0
+                forward = diff_qe[j] if j <= ny - 2 else 0.0
                 du_dy[j] = backward if y[j] > 0 else forward
         elif stencil_code == 2:  # mc
             for j in range(ny):
-                dm = diff_c2u[j - 1] if j >= 1 else 0.0
-                dp = diff_c2u[j] if j <= ny - 2 else 0.0
+                dm = diff_qe[j - 1] if j >= 1 else 0.0
+                dp = diff_qe[j] if j <= ny - 2 else 0.0
                 centered = 0.5 * (dm + dp)
                 mag = np.minimum(
                     np.minimum(np.abs(2.0 * dm), np.abs(2.0 * dp)), np.abs(centered)
                 )
                 sigma[j] = np.sign(dm) * mag if dm * dp > 0 else 0.0
             for j in range(ny):
-                dm = diff_c2u[j - 1] if j >= 1 else 0.0
-                dp = diff_c2u[j] if j <= ny - 2 else 0.0
+                dm = diff_qe[j - 1] if j >= 1 else 0.0
+                dp = diff_qe[j] if j <= ny - 2 else 0.0
                 sigma_m = sigma[j - 1] if j >= 1 else 0.0
                 sigma_p = sigma[j + 1] if j <= ny - 2 else 0.0
                 backward = dm + 0.5 * (sigma[j] - sigma_m)
                 forward = dp - 0.5 * (sigma_p - sigma[j])
                 du_dy[j] = backward if y[j] > 0 else forward
         else:  # centered: np.gradient replica
-            du_dy[0] = (q2[1] - q2[0]) / dy
-            du_dy[ny - 1] = (q2[ny - 1] - q2[ny - 2]) / dy
+            du_dy[0] = (qe[1] - qe[0]) / dy
+            du_dy[ny - 1] = (qe[ny - 1] - qe[ny - 2]) / dy
             for j in range(1, ny - 1):
-                du_dy[j] = (q2[j + 1] - q2[j - 1]) / (2.0 * dy)
+                du_dy[j] = (qe[j + 1] - qe[j - 1]) / (2.0 * dy)
 
         # eddy heat flux first pass: d1 = cos^2(lat) * np.gradient(theta, dy)
         if coeff_eddy_heat_diff != 0.0:
@@ -350,7 +357,7 @@ def run_day(
                 gate = 1.0 if u[j] > 0.0 else (0.0 if u[j] < 0.0 else 0.5)
             else:
                 gate = 1.0
-            emfd = v_d * gate * np.sign(y[j]) * (inv_cos_lat[j] * du_dy[j])
+            emfd = v_d * gate * np.sign(y[j]) * (emfd_pre[j] * du_dy[j])
             dudt = f[j] * vc[j] - merid - vert - u[j] * epsilon_u - emfd
             un = u_prev[j] + two_dt * dudt
             u_prev[j] = u[j] + asselin_coef * (un + u_prev[j] - 2 * u[j])
@@ -471,6 +478,20 @@ _MOIST_DUMMY_1D = np.empty(0)
 _MOIST_DUMMY_2D = np.empty((0, 0))
 
 
+def emfd_form_factors(config):
+    """(emfd_coef, emfd_pre) for run_day: the eddy term is emfd_pre times the
+    stencil of emfd_coef * u, mirroring the form config.emfd_form selects in
+    sw_model's edd_mom_flux_div_u. Where the reference has no factor, an
+    array of exactly 1.0 stands in."""
+    g = config.geom
+    ones = np.ones(config.ny)
+    if config.emfd_form == "vorticity":
+        return g.cos_lat, ones
+    if config.emfd_form == "literal":
+        return ones, g.cos_lat
+    return g.cos2_lat, g.inv_cos_lat
+
+
 def day_kernel_args(model, theta_e_day, start_step):
     """Assemble run_day's arguments from a StaggeredSWModel.
 
@@ -487,6 +508,7 @@ def day_kernel_args(model, theta_e_day, start_step):
     (their defaults on a dry config), inert while moist_on is False."""
     config = model.config
     moist = config.enable_moisture
+    emfd_coef, emfd_pre = emfd_form_factors(config)
     return dict(
         u=model.state.u,
         v=model.state.v,
@@ -508,7 +530,8 @@ def day_kernel_args(model, theta_e_day, start_step):
         cos_lat=config.geom.cos_lat,
         cos_lat_face=config.geom.cos_lat_face,
         cos2_lat=config.geom.cos2_lat,
-        inv_cos_lat=config.geom.inv_cos_lat,
+        emfd_coef=emfd_coef,
+        emfd_pre=emfd_pre,
         metric_face=config.geom.metric_face,
         metric_on=bool(config.geom.sphere),
         v_d=float(config.v_d),

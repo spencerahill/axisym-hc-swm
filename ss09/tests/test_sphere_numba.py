@@ -67,13 +67,14 @@ def assert_daily_parity(m_np, m_nb):
                        f"daily {name}")
 
 
-def test_single_step_parity_with_planted_zeros(tmp_path):
+@pytest.mark.parametrize("form", ["angular_momentum", "vorticity", "literal"])
+def test_single_step_parity_with_planted_zeros(tmp_path, form):
     """One kernel step against one reference loop-body step on the sphere,
-    from a state planting the H(0) = 0.5 branches (exact and signed zeros in
-    u, theta == theta_E at points, zero faces), including the filtered prev
-    state's unconstrained pole values."""
-    m_ref = build(tmp_path, "numpy", ny=81, dt=120, ndays=1)
-    m_nb = build(tmp_path, "numba", ny=81, dt=120, ndays=1)
+    for each form of the eddy term, from a state planting the H(0) = 0.5
+    branches (exact and signed zeros in u, theta == theta_E at points, zero
+    faces), including the filtered prev state's unconstrained pole values."""
+    m_ref = build(tmp_path, "numpy", ny=81, dt=120, ndays=1, emfd_form=form)
+    m_nb = build(tmp_path, "numba", ny=81, dt=120, ndays=1, emfd_form=form)
     rng = np.random.default_rng(17)
     ny = m_ref.config.ny
     u0 = rng.normal(0.0, 20.0, ny)
@@ -125,6 +126,10 @@ VARIANTS = [
     ("kinematic_gate", dict(vert_advec_gate="kinematic"), {}),
     ("off_equator", {}, dict(lat_0=8.0)),
     ("small_planet", dict(radius=3.0e6, rot_rate=1.5e-4), dict(radius=3.0e6)),
+    ("vorticity_form", dict(emfd_form="vorticity"), {}),
+    ("literal_form", dict(emfd_form="literal"), {}),
+    ("vorticity_centered", dict(emfd_form="vorticity", emfd_stencil="centered"), {}),
+    ("literal_upwind", dict(emfd_form="literal", emfd_stencil="upwind"), {}),
 ]
 
 
@@ -167,6 +172,22 @@ def test_metric_switch_changes_the_kernel_solution(tmp_path, monkeypatch):
     monkeypatch.setattr(numba_backend, "day_kernel_args", no_metric)
     off.run_sim()
     assert np.max(np.abs(on.state.u - off.state.u)) > 1e-3
+
+
+def test_emfd_forms_give_different_kernel_solutions(tmp_path):
+    """Guard against a kernel that ignores the form: each pair of forms gives
+    a different solution, so the form variants above are not parity of three
+    copies of one integration."""
+    finals = {}
+    for form in ("angular_momentum", "vorticity", "literal"):
+        m = build(tmp_path / form, "numba", ndays=2, emfd_form=form)
+        m.run_sim()
+        assert stored_days(m) == 2
+        finals[form] = m.state.u
+    forms = list(finals)
+    for i, a in enumerate(forms):
+        for b in forms[i + 1:]:
+            assert np.max(np.abs(finals[a] - finals[b])) > 1e-6, (a, b)
 
 
 def test_sphere_nan_stop_equivalence(tmp_path):

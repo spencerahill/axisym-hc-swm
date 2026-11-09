@@ -91,6 +91,15 @@ class SWConfig:
     # matching the published Zhang et al. (2025) code (pair with
     # --no-emfd-heaviside-gate for the gateless reproduction path).
     emfd_stencil: str = "mc"
+    # Spherical form of the EMFD (sphere only; all three are v_d H(u) sgn(y)
+    # du/dy on the beta plane, where cos(lat) = 1), with c = cos(lat):
+    # "angular_momentum" (default; Spencer's choice, 2026-11-07): the
+    # divergence of the eddy angular-momentum flux,
+    # (v_d H(u) sgn(y) / c) d(c^2 u)/dy. "vorticity": v_d H(u) sgn(y) d(c u)/dy,
+    # which keeps Ro = v/(v + v_d) exact. "literal": v_d H(u) sgn(y) c du/dy,
+    # the beta-plane term with d/dy read as c d/dy. The stencil acts on
+    # c^2 u, c u and u respectively.
+    emfd_form: str = "angular_momentum"
     # Steady-state detection parameters
     enable_steady_state: bool = False
     steady_state_window_size: int = 10
@@ -157,6 +166,11 @@ class SWConfig:
                 f"geometry must be one of {valid_geometries}, got "
                 f"{self.geometry!r}"
             )
+        valid_forms = ("angular_momentum", "vorticity", "literal")
+        if self.emfd_form not in valid_forms:
+            raise ValueError(
+                f"emfd_form must be one of {valid_forms}, got {self.emfd_form!r}"
+            )
         defaults = type(self).__dataclass_fields__
         if self.geometry == "sphere":
             self._validate_sphere(defaults)
@@ -167,7 +181,7 @@ class SWConfig:
         else:
             # A planet parameter on the beta plane would be silently inert;
             # refuse it instead (repo style).
-            for name in ("radius", "rot_rate"):
+            for name in ("radius", "rot_rate", "emfd_form"):
                 if getattr(self, name) != defaults[name].default:
                     raise ValueError(
                         f"{name}={getattr(self, name)} has no effect on the "

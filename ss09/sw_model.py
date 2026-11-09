@@ -1165,17 +1165,29 @@ class StaggeredSWModel(SWModel):
         return vc * grad
 
     def edd_mom_flux_div_u(self) -> np.ndarray:
-        """The eddy momentum flux divergence. On the sphere it is form (c) of
-        the plan, the divergence of the eddy angular-momentum flux
-        v_d H(u) sgn(y) u: (v_d H(u) sgn(y) / cos(lat)) d(cos^2(lat) u)/dy,
-        with the stencil (MC by default) applied to cos^2(lat) u. The
-        reciprocal cosine is zeroed at the pole centers."""
+        """The eddy momentum flux divergence, in the form config.emfd_form
+        selects, with c = cos(lat) and the stencil (MC by default):
+        - "angular_momentum" (the default): the divergence of the eddy
+          angular-momentum flux v_d H(u) sgn(y) u, (v_d H(u) sgn(y) / c)
+          d(c^2 u)/dy, with the stencil applied to c^2 u and the reciprocal
+          cosine zeroed at the pole centers;
+        - "vorticity": v_d H(u) sgn(y) d(c u)/dy, the stencil on c u;
+        - "literal": v_d H(u) sgn(y) c du/dy, the stencil on u.
+        On the beta plane c = 1 and the three coincide."""
         g = self.config.geom
+        u = self.state.u
+        form = self.config.emfd_form
+        if form == "vorticity":
+            deriv = self._emfd_derivative(g.cos_lat * u)
+        elif form == "literal":
+            deriv = g.cos_lat * self._emfd_derivative(u)
+        else:
+            deriv = g.inv_cos_lat * self._emfd_derivative(g.cos2_lat * u)
         return (
             self.config.v_d
             * self._emfd_gate()
             * np.sign(self.config.y)
-            * (g.inv_cos_lat * self._emfd_derivative(g.cos2_lat * self.state.u))
+            * deriv
         )
 
     def du_dt(self) -> np.ndarray:

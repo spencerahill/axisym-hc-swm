@@ -288,6 +288,19 @@ def parse_arguments():
         help="Deprecated alias for --emfd-stencil upwind",
     )
     parser.add_argument(
+        "--emfd-form",
+        type=str,
+        choices=["angular_momentum", "vorticity", "literal"],
+        default=None,
+        dest="emfd_form",
+        help=(
+            "Spherical form of the EMFD, with c = cos(lat) (sphere only): "
+            "'angular_momentum' (default), (v_d H(u) sgn(y) / c) d(c^2 u)/dy; "
+            "'vorticity', v_d H(u) sgn(y) d(c u)/dy; 'literal', "
+            "v_d H(u) sgn(y) c du/dy"
+        ),
+    )
+    parser.add_argument(
         "--vert-advec-gate",
         type=str,
         choices=["theta", "kinematic"],
@@ -646,6 +659,7 @@ _SPHERE_FLAGS = {
     "radius": "--radius",
     "rot_rate": "--rot-rate",
     "lat_0": "--lat-0",
+    "emfd_form": "--emfd-form",
 }
 
 
@@ -765,7 +779,7 @@ def setup_sw_config(args, theta_e_config: ThetaEConfig) -> SWConfig:
             attr: val
             for attr in (
                 "cwv_frac", "d_w", "w_crit", "tau_c", "evap", "w_init",
-                "delta_y_rad", "lambda_conv", "radius", "rot_rate",
+                "delta_y_rad", "lambda_conv", "radius", "rot_rate", "emfd_form",
             )
             if (val := getattr(args, attr, None)) is not None
         },
