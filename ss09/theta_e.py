@@ -21,6 +21,15 @@ class ThetaEConfig:
     seasonal_cycle_type: str = "sin"     # "sin" (default), "square", or "tanh"
     tanh_steepness: float = 4.0           # Steepness of tanh smoothing (only used when seasonal_cycle_type="tanh")
 
+    # Spherical profile only (theta_e_type="sphere"): latitude of the heating
+    # maximum in degrees, and the planetary radius in m, which must equal the
+    # model's SWConfig.radius (checked by SWModel).
+    lat_0: float = 0.0
+    radius: float = 6.371e6
+
+
+_SPHERE_ONLY = ("lat_0", "radius")
+
 
 class ThetaEProfile(ABC):
     """Abstract base class for θₑ profiles."""
@@ -28,6 +37,19 @@ class ThetaEProfile(ABC):
     def __init__(self, config: ThetaEConfig):
         self.config = config
         self._validate_seasonal_forcing()
+        self._validate_geometry_params()
+
+    def _validate_geometry_params(self) -> None:
+        """Refuse the spherical profile's parameters on a beta-plane profile,
+        where they would be silently inert."""
+        defaults = ThetaEConfig.__dataclass_fields__
+        for name in _SPHERE_ONLY:
+            if getattr(self.config, name) != defaults[name].default:
+                raise ValueError(
+                    f"{name}={getattr(self.config, name)} has no effect on "
+                    f"{self.__class__.__name__}; it applies only to the "
+                    "spherical profile (theta_e_type='sphere')"
+                )
 
     def _validate_seasonal_forcing(self) -> None:
         """
@@ -184,3 +206,39 @@ class SB08Profile(ThetaEProfile):
             theta_at_plus_y1,
             np.where(y_row < -y_one, theta_at_minus_y1, raw_profile),
         )
+
+
+class SphericalProfile(ThetaEProfile):
+    """θₑ on the sphere, for geometry="sphere" (theta_e_type="sphere").
+
+    The idealized-GCM profile of Schneider and Bordoni (2008),
+    θ₀₀ − Δ_y (sin²φ − 2 sinφ₀ sinφ), with the heating maximum at latitude
+    φ₀ = lat_0 and Δ_y the equator-to-pole drop for φ₀ = 0. The model's three
+    beta-plane profiles are renderings of this one: sin2 and SB08 replace
+    sinφ with sin(πy/2y₁), and SS09's parabola is its small-angle form. In
+    the spherical model's coordinate y = a sinφ it is
+    θ₀₀ − Δ_y (s² − 2 s₀ s) with s = y/a and s₀ = sin φ₀, which is SS09's
+    parabola with y₁ = a, exact on the sphere and with no plateau, since y
+    ends at ±a. The half-width y₁ and the offset y₀ therefore have no meaning
+    here and are refused, as is seasonal migration (not yet supported).
+    """
+
+    def _validate_geometry_params(self) -> None:
+        if self.config.theta_e_type != "sphere":
+            raise ValueError(
+                "SphericalProfile requires theta_e_type='sphere', got "
+                f"{self.config.theta_e_type!r}"
+            )
+        defaults = ThetaEConfig.__dataclass_fields__
+        for name in ("y_0", "y_one"):
+            if getattr(self.config, name) != defaults[name].default:
+                raise ValueError(
+                    f"{name}={getattr(self.config, name)} has no meaning for "
+                    "the spherical profile, whose domain ends at the poles; "
+                    "set lat_0 (degrees) for an off-equatorial heating maximum"
+                )
+
+    def __call__(self, state: ModelState) -> np.ndarray:
+        s = state.y / self.config.radius
+        s_0 = np.sin(np.deg2rad(self.config.lat_0))
+        return self.config.theta_00 - self.config.delta_y * (s**2 - 2 * s_0 * s)

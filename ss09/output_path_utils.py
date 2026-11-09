@@ -40,12 +40,18 @@ def generate_descriptive_path(
     # Seasonal indicator (simplified)
     seasonal_str = "seas" if theta_e_config.y_0_seasonal_amp > 0 else "noseas"
 
-    # Y0 value (always included, in km with sign indicator)
-    y0_km = int(theta_e_config.y_0 / 1000)
-    if y0_km >= 0:
-        y0_str = f"y0p{y0_km:04d}"
+    if theta_e_config.theta_e_type == "sphere":
+        # The heating maximum's latitude in degrees, with sign indicator
+        # (e.g. lat0p00.0, lat0n06.5), in place of y0 on the sphere.
+        sign = "p" if theta_e_config.lat_0 >= 0 else "n"
+        y0_str = f"lat0{sign}{abs(theta_e_config.lat_0):04.1f}"
     else:
-        y0_str = f"y0n{abs(y0_km):04d}"
+        # Y0 value (always included, in km with sign indicator)
+        y0_km = int(theta_e_config.y_0 / 1000)
+        if y0_km >= 0:
+            y0_str = f"y0p{y0_km:04d}"
+        else:
+            y0_str = f"y0n{abs(y0_km):04d}"
 
     # Resolution and duration strings
     resolution_str = f"ny{config.ny:03d}"

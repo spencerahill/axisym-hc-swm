@@ -345,6 +345,18 @@ class RestartState:
                     f"--migrate-restart to interpolate v between grids once."
                 )
 
+        # Geometry must match: a beta-plane state on the sphere (or the
+        # reverse) is a different set of equations on a different grid.
+        # Restart files written before the spherical option carry no
+        # geometry and are beta-plane files.
+        restart_geometry = str(self.config_snapshot.get("geometry", "beta_plane"))
+        current_geometry = getattr(config, "geometry", "beta_plane")
+        if restart_geometry != current_geometry:
+            errors.append(
+                f"Geometry mismatch: restart file is '{restart_geometry}', run "
+                f"is '{current_geometry}'."
+            )
+
         # Moisture state must match the run: a moist checkpoint continuing
         # dry would silently drop W; a moist run from a dry checkpoint has no
         # W to restore, which is allowed only with an explicit fresh
@@ -380,6 +392,15 @@ class RestartState:
             "height": ("Height", config.height, self.config_snapshot.get("height")),
             "beta": ("Beta", config.beta, self.config_snapshot.get("beta")),
         }
+        if current_geometry == "sphere":
+            critical_params["radius"] = (
+                "Planetary radius", config.radius,
+                self.config_snapshot.get("radius"),
+            )
+            critical_params["rot_rate"] = (
+                "Rotation rate", config.rot_rate,
+                self.config_snapshot.get("rot_rate"),
+            )
 
         for param_name, (desc, current, restart) in critical_params.items():
             if restart is not None and not np.isclose(current, restart, rtol=1e-10):
@@ -393,6 +414,8 @@ class RestartState:
             "y_one": theta_e_config.y_one,
             "delta_y": theta_e_config.delta_y,
         }
+        if theta_e_config.theta_e_type == "sphere":
+            theta_e_critical["lat_0"] = theta_e_config.lat_0
 
         for param_name, current_val in theta_e_critical.items():
             restart_val = self.theta_e_config_snapshot.get(param_name)

@@ -427,6 +427,42 @@ run-sw-model --grid collocated
 
 **Run-output storage.** On berimbau, `model_output/` is a symlink to `/data3/shill/axisym-swm-output/model_output` (2.1 GB of ported runs as of 2026-07-28), keeping large NetCDF output off the home filesystem and out of the repo. Check free space before a large campaign: `/data3` was 96% full with 1.1 TB free on 2026-07-28. Historical, for the retired macOS laptop: the directory was marked `com.dropbox.ignored` (via `xattr -w com.dropbox.ignored 1 model_output`) so run outputs did not churn Dropbox sync, which had varied the per-day cost by 0.55-0.9 s/day. Neither the attribute nor that cost variation applies on berimbau.
 
+### Spherical Geometry (beta plane vs sphere)
+
+`--geometry sphere` (`SWConfig(geometry="sphere")`, added 2026-11-08 from `docs/spherical-swm-plan/spherical-swm-plan.pdf`) runs the model from pole to pole in the coordinate `y = a sin(lat)`, on a grid uniform in `y`. The equations, the two formulation choices (Spencer's, 2026-11-07: the eddy term as the divergence of an eddy angular-momentum flux, and the smoothing of `v` as the vector Laplacian) and the pole treatment are in SCIENCE.md §3.7 and §4.4.
+
+```bash
+# The production grid spacing, 39.3 km at the equator
+run-sw-model --geometry sphere --ny 325 --dt 30 --backend numba --ndays 5800
+
+# An off-equatorial heating maximum, in degrees, and another planet
+run-sw-model --geometry sphere --ny 325 --dt 30 --lat-0 6 --radius 3.4e6 --rot-rate 7.1e-5
+```
+
+**The beta plane is bit-for-bit unchanged.** The geometry enters every operator through arrays computed once by the configuration (`config.geom`, from `ss09/geometry.py`), which are exactly 1.0 on the beta plane, where `f` is `beta*y`; the metric term is skipped there. `validation/sphere_flat_reduction.py --reference <checkout of the base commit> --test . --out-dir <scratch>` runs the four regression configurations with both trees on one machine and compares every output variable: on 2026-11-08, 91 of 91 bitwise equal on numpy and 71 of 71 on numba. Run it after any change to an operator.
+
+**The form of the eddy term (`--emfd-form`, `SWConfig.emfd_form`, added 2026-11-08).** The three spherical readings of SS09's eddy term that the plan compared, with c = cos(lat): `angular_momentum` (the default, Spencer's 2026-11-07 choice), `(v_d H(u) sgn(y) / c) d(c^2 u)/dy`, the divergence of an eddy angular-momentum flux; `vorticity`, `v_d H(u) sgn(y) d(c u)/dy`; and `literal`, `v_d H(u) sgn(y) c du/dy`. All three are SS09's term on the beta plane, where the flag is refused. Both backends support each form, bitwise identical.
+
+**Constraints** (hard errors): `ny` odd; staggered grid only; `--theta-e-type sphere` (the default on the sphere) is the only forcing profile there; `--beta`, `--domain-size`, `--y0` and `--y1` are refused on the sphere, and `--radius`, `--rot-rate`, `--lat-0`, `--emfd-form` on the beta plane; moisture (moist V1 and V2) and seasonal forcing are not yet supported on the sphere. Both backends support it, bitwise identical. Restart files refuse a geometry, radius or rotation-rate mismatch.
+
+**Output.** `y` stays the coordinate, in m (as `a sin(lat)`, described as such in its attributes), so existing analysis code reads spherical files unchanged; `lat` and `lat_face` (degrees) sit beside it, and each position diagnostic (`north_jet_lat` and the rest, in `y`) has a `_deg` companion in latitude. Hadley widths stay differences of `y`.
+
+**Timestep and cost** (measured on the Mac, 2026-11-08, `validation/sphere_dt_bisection.py`, 400-day cold starts at the production parameters). At `ny=325` the ceiling is 80 s (90 s goes NaN on day 2); its beta-plane twin at the same spacing (`ny=509` on walls at `+-pi a/2`) reaches 72 s. At `ny=649` every candidate up to 30 s completes. Use `dt=30` at `ny=325` and `dt=15` at `ny=649`. Under three-way contention on the Mac, `ny=325`/`dt=30` costs 0.025 to 0.029 s per model day (a 58,000-day run took 28 minutes) and `ny=649`/`dt=15` 0.13 s; berimbau has not been timed.
+
+**Validation status (2026-11-08; outputs in `model_output/sphere_validation/` on the Mac and in `/data3/shill/axisym-swm-output/model_output/sphere_validation/` on berimbau, the target of the repo's `model_output` symlink there; scored by `validation/sphere_validation_analysis.py`, whose output and figures are in that directory's `figs/`).** Item (i), the drag-limited angular-momentum identity, passes at eps_u = 1e-8 and 1e-9. Item (ii), the steady budgets within 40 degrees, fails as written (the sphere's v-budget residual, 2.17e-10 of the largest term, exceeds the twin's 9.19e-11, and the u residual is 8.37e-4 against 7.90e-4) and is recorded as passed (Spencer, 2026-11-08), since the v and theta residuals are 9.2e-11 to 1.3e-8 of their largest terms on both models. Item (iii), resolution, fails under the default form of the eddy term and passes under the literal form (next paragraph). Item (iv)'s runs are complete, under the default form only.
+
+**The polar westerly jet and the form of the eddy term: an open question for Spencer (measured 2026-11-08).** Under the default form, the spherical steady state (5,800 days, `ny=325`) has a westerly jet near 75 degrees ending in an easterly notch one cell poleward: at `--delta-y` 12.5, 25 and 50 K, the jet is 18, 32 and 53 m/s at 74 to 76 degrees, the notch -25, -33 and -42 m/s, and theta at the jet 5, 10 and 20 K below theta_E. The beta-plane twin's westerlies peak at 51 to 52 degrees (6, 12 and 24 m/s) and end in a notch at 81 to 83 degrees spread over about 20 cells. The cause is the one term by which the three forms differ. Since dc/dy = -tan(lat)/a, each form's contribution to du/dt is the poleward advection `-v_d H(u) sgn(y) c du/dy` plus a westerly acceleration `+n v_d H(u) sgn(y) u tan(lat)/a`, with n = 2 for `angular_momentum`, 1 for `vorticity` and 0 for `literal`. At the default v_d = 2.5 m/s the rate n v_d tan(lat)/a is 112 to 216 times the drag rate between 55 and 70 degrees under the default form, and there the acceleration is the largest part of the eddy term (rms 5.45e-5 against 1.41e-5 m/s^2 for the advection), balanced by the Coriolis force on an equatorward flow. The resolution test of the three forms at Delta_y = 50 K (`ny=325` at dt=30 and `ny=649` at dt=15, 5,800 days; the `form_*` runs of `validation/sphere_validation_runs.py`):
+
+| form | northern westerly maximum, ny=325 then 649 | easterly notch, ny=325 then 649 | within 40 degrees, the sphere's coarse-to-fine change over the twin's, for u, v, theta |
+|---|---|---|---|
+| `angular_momentum` | 52.76 m/s at 75.73 deg; 54.77 at 73.10 | -41.64 m/s at 77.24 deg; -43.20 at 74.36 | 3.27, 4.73, 5.98 |
+| `vorticity` | 29.57 m/s at 59.10 deg; 32.17 at 75.73 | -30.63 m/s at 80.99 deg; -34.74 at 77.24 | 3.19, 3.83, 3.59 |
+| `literal` | 27.15 m/s at 55.18 deg; 27.17 at 55.18 | -20.42 m/s at 83.63 deg; -23.62 at 82.20 | 0.16, 0.24, 0.17 |
+
+Under the vorticity form u is a plateau at ny=325, between 27.22 and 29.57 m/s from 55 to 78 degrees, and its maximum moves from one end of the plateau to the other between the grids. Under the literal form the westerlies decrease poleward of 55 degrees, the notch sits 1 to 3 cells from the pole, and of the three forms its u at 30 degrees and its max|v| are the closest to the twin's (11.35 m/s against 11.46, and 0.298 against 0.291 m/s); its item (ii) u-budget residual is 1.21e-3 of the largest term, against the twin's 7.90e-4. The literal form does not conserve angular momentum, the property that sets the default form apart (SCIENCE.md section 3.7). Two consequences hold under the default form: `north_jet_lat` and `south_jet_lat` (the maximum of u in each hemisphere) return the polar jet, although their output attributes describe a subtropical jet; and the jet's unconverged position changes the tropics remotely, while with `--vd 0` the sphere's coarse-to-fine changes within 40 degrees equal the twin's (ratios 1.03, 0.94, 1.00). Until Spencer decides, treat high-latitude results on the sphere as formulation-dependent, and define a subtropical jet on the sphere by something other than the maximum of u.
+
+**Tests:** `test_sphere_geometry.py` (grid and geometry arrays), `test_sphere_model.py` (operators, identities, convergence orders, physics properties, restart, output, command line), `test_sphere_numba.py` (bitwise parity on the sphere). Validation runs and their scoring: `validation/sphere_validation_runs.py` and `validation/sphere_validation_analysis.py`; code check 4 (30-day mirror parity and restart at `ny=325`, both backends): `validation/sphere_code_check4.py`.
+
 ### Integration Backends (numpy vs numba)
 
 The integration loop has two backends, selected by `--backend`:
@@ -564,6 +600,7 @@ Tests are organized by functionality:
 - `test_moist_v2.py`: Moist V2 (column constants, config/CLI validation, the default unsteepened target and the optional radiative one, both vertical-advection gates, the discrete MSE-budget closure, the Lambda=0 dry-twin identity, parity and restart under coupling)
 - `test_regression.py`: End-to-end regression tests against baseline output in `ss09/tests/baseline/`
 - `test_numba_backend.py`: Bitwise parity of the numba backend against the numpy reference (operator oracles, single-step planted-zeros, integration variants, restarts, early-stop paths, full dataset, CLI baseline reproduction)
+- `test_sphere_geometry.py`, `test_sphere_model.py`, `test_sphere_numba.py`: the spherical geometry option (see the Spherical Geometry section)
 
 Regression tests run short simulations (5 days) and compare against stored baseline using `xarray.testing.assert_allclose`.
 

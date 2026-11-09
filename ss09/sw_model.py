@@ -8,7 +8,7 @@ import numpy as np
 from typing import Optional, Tuple, NamedTuple
 from dataclasses import asdict, replace
 from .model_state import ModelState
-from .theta_e import ThetaEProfile
+from .theta_e import SphericalProfile, ThetaEProfile
 from .sw_config import SWConfig
 from .daily_results import DailyResults
 from .steady_state import SteadyStateDetector
@@ -142,6 +142,7 @@ def moisture_transport_tendency(
     cwv_frac: float,
     d_w: float,
     dy: float,
+    cos_face=1.0,
 ) -> np.ndarray:
     """Finite-volume flux-form transport tendency of W on the ny centers.
 
@@ -156,10 +157,19 @@ def moisture_transport_tendency(
     (v_divergence_at_centers on the flux array), so the cell-weighted sum
     of the tendency telescopes to zero exactly: transport moves no total
     water, and total W changes only through E_0 - P.
+
+    On the sphere, in y = a sin(lat), the divergence of the same flux is
+    d/dy{cos(lat) [c_f W - D cos(lat) dW/dy]}: cos_face is cos(lat) at the
+    faces, and its default 1.0 is the beta plane (a multiplication by exactly
+    1.0, so the beta-plane result is unchanged bit for bit). The flux still
+    vanishes at the poles, and the half-cell weights of cwv_integral are the
+    sphere's equal-area weights, so total water is still conserved exactly.
     """
     c_f = -(2.0 * cwv_frac - 1.0) * v_f
     w_face = mc_face_values(w_adv, dy, c_f)
-    flux = c_f * w_face - d_w * (w_diff[1:] - w_diff[:-1]) / dy
+    flux = cos_face * (
+        c_f * w_face - d_w * (cos_face * (w_diff[1:] - w_diff[:-1])) / dy
+    )
     return -v_divergence_at_centers(flux, dy)
 
 
@@ -186,6 +196,30 @@ def radiative_target_profile(
     return type(theta_e_profile)(
         replace(theta_e_profile.config, delta_y=delta_y_rad)
     )
+
+
+def check_forcing_geometry(config: SWConfig, theta_e_profile: ThetaEProfile) -> None:
+    """Pair the forcing profile with the geometry: the spherical profile on
+    the sphere, at the model's own radius, and only there. The beta-plane
+    profiles' half-width y_1 and plateau have no spherical counterpart."""
+    spherical = isinstance(theta_e_profile, SphericalProfile)
+    if config.geometry == "sphere":
+        if not spherical:
+            raise ValueError(
+                "geometry='sphere' requires the spherical forcing profile "
+                "(theta_e_type='sphere'); got "
+                f"{type(theta_e_profile).__name__}"
+            )
+        if theta_e_profile.config.radius != config.radius:
+            raise ValueError(
+                f"the forcing profile's radius ({theta_e_profile.config.radius}"
+                f" m) differs from the model's ({config.radius} m)"
+            )
+    elif spherical:
+        raise ValueError(
+            "the spherical forcing profile (theta_e_type='sphere') requires "
+            "geometry='sphere'"
+        )
 
 
 def precipitation(w: np.ndarray, w_crit: float, tau_c: float) -> np.ndarray:
@@ -234,6 +268,7 @@ class SWModel:
 
     def __init__(self, config: SWConfig, theta_e_profile: ThetaEProfile):
         self.config = config
+        check_forcing_geometry(config, theta_e_profile)
         if config.enable_latent_heating and config.delta_y_rad is not None:
             # An explicit radiative target; swap it in here, at construction,
             # so every entry point (CLI, tests, scripts) gets it from the
@@ -382,35 +417,39 @@ class SWModel:
         ) / self.config.dy
         return grad_u_upwind
 
-    def edd_mom_flux_div_u(self) -> np.ndarray:
-        """Calculate the eddy momentum flux divergence."""
+    def _emfd_gate(self):
+        """The H(u) gate on the eddy momentum flux divergence, or 1.0."""
         if self.config.emfd_heaviside_gate:
             # H(u)=1 if u>0, 0 if u<0, 0.5 at u=0
-            gate = np.heaviside(self.state.u, 0.5)
-        else:
-            # Published Zhang et al. (2025) code omits the H(u) gate
-            gate = 1.0
+            return np.heaviside(self.state.u, 0.5)
+        # Published Zhang et al. (2025) code omits the H(u) gate
+        return 1.0
+
+    def _emfd_derivative(self, q: np.ndarray) -> np.ndarray:
+        """d(q)/dy in the configured EMFD stencil: u itself on the beta plane,
+        cos^2(lat) u on the sphere."""
         if self.config.emfd_stencil == "upwind":
-            # One-sided du/dy from the equatorward (upstream) side: the
+            # One-sided dq/dy from the equatorward (upstream) side: the
             # effective advection velocity v_d*sgn(y) is poleward, so NH
             # points difference backward, SH points forward; sgn(0)=0 zeroes
             # the equator point regardless.
-            u = self.state.u
-            diff = (u[1:] - u[:-1]) / self.config.dy
-            backward = np.zeros_like(u)
+            diff = (q[1:] - q[:-1]) / self.config.dy
+            backward = np.zeros_like(q)
             backward[1:] = diff
-            forward = np.zeros_like(u)
+            forward = np.zeros_like(q)
             forward[:-1] = diff
-            du_dy = np.where(self.config.y > 0, backward, forward)
-        elif self.config.emfd_stencil == "mc":
-            du_dy = muscl_mc_du_dy(self.state.u, self.config.dy, self.config.y)
-        else:
-            du_dy = np.gradient(self.state.u, self.config.dy)
+            return np.where(self.config.y > 0, backward, forward)
+        if self.config.emfd_stencil == "mc":
+            return muscl_mc_du_dy(q, self.config.dy, self.config.y)
+        return np.gradient(q, self.config.dy)
+
+    def edd_mom_flux_div_u(self) -> np.ndarray:
+        """Calculate the eddy momentum flux divergence."""
         return (
             self.config.v_d
-            * gate
+            * self._emfd_gate()
             * np.sign(self.config.y)
-            * du_dy
+            * self._emfd_derivative(self.state.u)
         )
 
     def rayleigh_drag_u(self) -> np.ndarray:
@@ -604,6 +643,8 @@ class SWModel:
             self.config.y,
             self.config.dy,
             self.config.beta,
+            f=self.config.geom.f,
+            cos_lat=self.config.geom.cos_lat,
         )
         # Slow-drift gate metrics (non-seasonal only, so theta_E is static
         # and the daily jet latitude just computed above is the gated one).
@@ -995,9 +1036,22 @@ class SWModel:
         )
 
         # Add coordinate attributes
-        ds.y.attrs.update(
-            {"units": "m", "long_name": "meridional distance from equator"}
-        )
+        if self.config.geometry == "sphere":
+            ds.y.attrs.update(
+                {
+                    "units": "m",
+                    "long_name": "a sin(latitude), the meridional coordinate",
+                    "description": (
+                        "Planetary radius times sin(latitude); not meridional "
+                        "distance, which is dy / cos(latitude). The grid is "
+                        "uniform in y, so its cells have equal area."
+                    ),
+                }
+            )
+        else:
+            ds.y.attrs.update(
+                {"units": "m", "long_name": "meridional distance from equator"}
+            )
 
         # Add global attributes
         global_attrs = {
@@ -1060,36 +1114,81 @@ class StaggeredSWModel(SWModel):
             )
         super().__init__(config, theta_e_profile)
 
+    # Geometry. Every operator below takes its geometry from config.geom, the
+    # arrays of geometry.py: on the beta plane the cosines are exactly 1.0
+    # and f is beta*y, so each operator performs the beta-plane operations
+    # bit for bit; on the sphere, in y = a sin(lat), they are the spherical
+    # operators (SCIENCE.md, "Spherical geometry").
+
     def _v_at_centers(self) -> np.ndarray:
         """Instantaneous v reconstructed at the ny centers (what u feels)."""
         return v_faces_to_centers(self.state.v)
 
     def dv_dy(self) -> np.ndarray:
-        """Compact divergence dv/dy at the ny centers from the face v."""
-        return v_divergence_at_centers(self.state.v, self.config.dy)
+        """Compact divergence at the ny centers from the face v: dv/dy on the
+        beta plane, d(cos(lat) v)/dy on the sphere."""
+        return v_divergence_at_centers(
+            self.config.geom.cos_lat_face * self.state.v, self.config.dy
+        )
 
     def diffusion_v(self) -> np.ndarray:
-        """k_v diffusion of v on the faces (symmetric-association Laplacian
-        with mirror wall ghosts)."""
-        return v_face_laplacian(self.state.v, self.config.dy) * self.config.k_v
+        """k_v smoothing of v on the faces: the symmetric-association
+        Laplacian with mirror wall ghosts, k_v d2v/dy2 on the beta plane. On
+        the sphere it is the meridional component of the vector Laplacian,
+        k_v cos(lat) d/dy[d(cos(lat) v)/dy], the face gradient of the discrete
+        divergence (the mirror ghost reproduces the half-cell divergence at
+        the poles), which is exactly dissipative in the equal-area norm."""
+        c_v = self.config.geom.cos_lat_face
+        return (
+            c_v * v_face_laplacian(c_v * self.state.v, self.config.dy)
+            * self.config.k_v
+        )
 
     def merid_advec_u(self) -> np.ndarray:
-        """Meridional advection v*du/dy with v reconstructed at centers, first
-        -order upwind biased by the sign of that center-v (mirrors the base
-        model's du_dy_upwind, which reads the collocated v directly)."""
+        """Meridional advection with v reconstructed at centers, first-order
+        upwind biased by the sign of that center-v (mirrors the base model's
+        du_dy_upwind, which reads the collocated v directly). The advected
+        quantity is u on the beta plane and cos(lat) u on the sphere, so that
+        with the Coriolis term this is -v (f + zeta), zeta = -d(cos u)/dy."""
         vc = self._v_at_centers()
-        u = self.state.u
+        q = self.config.geom.cos_lat * self.state.u
         dy = self.config.dy
-        grad = np.zeros_like(u)
+        grad = np.zeros_like(q)
         mask_pos = vc > 0
         grad[1:][mask_pos[1:]] = (
-            u[1:][mask_pos[1:]] - u[:-1][mask_pos[1:]]
+            q[1:][mask_pos[1:]] - q[:-1][mask_pos[1:]]
         ) / dy
         mask_neg = vc < 0
         grad[:-1][mask_neg[:-1]] = (
-            u[1:][mask_neg[:-1]] - u[:-1][mask_neg[:-1]]
+            q[1:][mask_neg[:-1]] - q[:-1][mask_neg[:-1]]
         ) / dy
         return vc * grad
+
+    def edd_mom_flux_div_u(self) -> np.ndarray:
+        """The eddy momentum flux divergence, in the form config.emfd_form
+        selects, with c = cos(lat) and the stencil (MC by default):
+        - "angular_momentum" (the default): the divergence of the eddy
+          angular-momentum flux v_d H(u) sgn(y) u, (v_d H(u) sgn(y) / c)
+          d(c^2 u)/dy, with the stencil applied to c^2 u and the reciprocal
+          cosine zeroed at the pole centers;
+        - "vorticity": v_d H(u) sgn(y) d(c u)/dy, the stencil on c u;
+        - "literal": v_d H(u) sgn(y) c du/dy, the stencil on u.
+        On the beta plane c = 1 and the three coincide."""
+        g = self.config.geom
+        u = self.state.u
+        form = self.config.emfd_form
+        if form == "vorticity":
+            deriv = self._emfd_derivative(g.cos_lat * u)
+        elif form == "literal":
+            deriv = g.cos_lat * self._emfd_derivative(u)
+        else:
+            deriv = g.inv_cos_lat * self._emfd_derivative(g.cos2_lat * u)
+        return (
+            self.config.v_d
+            * self._emfd_gate()
+            * np.sign(self.config.y)
+            * deriv
+        )
 
     def du_dt(self) -> np.ndarray:
         """u tendency, with the Coriolis term fed the center-reconstructed v."""
@@ -1100,7 +1199,7 @@ class StaggeredSWModel(SWModel):
             self.merid_advec_u() if self.config.include_merid_advec_u else 0
         )
         return (
-            self.coriolis_term(self._v_at_centers())
+            self.config.geom.f * self._v_at_centers()
             - merid_advec_u_term
             - vert_advec_u_term
             - self.rayleigh_drag_u()
@@ -1108,18 +1207,37 @@ class StaggeredSWModel(SWModel):
         )
 
     def dv_dt(self) -> np.ndarray:
-        """v tendency on the faces: Coriolis (-beta*y_v*u), pressure gradient
-        (-dp/dy), and k_v diffusion, all evaluated on the ny-1 faces, halved
-        per the SS09 formulation. u is averaged to faces and T differenced
-        compactly across each face."""
+        """v tendency on the faces: Coriolis (-f u), pressure gradient, and
+        k_v smoothing, all evaluated on the ny-1 faces, halved per the SS09
+        formulation. u is averaged to faces and T differenced compactly
+        across each face. On the sphere the pressure gradient carries a
+        factor cos(lat) and the metric term (tan(lat)/a) u^2 joins the
+        Coriolis term; on the beta plane the metric term is skipped."""
+        g = self.config.geom
         u = self.state.u
         dy = self.config.dy
         uf = 0.5 * (u[:-1] + u[1:])  # u averaged to the faces
         T = self.state.theta * THETA_TO_TEMP
         dt_dy = (T[1:] - T[:-1]) / dy  # compact dT/dy at the faces
-        dp = self.config.gravity * self.config.height * dt_dy / self.config.t_ref
-        coriolis = self.config.beta * self.config.y_v * uf
+        dp = (
+            self.config.gravity * self.config.height
+            * (g.cos_lat_face * dt_dy) / self.config.t_ref
+        )
+        coriolis = g.f_face * uf
+        if g.sphere:
+            coriolis = coriolis + g.metric_face * uf * uf
         return (-coriolis - dp + self.diffusion_v()) / 2
+
+    def eddy_heat_flux(self) -> np.ndarray:
+        """Eddy heat diffusion: kappa d2(theta)/dy2 on the beta plane and
+        kappa d/dy(cos^2(lat) d(theta)/dy) on the sphere, each derivative the
+        centered np.gradient. Off (zero) by default."""
+        if self.config.coeff_eddy_heat_diff == 0.0:
+            return np.zeros_like(self.state.theta)
+        dtheta_dy = np.gradient(self.state.theta, self.config.dy)
+        return self.config.coeff_eddy_heat_diff * np.gradient(
+            self.config.geom.cos2_lat * dtheta_dy, self.config.dy
+        )
 
     def enforce_boundary_conditions(self):
         """Pin u=0 at the walls. v lives entirely on interior faces, so no
@@ -1151,7 +1269,8 @@ class StaggeredSWModel(SWModel):
         cfg = self.config
         p = precipitation(w_lag, cfg.w_crit, cfg.tau_c)
         transport = moisture_transport_tendency(
-            w_adv, w_lag, self.state.v, cfg.cwv_frac, cfg.d_w, cfg.dy
+            w_adv, w_lag, self.state.v, cfg.cwv_frac, cfg.d_w, cfg.dy,
+            cos_face=cfg.geom.cos_lat_face,
         )
         return transport + cfg.evap - p, p
 

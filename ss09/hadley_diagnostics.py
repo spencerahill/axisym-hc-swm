@@ -56,10 +56,12 @@ class HadleyDiagnostics:
         self.start_day = None  # Track first recorded day for restart support
 
     def compute_rossby_number(
-        self, u: np.ndarray, y: np.ndarray, dy: float, beta: float
+        self, u: np.ndarray, y: np.ndarray, dy: float, beta: float,
+        f: np.ndarray = None, cos_lat: np.ndarray = None,
     ) -> np.ndarray:
         """
-        Compute local Rossby number: Ro = (du/dy) / (β*y).
+        Compute local Rossby number: Ro = -zeta/f, which is (du/dy) / (β*y)
+        on the beta plane.
 
         The Rossby number measures the ratio of relative vorticity to
         planetary vorticity. Values O(1) indicate nonlinear dynamics.
@@ -69,15 +71,19 @@ class HadleyDiagnostics:
             y: Meridional coordinate (ny,) in meters from equator
             dy: Grid spacing in meters
             beta: Beta parameter (df/dy) in m^-1 s^-1
+            f: Coriolis parameter (ny,), replacing beta*y when given
+            cos_lat: cos(latitude) (ny,) on the sphere, where in the
+                coordinate y = a sin(lat) the relative vorticity is
+                -d(cos(lat) u)/dy; None on the beta plane
 
         Returns:
             Rossby number field (ny,) with NaN near equator
         """
-        # Compute relative vorticity: du/dy
-        du_dy = np.gradient(u, dy)
+        # Compute minus the relative vorticity: du/dy, or d(cos u)/dy
+        du_dy = np.gradient(u if cos_lat is None else cos_lat * u, dy)
 
-        # Compute planetary vorticity: β*y
-        planetary_vorticity = beta * y
+        # Compute planetary vorticity: β*y, or f
+        planetary_vorticity = beta * y if f is None else f
 
         # Compute Rossby number (NaN near equator where |y| < dy to avoid singularity)
         rossby = np.divide(
@@ -470,6 +476,8 @@ class HadleyDiagnostics:
         y: np.ndarray,
         dy: float,
         beta: float,
+        f: np.ndarray = None,
+        cos_lat: np.ndarray = None,
     ):
         """
         Compute and store diagnostics for a given day.
@@ -481,13 +489,21 @@ class HadleyDiagnostics:
             y: Meridional coordinate (ny,) in meters from equator
             dy: Grid spacing in meters
             beta: Beta parameter in m^-1 s^-1
+            f, cos_lat: the Coriolis parameter and cos(latitude), passed
+                through to compute_rossby_number (see there)
+
+        The positions are maxima, extrema and zero crossings in y; on the
+        sphere y = a sin(lat) increases with latitude, so they are the same
+        points in latitude.
         """
         # Track start day for restart support
         if self.start_day is None:
             self.start_day = day
 
         # Compute Rossby number
-        self.rossby_number[day] = self.compute_rossby_number(u, y, dy, beta)
+        self.rossby_number[day] = self.compute_rossby_number(
+            u, y, dy, beta, f=f, cos_lat=cos_lat
+        )
 
         # Find jet positions
         north_lat, north_mag = self.find_jet_position(u, y, "north")
