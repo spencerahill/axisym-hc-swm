@@ -1,18 +1,20 @@
 """Diagnostic: the polar westerly jet on the sphere under the three spherical
-forms of the eddy term that the plan compared.
+forms of the eddy term that the plan compared (--emfd-form).
 
-  (a) vorticity closure:  S = v_d H(u) sgn(y) d(c u)/dy
-  (b) literal form:       S = v_d H(u) sgn(y) c du/dy
-  (c) divergence of the eddy angular-momentum flux (the model's form):
-                          S = v_d H(u) sgn(y) (1/c) d(c^2 u)/dy
+  (a) vorticity closure, "vorticity":   S = v_d H(u) sgn(y) d(c u)/dy
+  (b) literal form, "literal":          S = v_d H(u) sgn(y) c du/dy
+  (c) divergence of the eddy angular-momentum flux, "angular_momentum" (the
+      default):                         S = v_d H(u) sgn(y) (1/c) d(c^2 u)/dy
 
 with c = cos(lat). Each is a 200-day cold start at ny=325, dt=30, the
 production parameters and the spherical forcing at Delta_y = 50 K, on the
-numpy backend; forms (a) and (b) are swapped in by subclassing the model, so
-the model itself is unchanged. The hypothesis it tests (2026-11-08): the
-factor c^2 in form (c) makes the poleward eddy flux of westerly momentum
-converge toward the pole, so (c) puts the westerly maximum near the pole and
-(b), with no such factor, does not.
+numpy backend. The hypothesis it tests (2026-11-08): the factor c^2 in form
+(c) makes the poleward eddy flux of westerly momentum converge toward the
+pole, so (c) puts the westerly maximum near the pole and (b), with no such
+factor, does not. Until 2026-11-08 the script swapped forms (a) and (b) in by
+subclassing the model; the emfd_form option that replaced the subclasses
+reproduces them bit for bit (3-day runs at ny=81, checked that day). The
+5,800-day resolution runs of the three forms are in sphere_validation_runs.py.
 
 Usage:
     python validation/sphere_emfd_forms.py
@@ -25,32 +27,18 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from ss09.sw_config import SWConfig
-from ss09.sw_model import StaggeredSWModel
+from ss09.sw_model import SWModel
 from ss09.theta_e import SphericalProfile, ThetaEConfig
 
-
-class FormA(StaggeredSWModel):
-    def edd_mom_flux_div_u(self):
-        g = self.config.geom
-        return (self.config.v_d * self._emfd_gate() * np.sign(self.config.y)
-                * self._emfd_derivative(g.cos_lat * self.state.u))
-
-
-class FormB(StaggeredSWModel):
-    def edd_mom_flux_div_u(self):
-        g = self.config.geom
-        return (self.config.v_d * self._emfd_gate() * np.sign(self.config.y)
-                * (g.cos_lat * self._emfd_derivative(self.state.u)))
-
-
-FORMS = (("(a) d(c u)/dy", FormA), ("(b) c du/dy", FormB),
-         ("(c) (1/c) d(c^2 u)/dy", StaggeredSWModel))
+FORMS = (("(a) d(c u)/dy", "vorticity"), ("(b) c du/dy", "literal"),
+         ("(c) (1/c) d(c^2 u)/dy", "angular_momentum"))
 
 
 def run(item):
-    name, cls = item
-    cfg = SWConfig(geometry="sphere", ny=325, dt=30, total_integration_days=200)
-    m = cls(cfg, SphericalProfile(ThetaEConfig(theta_e_type="sphere")))
+    name, form = item
+    cfg = SWConfig(geometry="sphere", ny=325, dt=30, total_integration_days=200,
+                   emfd_form=form)
+    m = SWModel(cfg, SphericalProfile(ThetaEConfig(theta_e_type="sphere")))
     m.save_restart_file = lambda day: None  # nothing written to disk
     m.run_sim()
     return name, m

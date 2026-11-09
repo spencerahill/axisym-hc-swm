@@ -19,6 +19,11 @@ file already exists is skipped, so the driver can be restarted.
   (iii) the resolution twins of the 50 K pair, with the spacing halved:
         sphere ny = 649, twin ny = 1017, 5,800 days
 
+Two diagnostics beyond the plan, added 2026-11-08 after item (iii) failed:
+the resolution quartet with v_d = 0 (diag_vd0_*), and the sphere at
+ny = 325 and 649 under the vorticity and literal forms of the eddy term
+(form_*), each at Delta_y = 50 K for 5,800 days.
+
 Usage:
     python validation/sphere_validation_runs.py --out-root DIR --dt 30 \
         --dt-fine 8 --jobs 3 [--only LABEL ...] [--list]
@@ -71,6 +76,15 @@ def run_list(dt, dt_fine):
     runs.append(("diag_vd0_twin_ny509", twin(509) + vd0, DAYS, dt))
     runs.append(("diag_vd0_sphere_ny649", sphere(649) + vd0, DAYS, dt_fine))
     runs.append(("diag_vd0_twin_ny1017", twin(1017) + vd0, DAYS, dt_fine))
+    # The sphere half of item (iii)'s resolution pair for the two other
+    # spherical forms of the eddy term (--emfd-form; added 2026-11-08 at
+    # Spencer's request, to separate the polar jet of the angular-momentum
+    # form from the easterly notch all three forms share). The twins are
+    # unchanged: the three forms coincide on the beta plane.
+    for form in ("vorticity", "literal"):
+        fa = ["--delta-y", "50", "--emfd-form", form]
+        runs.append((f"form_{form}_sphere_ny325", sphere(325) + fa, DAYS, dt))
+        runs.append((f"form_{form}_sphere_ny649", sphere(649) + fa, DAYS, dt_fine))
     return runs
 
 
