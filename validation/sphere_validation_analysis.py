@@ -46,6 +46,13 @@ degrees the same quantity is printed separately (the polar cells).
 Item (iv) is not scored here: its criterion needs the next-order term from
 theory and is evaluated in the science project.
 
+Two diagnostics beyond the plan, added 2026-11-08 after item (iii) failed,
+are printed and drawn the same way: item (iii)'s comparison with the eddy
+term off (diag_vd0_*), and items (ii) and (iii) for each of the three
+spherical forms of the eddy term (--emfd-form), each form's sphere pair
+against the same twins. The item (ii) budget evaluates the eddy term in each
+run's own form.
+
 Usage:
     python validation/sphere_validation_analysis.py --run-root DIR --fig-dir DIR
 """
@@ -247,9 +254,17 @@ def budgets(run):
     gate_name = run.attrs.get("vert_advec_gate", "theta")
     gate = (np.heaviside(div, 0.5) if gate_name == "kinematic"
             else np.heaviside(te - th, 0.5))
+    # the eddy term in the run's own form (runs made before the option
+    # existed carry no attribute and used the angular-momentum form)
+    form = run.attrs.get("emfd_form", "angular_momentum")
     with np.errstate(divide="ignore", invalid="ignore"):
-        emfd = -(run.p("v_d") * np.heaviside(u, 0.5) * np.sign(run.y)
-                 * np.gradient(c**2 * u, dy) / c)
+        if form == "vorticity":
+            deriv = np.gradient(c * u, dy)
+        elif form == "literal":
+            deriv = c * np.gradient(u, dy)
+        else:
+            deriv = np.gradient(c**2 * u, dy) / c
+        emfd = -(run.p("v_d") * np.heaviside(u, 0.5) * np.sign(run.y) * deriv)
     emfd[c == 0] = 0.0
     u_terms = {
         "Coriolis": f * v,
@@ -359,6 +374,140 @@ def fig_item_iii(pairs, path):
     plt.close(fig)
 
 
+# --- diagnostic: the three spherical forms of the eddy term -----------------
+
+# (coarse, fine) run labels per form: the angular-momentum form's pair is the
+# plan's item (iii) pair; the others are the form_* runs.
+FORM_RUNS = {
+    "angular_momentum": ("iv_sphere_dy50", "iii_sphere_ny649_dy50"),
+    "vorticity": ("form_vorticity_sphere_ny325", "form_vorticity_sphere_ny649"),
+    "literal": ("form_literal_sphere_ny325", "form_literal_sphere_ny649"),
+}
+FORM_COLORS = {"angular_momentum": "#1f5fa8", "vorticity": "#2e8b57", "literal": "#8e44ad"}
+FORM_LABELS = {"angular_momentum": "angular-momentum form (1/c) d(c$^2$u)/dy",
+               "vorticity": "vorticity form d(c u)/dy",
+               "literal": "literal form c du/dy"}
+
+
+def jet_and_notch(run):
+    """Indices of the northern maximum of u and of the minimum of u poleward
+    of it."""
+    nh = np.where(run.lat > 0)[0]
+    jmax = nh[np.argmax(run.u[nh])]
+    pole = nh[nh > jmax]
+    jmin = pole[np.argmin(run.u[pole])] if pole.size else jmax
+    return jmax, jmin
+
+
+def describe(run):
+    jmax, jmin = jet_and_notch(run)
+    nh = run.lat > 0
+    dth = run.theta - run.theta_e
+    jth = np.where(nh)[0][np.argmin(dth[nh])]
+    last = run.u_all[-1000:][:, nh].max(axis=1)
+    return dict(
+        ny=int(run.y.size), days=int(run.ndays), finite=run.finite,
+        max_u=float(run.u[jmax]), max_u_lat=float(run.lat[jmax]),
+        max_u_cells_from_pole=int(run.y.size - 1 - jmax),
+        min_u_poleward=float(run.u[jmin]), min_u_poleward_lat=float(run.lat[jmin]),
+        min_u_poleward_cells_from_pole=int(run.y.size - 1 - jmin),
+        u_at_30=float(np.interp(30, run.lat, run.u)),
+        max_abs_v=float(np.max(np.abs(run.v))),
+        min_theta_minus_theta_e=float(dth[jth]), min_theta_minus_theta_e_lat=float(run.lat[jth]),
+        last_1000_days_daily_max_u_range=[float(last.min()), float(last.max())],
+        u_range_55_to_78=[float(run.u[(run.lat >= 55) & (run.lat <= 78)].min()),
+                          float(run.u[(run.lat >= 55) & (run.lat <= 78)].max())],
+    )
+
+
+FORM_N = {"literal": 0, "vorticity": 1, "angular_momentum": 2}
+
+
+def eddy_split(run, form, lat_lo=55, lat_hi=70):
+    """With c = cos(lat) and dc/dy = -tan(lat)/a, each form's derivative is
+    c du/dy - n u tan(lat)/a (n = 0 literal, 1 vorticity, 2 angular
+    momentum), so its contribution to du/dt is the poleward advection
+    -v_d H(u) sgn(y) c du/dy plus the westerly acceleration
+    +n v_d H(u) sgn(y) u tan(lat)/a. Returns the rms of each part, of the
+    budget's Coriolis and drag terms, over lat_lo to lat_hi N, and the rate
+    n v_d tan(lat)/a at the two ends."""
+    n, vd = FORM_N[form], run.p("v_d")
+    gate = np.heaviside(run.u, 0.5) * np.sign(run.y)
+    tanl = np.tan(np.deg2rad(run.lat))
+    band = (run.lat >= lat_lo) & (run.lat <= lat_hi)
+    _, terms = budgets(run)
+
+    def rms(t):
+        return float(np.sqrt(np.mean((np.asarray(t) * np.ones_like(run.lat))[band] ** 2)))
+
+    return dict(
+        band=[lat_lo, lat_hi], points=int(band.sum()), n=n,
+        advective=rms(-vd * gate * run.c * np.gradient(run.u, run.dy)),
+        westerly_acceleration=rms(n * vd * gate * run.u * tanl / run.a),
+        eddy_term=rms(terms["eddy momentum flux divergence"]),
+        coriolis=rms(terms["Coriolis"]), drag=rms(terms["drag"]),
+        rate=[n * vd * np.tan(np.deg2rad(x)) / run.a for x in (lat_lo, lat_hi)],
+        drag_rate=run.p("epsilon_u"),
+    )
+
+
+def fig_forms(forms, twin, twin_f, path):
+    fig, axes = plt.subplots(3, 3, figsize=(11, 8.4), constrained_layout=True)
+    series = {f: (c, fi, FORM_COLORS[f]) for f, (c, fi) in forms.items()}
+    series["twin"] = (twin, twin_f, COLORS["twin"])
+    for col, name, unit in ((0, "u", "m s$^{-1}$"), (1, "v", "m s$^{-1}$"), (2, "theta", "K")):
+        for key, (coarse, fine, color) in series.items():
+            x = sx(coarse.lat)
+            a = getattr(coarse, name)
+            axes[0, col].plot(x, a, color=color, lw=1.1)
+            axes[1, col].plot(x, getattr(fine, name)[::2] - a, color=color, lw=0.9)
+        letter = "abc"[col]
+        axes[0, col].text(0.03, 0.95, f"({letter}) {name}, coarse grids", va="top",
+                          transform=axes[0, col].transAxes)
+        axes[1, col].text(0.03, 0.95, f"({'def'[col]}) {name}: fine - coarse", va="top",
+                          transform=axes[1, col].transAxes)
+        axes[0, col].set_ylabel(f"{name} ({unit})")
+        axes[1, col].set_ylabel(f"fine - coarse ({unit})")
+        axes[1, col].axvspan(-1, -sx(40), color="0.93", lw=0)
+        axes[1, col].axvspan(sx(40), 1, color="0.93", lw=0)
+        for row in (0, 1):
+            lat_axis(axes[row, col], 90)
+    # the key sits below the tropical easterlies, where no curve runs
+    key = axes[0, 0]
+    for i, f in enumerate(forms):
+        key.text(0.5, 0.36 - 0.07 * i, FORM_LABELS[f], color=FORM_COLORS[f],
+                 transform=key.transAxes, fontsize=8, va="top", ha="center")
+    key.text(0.5, 0.36 - 0.07 * len(forms), "beta-plane twin", color=COLORS["twin"],
+             transform=key.transAxes, fontsize=8, va="top", ha="center")
+    axes[1, 0].text(0.03, 0.85, "shaded: poleward of 40 degrees", color="0.45",
+                    transform=axes[1, 0].transAxes, fontsize=8, va="top")
+    ticks = (50, 60, 70, 80, 90)
+    for col, f in enumerate(list(forms)[:3]):
+        ax = axes[2, col]
+        coarse, fine = forms[f]
+        for run, ls, label in ((coarse, "-", "ny = 325"), (fine, "--", "ny = 649")):
+            sel = run.lat >= 48
+            ax.plot(sx(run.lat[sel]), run.u[sel], color=FORM_COLORS[f], ls=ls, lw=1.1)
+        ax.axhline(0, color="0.6", lw=0.6)
+        ax.set_xticks(sx(np.array(ticks)))
+        ax.set_xticklabels([str(t) for t in ticks])
+        ax.set_xlim(sx(50), 1.0)
+        ax.set_xlabel("latitude (degrees, spaced by sine)")
+        ax.set_ylabel("u (m s$^{-1}$)")
+        ax.text(0.03, 0.95, f"({'ghi'[col]}) u poleward of 50 N", va="top",
+                transform=ax.transAxes)
+        ax.text(0.03, 0.86, FORM_LABELS[f], color=FORM_COLORS[f], va="top",
+                transform=ax.transAxes, fontsize=8)
+        ax.text(0.03, 0.78, "solid ny = 325, dashed ny = 649", color="0.45", va="top",
+                transform=ax.transAxes, fontsize=8)
+    # headroom above the curves for the panel labels, once every panel is drawn
+    for ax in list(axes[0]) + list(axes[2]):
+        lo, hi = ax.get_ylim()
+        ax.set_ylim(lo, hi + 0.3 * (hi - lo))
+    fig.savefig(path)
+    plt.close(fig)
+
+
 # --- item (iv): inspection only -------------------------------------------
 
 def fig_item_iv(runs, path):
@@ -422,6 +571,14 @@ def main() -> int:
                   f"on the sphere, {rt:.2e} on the twin -> {'PASS' if rs <= rt else 'FAIL'}; "
                   f"poleward of 40 deg {b_s[name]['poleward_of_40']:.2e} and "
                   f"{b_t[name]['poleward_of_40']:.2e}")
+        # Spencer's ruling of 2026-11-08: item (ii) is recorded as passed, with
+        # the residuals above, and the criterion stays as written.
+        small = [b[n]["within_40"] for b in (b_s, b_t) for n in ("v", "theta")]
+        ledger["ii"]["recorded_verdict"] = (
+            "passed (Spencer, 2026-11-08): within 40 degrees the v and theta "
+            f"residuals are {min(small):.1e} to {max(small):.1e} of their largest "
+            "terms on the two models, and the u residuals are those printed")
+        print(f"(ii) recorded verdict: {ledger['ii']['recorded_verdict']}")
         fig_item_ii(sph, twin, terms_s, terms_t,
                     os.path.join(args.fig_dir, "sphere_item_ii_u_budget.pdf"))
 
@@ -461,6 +618,66 @@ def main() -> int:
                   f"{r_s[name]['poleward_of_40']:.2e} and {r_t[name]['poleward_of_40']:.2e}")
         fig_item_iii({"sphere": (d[0], d[1]), "twin": (d[2], d[3])},
                      os.path.join(args.fig_dir, "sphere_diagnostic_vd0_resolution.pdf"))
+
+    # Diagnostic beyond the plan: item (iii)'s resolution comparison and item
+    # (ii)'s budgets for each spherical form of the eddy term, against the
+    # same twins (the three forms coincide on the beta plane).
+    if twin and twin_f:
+        r_t, b_t = resolution(twin, twin_f), budgets(twin)[0]
+        forms, entries = {}, {}
+        for form, (lc, lf) in FORM_RUNS.items():
+            coarse, fine = load(lc), load(lf)
+            if not (coarse and fine):
+                continue
+            for run in (coarse, fine):
+                if run.attrs.get("emfd_form", "angular_momentum") != form:
+                    raise ValueError(f"{run.path} is not a {form} run")
+            forms[form] = (coarse, fine)
+            r_s, b_s = resolution(coarse, fine), budgets(coarse)[0]
+            entries[form] = dict(coarse=describe(coarse), fine=describe(fine),
+                                 resolution=r_s, budgets=b_s,
+                                 eddy_split=eddy_split(coarse, form))
+            e = entries[form]["eddy_split"]
+            print(f"(forms) {form} ny={coarse.y.size}, {e['band'][0]} to {e['band'][1]} N "
+                  f"({e['points']} centers), rms of the u-tendency terms: eddy term "
+                  f"{e['eddy_term']:.2e} = poleward advection {e['advective']:.2e} plus "
+                  f"westerly acceleration {e['westerly_acceleration']:.2e} (n = {e['n']}); "
+                  f"Coriolis {e['coriolis']:.2e}; drag {e['drag']:.2e} m/s^2; acceleration "
+                  f"rate n v_d tan(lat)/a {e['rate'][0]:.1e} to {e['rate'][1]:.1e} 1/s, "
+                  f"{e['rate'][0] / e['drag_rate']:.0f} to {e['rate'][1] / e['drag_rate']:.0f} "
+                  f"times the drag rate")
+            for key in ("coarse", "fine"):
+                e = entries[form][key]
+                print(f"(forms) {form} ny={e['ny']}: {e['days']} days, finite {e['finite']}; "
+                      f"northern max u {e['max_u']:.2f} m/s at {e['max_u_lat']:.2f} deg "
+                      f"({e['max_u_cells_from_pole']} cells from the pole); min u poleward "
+                      f"of it {e['min_u_poleward']:.2f} m/s at "
+                      f"{e['min_u_poleward_lat']:.2f} deg "
+                      f"({e['min_u_poleward_cells_from_pole']} cells); u at 30 deg "
+                      f"{e['u_at_30']:.2f} m/s; max|v| {e['max_abs_v']:.3f} m/s; "
+                      f"min(theta - theta_E) {e['min_theta_minus_theta_e']:.2f} K at "
+                      f"{e['min_theta_minus_theta_e_lat']:.2f} deg; daily northern max u "
+                      f"over the last 1000 days from "
+                      f"{e['last_1000_days_daily_max_u_range'][0]:.3f} to "
+                      f"{e['last_1000_days_daily_max_u_range'][1]:.3f} m/s; u from 55 to "
+                      f"78 N between {e['u_range_55_to_78'][0]:.2f} and "
+                      f"{e['u_range_55_to_78'][1]:.2f} m/s")
+            for name in ("u", "v", "theta"):
+                a, b = r_s[name]["within_40"], r_t[name]["within_40"]
+                print(f"(forms) {form} {name}: max|fine - coarse| within 40 deg / "
+                      f"max|field| = {a:.2e} on the sphere, {b:.2e} on the twin "
+                      f"(ratio {a / b:.2f}) -> {'PASS' if a <= b else 'FAIL'} under item "
+                      f"(iii)'s criterion; poleward of 40 deg {r_s[name]['poleward_of_40']:.2e}")
+            for name in ("u", "v", "theta"):
+                rs, rt = b_s[name]["within_40"], b_t[name]["within_40"]
+                print(f"(forms) {form} {name} budget within 40 deg: residual / largest "
+                      f"term = {rs:.2e} on the sphere, {rt:.2e} on the twin; tendency / "
+                      f"largest term {b_s[name]['tendency_within_40']:.2e}")
+        ledger["diagnostic_emfd_forms"] = dict(twin_resolution=r_t, twin_budgets=b_t,
+                                               forms=entries)
+        if forms:
+            fig_forms(forms, twin, twin_f,
+                      os.path.join(args.fig_dir, "sphere_diagnostic_emfd_forms.pdf"))
 
     runs_iv = {}
     for r in ("12.5", "25", "50"):

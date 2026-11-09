@@ -26,7 +26,7 @@ ny = 325 and 649 under the vorticity and literal forms of the eddy term
 
 Usage:
     python validation/sphere_validation_runs.py --out-root DIR --dt 30 \
-        --dt-fine 8 --jobs 3 [--only LABEL ...] [--list]
+        --dt-fine 15 --jobs 3 [--only LABEL ...] [--list]
 """
 
 import argparse

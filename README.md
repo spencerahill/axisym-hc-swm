@@ -2,7 +2,7 @@
 
 Single layer model based on Sobel and Schneider 2009 and 2013. 
 
-The model runs on an equatorial beta plane by default. `--geometry sphere` runs it on the sphere instead, from pole to pole in the coordinate y = a sin(latitude), with `--radius`, `--rot-rate` and `--lat-0` (the latitude of the forcing's heating maximum); see `SCIENCE.md` §3.7.
+The model runs on an equatorial beta plane by default. `--geometry sphere` runs it on the sphere instead, from pole to pole in the coordinate y = a sin(latitude), with `--radius`, `--rot-rate`, `--lat-0` (the latitude of the forcing's heating maximum) and `--emfd-form` (the spherical form of the eddy momentum flux divergence); see `SCIENCE.md` §3.7.
 
 # Reference
 
